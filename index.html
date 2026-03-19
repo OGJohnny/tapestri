@@ -12,33 +12,77 @@
       <div class="sidebar">
         <h2>My Novel</h2>
 
-        <div class="section">
-          <div class="section-header">
-            <h3>Manuscript</h3>
+        <details open>
+          <summary class="section-header">
+            <span>Manuscript</span>
             <button class="add-btn">+</button>
-          </div>
+          </summary>
           <ul>
-            <li>Chapter 1</li>
-            <li>Chapter 2</li>
+            <li data-type="chapter" data-id="1" class="active">Chapter 1</li>
+            <li data-type="chapter" data-id="2">Chapter 2</li>
             <li class="new-item">New Chapter</li>
           </ul>
-        </div>
+        </details>
 
-        <div class="section">
-          <h3>Characters</h3>
-        </div>
+        <details>
+          <summary class="section-header">
+            <span>Characters</span>
+            <button class="add-btn">+</button>
+          </summary>
+          <ul>
+            <li data-type="character" data-id="1">Protagonist</li>
+            <li data-type="character" data-id="2">Antogonist</li>
+            <li data-type="character" data-id="3">Supporting</li>
+          </ul>
+        </details>
 
-        <div class="section">
-          <h3>Worldbuilding</h3>
-        </div>
+        <details>
+          <summary class="section-header">
+            <span>Worldbuilding</span>
+            <button class="add-btn">+</button>
+          </summary>
+          <ul>
+            <li data-type="worldbuiding" data-id="1">Environment</li>
+            <li data-type="worldbuiding" data-id="2">Society</li>
+            <li data-type="worldbuiding" data-id="3">Politics</li>
+            <li data-type="worldbuiding" data-id="4">Technology</li>
+            <li data-type="worldbuiding" data-id="5">Religion</li>
+            <li data-type="worldbuiding" data-id="6">Lore</li>
+          </ul>
+        </details>
 
-        <div class="section">
-          <h3>Research</h3>
-        </div>
+        <details>
+          <summary class="section-header">
+            <span>Timeline</span>
+            <button class="add-btn">+</button>
+          </summary>
+          <ul>
+            <li data-type="timeline" data-id="1">Character</li>
+            <li data-type="timeline" data-id="2">World</li>
+          </ul>
+        </details>
 
-        <div class="section">
-          <h3>Ideas</h3>
-        </div>
+        <details>
+          <summary class="section-header">
+            <span>Research</span>
+            <button class="add-btn">+</button>
+          </summary>
+          <ul>
+            <li data-type="research" data-id="1">References</li>
+          </ul>
+        </details>
+
+        <details>
+          <summary class="section-header">
+            <span>Ideas</span>
+            <button class="add-btn">+</button>
+          </summary>
+          <ul>
+            <li data-type="ideas" data-id="1">Premise</li>
+            <li data-type="ideas" data-id="2">Theme</li>
+            <li data-type="ideas" data-id="3">Target Audience</li>
+          </ul>
+        </details>
       </div>
 
       <div class="editor">
