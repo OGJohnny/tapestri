@@ -36,8 +36,8 @@ details.active-section summary {
   background: #333;
 }
 
-.section ul {
-  margin-left: 20px;
+details ul {
+  margin-left: 10px;
 }
 
 ul {
@@ -99,4 +99,24 @@ details {
 summary {
   font-weight: bold;
   cursor: pointer;
+}
+
+textarea {
+  width: 100%;
+  height: 90%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 10px;
+  font-family: sans-serif;
+  border-radius: 10px;
+}
+
+#editor-title {
+  width: 100%;
+  padding: 10px;
+  font-size: 18px;
+  border: none;
+  outline: none;
+  border-radius: 10px;
 }
