@@ -1,5 +1,3 @@
-let currentDocumentId = null;
-
 // ======================
 // DATA (APP STATE)
 // ======================
@@ -23,18 +21,50 @@ const documents = {
   },
 };
 
+let currentDocumentId = null;
+
 // ======================
 // ELEMENTS (DOM)
 // ======================
-const sections = document.querySelectorAll("details");
-const addButtons = document.querySelectorAll(".add-btn");
-const items = document.querySelectorAll("li");
 const editorTitle = document.getElementById("editor-title");
 const editorContent = document.getElementById("editor-content");
+
+const items = document.querySelectorAll("li");
+const sections = document.querySelectorAll("details");
+const addButtons = document.querySelectorAll(".add-btn");
 
 // ======================
 // FUNCTIONS
 // ======================
+function loadDocument(id) {
+  const doc = documents[id];
+
+  if (!doc) return;
+
+  editorTitle.value = doc.title;
+  editorContent.value = doc.content;
+}
+
+function saveDocument() {
+  if (!currentDocumentId) return;
+
+  documents[currentDocumentId].title = editorTitle.value;
+  documents[currentDocumentId].content = editorContent.value;
+}
+
+function setActiveItem(clickedItem) {
+  items.forEach((item) => item.classList.remove("active"));
+  clickedItem.classList.add("active");
+}
+
+function handleItemClick(item) {
+  const id = item.dataset.id;
+
+  currentDocumentId = id;
+  loadDocument(id);
+  setActiveItem(item);
+}
+
 function handleSelectionToggle(currentSelection) {
   appState.activeSection = currentSelection;
 
@@ -43,6 +73,37 @@ function handleSelectionToggle(currentSelection) {
       section.removeAttribute("open");
     }
   });
+}
+
+function addNewItem(section) {
+  const ul = section.querySelector("ul");
+  const type = ul.querySelector("li").dataset.type;
+
+  const newId = type + "-" + Date.now();
+
+  documents[newId] = {
+    title: "New " + type,
+    content: "",
+  };
+
+  const newLi = document.createElement("li");
+  newLi.textContent = "New " + type;
+  newLi.dataset.id = newId;
+  newLi.dataset.type = type;
+
+  ul.appendChild(newLi);
+
+  newLi.addEventListener("click", () => {
+    handleItemClick(newLi);
+  });
+
+  handleItemClick(newLi);
+}
+
+function initApp() {
+  if (items.length > 0) {
+    handleItemClick(items[0]);
+  }
 }
 
 function initEventListeners() {
@@ -55,53 +116,28 @@ function initEventListeners() {
   });
 }
 
-function handleItemClick(item) {
-  const id = item.dataset.id;
-
-  currentDocumentId = id;
-  loadDocument(id);
-  setActiveItem(item);
-}
-
-function loadDocument(id) {
-  const doc = documents[id];
-
-  if (!doc) return;
-
-  editorTitle.value = doc.title;
-  editorContent.value = doc.content;
-}
-
-function setActiveItem(clickedItem) {
-  items.forEach((item) => item.classList.remove("active"));
-  clickedItem.classList.add("active");
-}
-
-function initApp() {
-  if (items.length > 0) {
-    handleItemClick(items[0]);
-  }
-}
-
-function saveDocument() {
-  if (!currentDocumentId) return;
-
-  documents[currentDocumentId].title = editorTitle.value;
-  documents[currentDocumentId].content = editorContent.value;
-}
-
 // ======================
 // EVENT LISTENERS
 // ======================
-initEventListeners();
-
 items.forEach((item) => {
   item.addEventListener("click", () => {
     handleItemClick(item);
   });
 });
 
+addButtons.forEach((button) => {
+  button.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const section = button.closest("details");
+    addNewItem(section);
+  });
+});
+
 editorTitle.addEventListener("input", saveDocument);
 editorContent.addEventListener("input", saveDocument);
 
+// ======================
+// Init
+// ======================
+initEventListeners();
 initApp();
