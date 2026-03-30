@@ -1,3 +1,5 @@
+let currentDocumentId = null;
+
 // ======================
 // DATA (APP STATE)
 // ======================
@@ -55,6 +57,8 @@ function initEventListeners() {
 
 function handleItemClick(item) {
   const id = item.dataset.id;
+
+  currentDocumentId = id;
   loadDocument(id);
   setActiveItem(item);
 }
@@ -79,6 +83,13 @@ function initApp() {
   }
 }
 
+function saveDocument() {
+  if (!currentDocumentId) return;
+
+  documents[currentDocumentId].title = editorTitle.value;
+  documents[currentDocumentId].content = editorContent.value;
+}
+
 // ======================
 // EVENT LISTENERS
 // ======================
@@ -89,5 +100,8 @@ items.forEach((item) => {
     handleItemClick(item);
   });
 });
+
+editorTitle.addEventListener("input", saveDocument);
+editorContent.addEventListener("input", saveDocument);
 
 initApp();
