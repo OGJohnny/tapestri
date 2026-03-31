@@ -100,6 +100,43 @@ function addNewItem(section) {
   handleItemClick(newLi);
 }
 
+function renameItem(item) {
+  const newName = prompt("Enter new name:");
+
+  if (!newName) return;
+
+  item.textContent = newName;
+
+  const id = item.dataset.id;
+  documents[id].title = newName;
+
+  if (currentDocumentId === id) {
+    editorTitle.value = newName;
+  }
+}
+
+function deleteItem(item) {
+  const confirmDelete = confirm("Delete this item?");
+
+  if (!confirmDelete) return;
+
+  const id = item.dataset.id;
+
+  delete documents[id];
+
+  const nextItem = item.nextElementSibling || item.previousElementSibling;
+
+  item.remove();
+
+  if (nextItem) {
+    handleItemClick(nextItem);
+  } else {
+    editorTitle.value = "";
+    editorContent.value = "";
+    currentDocumentId = null;
+  }
+}
+
 function initApp() {
   if (items.length > 0) {
     handleItemClick(items[0]);
@@ -122,6 +159,19 @@ function initEventListeners() {
 items.forEach((item) => {
   item.addEventListener("click", () => {
     handleItemClick(item);
+  });
+});
+
+items.forEach((item) => {
+  item.addEventListener("dblclick", () => {
+    renameItem(item);
+  });
+});
+
+items.forEach((item) => {
+  item.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    deleteItem(item);
   });
 });
 
