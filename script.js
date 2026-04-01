@@ -28,6 +28,7 @@ let currentDocumentId = null;
 // ======================
 const editorTitle = document.getElementById("editor-title");
 const editorContent = document.getElementById("editor-content");
+const searchInput = document.getElementById("search-input");
 
 const sections = document.querySelectorAll("details");
 const addButtons = document.querySelectorAll(".add-btn");
@@ -88,6 +89,33 @@ function saveDocument() {
   documents[currentDocumentId].content = editorContent.value;
 
   saveToLocalStorage();
+}
+
+function searchDocuments(query) {
+  query = query.toLowerCase();
+
+  const lists = document.querySelectorAll("ul");
+  lists.forEach((list) => (list.innerHTML = ""));
+
+  for (const id in documents) {
+    const doc = documents[id];
+
+    if (
+      doc.title.toLowerCase().includes(query) ||
+      doc.content.toLowerCase().includes(query)
+    ) {
+      const li = document.createElement("li");
+      li.textContent = doc.title;
+      li.dataset.id = doc.id;
+      li.dataset.type = doc.type;
+
+      const list = document.querySelector(`ul[data-type="${doc.type}"]`);
+      if (list) {
+        list.appendChild(li);
+        attachItemListeners(li);
+      }
+    }
+  }
 }
 
 function getItems() {
@@ -248,6 +276,16 @@ function initEventListeners() {
       const section = button.closest("details");
       addNewItem(section);
     });
+  });
+
+  searchInput.addEventListener("input", () => {
+    const query = searchInput.value;
+
+    if (query === "") {
+      renderSidebar();
+    } else {
+      searchDocuments(query);
+    }
   });
 
   editorTitle.addEventListener("input", saveDocument);

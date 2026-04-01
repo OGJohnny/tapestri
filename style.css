@@ -20,6 +20,18 @@ html {
   overflow-y: auto;
 }
 
+.search-container {
+  margin-bottom: 10px;
+}
+
+#search-input {
+  width: 95%;
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid #aaa;
+  font-size: 14px;
+}
+
 .editor {
   flex: 1;
 }
