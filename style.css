@@ -134,3 +134,24 @@ summary {
   font-weight: bold;
   cursor: pointer;
 }
+
+// Tag Stuff
+.tag-container {
+  margin-bottom: 10px;
+}
+
+#tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.tag {
+  background: #444;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
