@@ -23,6 +23,7 @@ const characterList = document.getElementById("character-list");
 const searchInput = document.getElementById("search-input");
 const projectSelect = document.getElementById("project-select");
 const newProjectBtn = document.getElementById("new-project-btn");
+const exportBtn = document.getElementById("export-btn");
 
 const sections = document.querySelectorAll("details");
 const addButtons = document.querySelectorAll(".add-btn");
@@ -63,7 +64,17 @@ function loadFromLocalStorage() {
       }
     }
 
-    currentProjectId = savedProjectId || Object.keys(projects)[0];
+    const projectIds = Object.keys(projects);
+
+    if (savedProjectId && projects[savedProjectId]) {
+      currentProjectId = savedProjectId;
+    } else {
+      currentProjectId = projectIds[0];
+    }
+
+    if (!currentProjectId) {
+      currentProjectId = Object.keys(projects)[0];
+    }
   } else {
     // 🔥 First project
     const defaultProjectId = "project1";
@@ -98,7 +109,7 @@ function renderSidebar() {
     list.innerHTML = "";
   });
 
-  const docs = projects[currentProjectId].documents;
+  const docs = projects[currentProjectId]?.documents || {};
 
   for (const id in docs) {
     const doc = projects[currentProjectId].documents[id];
@@ -168,10 +179,13 @@ function loadDocument(id) {
   populateCharacterSelect();
   renderCharacterRelationships(doc);
 
+  const appearancesContainer = document.querySelector(".reverse-relationships");
+
   if (doc.type === "character") {
+    appearancesContainer.style.display = "block";
     renderChapterAppearances(id);
   } else {
-    document.getElementById("chapter-appearances").innerHTML = "";
+    appearancesContainer.style.display = "none";
   }
 }
 
@@ -202,6 +216,67 @@ function createNewProject() {
   saveToLocalStorage();
   renderProjectList();
   renderSidebar();
+}
+
+function getCurrentDocs() {
+  if (!projects || !currentProjectId || !projects[currentProjectId]) {
+    return {};
+  }
+
+  return projects[currentProjectId].documents;
+}
+
+function documentToMarkdown(doc) {
+  let md = `## ${doc.title}\n\n`;
+
+  if (doc.tags?.length) {
+    md += `> Tags: ${doc.tags.join(", ")}\n\n`;
+  }
+
+  md += `${doc.content.trim()}\n\n---\n\n`;
+
+  return md;
+}
+
+function projectToMarkdown() {
+  const docs = getCurrentDocs();
+
+  let md = `# ${projects[currentProjectId].name}\n\n`;
+
+  for (const id in docs) {
+    const doc = docs[id];
+
+    if (doc.type === "chapter") {
+      md += documentToMarkdown(doc);
+    }
+  }
+
+  return md;
+}
+
+function downloadFile(filename, content) {
+  const blob = new Blob([content], { type: "text/markdown" });
+
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+function exportCurrentDocument() {
+  if (!currentDocumentId) return;
+
+  const docs = getCurrentDocs();
+  const doc = docs[currentDocumentId];
+
+  if (!doc) return;
+
+  const md = documentToMarkdown(doc);
+
+  downloadFile(`${doc.title}.md`, md);
 }
 
 function addNewItem(section) {
@@ -279,6 +354,14 @@ function deleteItem(item) {
   saveToLocalStorage();
 }
 
+function getChaptersSorted() {
+  const docs = getCurrentDocs();
+
+  return Object.values(docs)
+    .filter((doc) => doc.type === "chapter")
+    .sort((a, b) => a.title.localeCompare(b.title));
+}
+
 function clearEditor() {
   editorTitle.value = "";
   editorContent.value = "";
@@ -293,7 +376,7 @@ function clearEditor() {
 }
 
 function selectFirstDocument() {
-  const docs = projects[currentProjectId].documents;
+  const docs = projects[currentProjectId]?.documents || {};
   const firstId = Object.keys(docs)[0];
 
   if (firstId) {
@@ -330,7 +413,7 @@ function removeTag(tag) {
 function populateCharacterSelect() {
   characterSelect.innerHTML = "";
 
-  const docs = projects[currentProjectId].documents;
+  const docs = projects[currentProjectId]?.documents || {};
 
   for (const id in docs) {
     const doc = projects[currentProjectId].documents[id];
@@ -397,7 +480,7 @@ function removeCharacterFromChapter(charId) {
 function getChaptersForCharacter(characterId) {
   const chapters = [];
 
-  const docs = projects[currentProjectId].documents;
+  const docs = projects[currentProjectId]?.documents || {};
 
   for (const id in docs) {
     const doc = projects[currentProjectId].documents[id];
@@ -457,6 +540,39 @@ function setActiveItem(clickedItem) {
   clickedItem.classList.add("active");
 }
 
+function renameProject() {
+  if (!currentProjectId) return;
+
+  const newName = prompt("Rename project:");
+  if (!newName) return;
+
+  projects[currentProjectId].name = newName;
+
+  saveToLocalStorage();
+  renderProjectList();
+}
+
+function deleteProject() {
+  if (!currentProjectId) return;
+
+  const confirmDelete = confirm(
+    "Are you sure you want to delete this project?",
+  );
+
+  if (!confirmDelete) return;
+
+  delete projects[currentProjectId];
+
+  const remainingIds = Object.keys(projects);
+
+  currentProjectId = remainingIds[0] || null;
+
+  saveToLocalStorage();
+  renderProjectList();
+  renderSidebar();
+  clearEditor();
+}
+
 // INIT
 function initEventListeners() {
   getItems().forEach((item) => {
@@ -511,7 +627,7 @@ function searchDocuments(query) {
   const lists = document.querySelectorAll("ul");
   lists.forEach((list) => (list.innerHTML = ""));
 
-  const docs = projects[currentProjectId].documents;
+  const docs = projects[currentProjectId]?.documents || {};
 
   for (const id in docs) {
     const doc = projects[currentProjectId].documents[id];
@@ -552,6 +668,8 @@ function handleSelectionToggle(currentSelection) {
   });
 }
 
+const chapters = getChaptersSorted();
+
 // ======================
 // EVENT LISTENERS
 // ======================
@@ -582,6 +700,10 @@ addButtons.forEach((button) => {
   });
 });
 
+chapters.forEach((doc) => {
+  md += documentToMarkdown(doc);
+});
+
 editorTitle.addEventListener("input", saveDocument);
 editorContent.addEventListener("input", saveDocument);
 addCharacterBtn.addEventListener("click", addCharacterToChapter);
@@ -598,8 +720,29 @@ projectSelect.addEventListener("change", () => {
   selectFirstDocument(); // 🔥 optional but nice
 });
 
+exportBtn.addEventListener("click", () => {
+  const md = projectToMarkdown();
+  const name = projects[currentProjectId].name || "project";
+
+  downloadFile(`${name}.md`, md);
+});
+
+document
+  .getElementById("rename-project-btn")
+  .addEventListener("click", renameProject);
+
+document
+  .getElementById("delete-project-btn")
+  .addEventListener("click", deleteProject);
+
+document
+  .getElementById("export-doc-btn")
+  .addEventListener("click", exportCurrentDocument);
+
 // ======================
 // Init
 // ======================
 initEventListeners();
 initApp();
+
+document.addEventListener("DOMContentLoaded", initApp);

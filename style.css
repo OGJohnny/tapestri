@@ -58,6 +58,17 @@ html {
   overflow-y: auto;
 }
 
+.editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 5px;
+}
+
 #editor-content {
   flex: 1;
   width: 100%;
@@ -132,6 +143,10 @@ summary {
 
 .reverse-relationships h4 {
   font-size: 13px;
+}
+
+.reverse-relationships {
+  display: none;
 }
 
 /* ======================
@@ -254,6 +269,13 @@ textarea {
   border-radius: 10px;
   border: 2px solid black;
   background: #edede7;
+}
+
+#export-btn,
+#export-doc-btn {
+  margin: 5px;
+  padding: 5px 10px;
+  cursor: pointer;
 }
 
 ul {
