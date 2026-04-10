@@ -1,7 +1,8 @@
 // ======================
 // DATA (APP STATE)
 // ======================
-let documents = {};
+let projects = {};
+let currentProjectId = null;
 let currentDocumentId = null;
 
 const appState = {
@@ -19,10 +20,12 @@ const tagList = document.getElementById("tag-list");
 const characterSelect = document.getElementById("character-select");
 const addCharacterBtn = document.getElementById("add-character-btn");
 const characterList = document.getElementById("character-list");
+const searchInput = document.getElementById("search-input");
+const projectSelect = document.getElementById("project-select");
+const newProjectBtn = document.getElementById("new-project-btn");
 
 const sections = document.querySelectorAll("details");
 const addButtons = document.querySelectorAll(".add-btn");
-const searchInput = document.getElementById("search-input");
 
 // ======================
 // FUNCTIONS
@@ -30,28 +33,58 @@ const searchInput = document.getElementById("search-input");
 
 // DATA
 function saveToLocalStorage() {
-  localStorage.setItem("tapestriDocuments", JSON.stringify(documents));
+  localStorage.setItem("tapestriProjects", JSON.stringify(projects));
+  localStorage.setItem("tapestriCurrentProject", currentProjectId);
 }
 
 function loadFromLocalStorage() {
-  const data = localStorage.getItem("tapestriDocuments");
+  const data = localStorage.getItem("tapestriProjects");
+  const savedProjectId = localStorage.getItem("tapestriCurrentProject");
 
   if (data) {
-    documents = JSON.parse(data);
+    projects = JSON.parse(data);
 
-    for (const id in documents) {
-      const doc = documents[id];
+    // Fix old data
+    for (const pid in projects) {
+      const docs = projects[pid].documents;
 
-      if (!doc.tags) doc.tags = [];
+      for (const id in docs) {
+        const doc = docs[id];
 
-      if (!doc.relationships) {
-        doc.relationships = { characters: [] };
-      }
+        if (!doc.tags) doc.tags = [];
 
-      if (!doc.relationships.characters) {
-        doc.relationships.characters = [];
+        if (!doc.relationships) {
+          doc.relationships = { characters: [] };
+        }
+
+        if (!doc.relationships.characters) {
+          doc.relationships.characters = [];
+        }
       }
     }
+
+    currentProjectId = savedProjectId || Object.keys(projects)[0];
+  } else {
+    // 🔥 First project
+    const defaultProjectId = "project1";
+
+    projects = {
+      [defaultProjectId]: {
+        name: "My First Project",
+        documents: {
+          chapter1: {
+            id: "chapter1",
+            title: "Chapter 1",
+            content: "",
+            type: "chapter",
+            tags: [],
+            relationships: { characters: [] },
+          },
+        },
+      },
+    };
+
+    currentProjectId = defaultProjectId;
 
     saveToLocalStorage();
   }
@@ -65,8 +98,10 @@ function renderSidebar() {
     list.innerHTML = "";
   });
 
-  for (const id in documents) {
-    const doc = documents[id];
+  const docs = projects[currentProjectId].documents;
+
+  for (const id in docs) {
+    const doc = projects[currentProjectId].documents[id];
 
     const li = document.createElement("li");
     li.textContent = doc.title;
@@ -81,6 +116,24 @@ function renderSidebar() {
     }
   }
 }
+
+function renderProjectList() {
+  projectSelect.innerHTML = "";
+
+  for (const pid in projects) {
+    const option = document.createElement("option");
+
+    option.value = pid;
+    option.textContent = projects[pid].name;
+
+    if (pid === currentProjectId) {
+      option.selected = true;
+    }
+
+    projectSelect.appendChild(option);
+  }
+}
+
 function renderTags(doc) {
   tagList.innerHTML = "";
 
@@ -101,7 +154,7 @@ function renderTags(doc) {
 
 // DOCUMENT LOGIC
 function loadDocument(id) {
-  const doc = documents[id];
+  const doc = projects[currentProjectId].documents[id];
 
   if (!doc) return;
 
@@ -125,10 +178,30 @@ function loadDocument(id) {
 function saveDocument() {
   if (!currentDocumentId) return;
 
-  documents[currentDocumentId].title = editorTitle.value;
-  documents[currentDocumentId].content = editorContent.value;
+  projects[currentProjectId].documents[currentDocumentId].title =
+    editorTitle.value;
+  projects[currentProjectId].documents[currentDocumentId].content =
+    editorContent.value;
 
   saveToLocalStorage();
+}
+
+function createNewProject() {
+  const name = prompt("Project name?");
+  if (!name) return;
+
+  const id = "project_" + Date.now();
+
+  projects[id] = {
+    name: name,
+    documents: {},
+  };
+
+  currentProjectId = id;
+
+  saveToLocalStorage();
+  renderProjectList();
+  renderSidebar();
 }
 
 function addNewItem(section) {
@@ -149,7 +222,7 @@ function addNewItem(section) {
 
   ul.appendChild(newLi);
 
-  documents[id] = {
+  projects[currentProjectId].documents[id] = {
     id: id,
     title: newLi.textContent,
     content: "",
@@ -173,7 +246,7 @@ function renameItem(item) {
   item.textContent = newName;
 
   const id = item.dataset.id;
-  documents[id].title = newName;
+  projects[currentProjectId].documents[id].title = newName;
 
   if (currentDocumentId === id) {
     editorTitle.value = newName;
@@ -189,7 +262,7 @@ function deleteItem(item) {
 
   const id = item.dataset.id;
 
-  delete documents[id];
+  delete projects[currentProjectId].documents[id];
 
   const nextItem = item.nextElementSibling || item.previousElementSibling;
 
@@ -206,11 +279,33 @@ function deleteItem(item) {
   saveToLocalStorage();
 }
 
+function clearEditor() {
+  editorTitle.value = "";
+  editorContent.value = "";
+
+  tagList.innerHTML = "";
+  characterList.innerHTML = "";
+
+  const appearances = document.getElementById("chapter-appearances");
+  if (appearances) appearances.innerHTML = "";
+
+  characterSelect.innerHTML = ""; // 🔥 clears dropdown
+}
+
+function selectFirstDocument() {
+  const docs = projects[currentProjectId].documents;
+  const firstId = Object.keys(docs)[0];
+
+  if (firstId) {
+    loadDocument(firstId);
+  }
+}
+
 // TAGS
 function addTag(tag) {
   if (!currentDocumentId) return;
 
-  const doc = documents[currentDocumentId];
+  const doc = projects[currentProjectId].documents[currentDocumentId];
 
   if (!doc.tags.includes(tag)) {
     doc.tags.push(tag);
@@ -223,7 +318,7 @@ function addTag(tag) {
 function removeTag(tag) {
   if (!currentDocumentId) return;
 
-  const doc = documents[currentDocumentId];
+  const doc = projects[currentProjectId].documents[currentDocumentId];
 
   doc.tags = doc.tags.filter((t) => t !== tag);
 
@@ -235,8 +330,10 @@ function removeTag(tag) {
 function populateCharacterSelect() {
   characterSelect.innerHTML = "";
 
-  for (const id in documents) {
-    const doc = documents[id];
+  const docs = projects[currentProjectId].documents;
+
+  for (const id in docs) {
+    const doc = projects[currentProjectId].documents[id];
 
     if (doc.type === "character") {
       const option = document.createElement("option");
@@ -254,7 +351,7 @@ function renderCharacterRelationships(doc) {
   if (!doc.relationships || !doc.relationships.characters) return;
 
   doc.relationships.characters.forEach((charId) => {
-    const charDoc = documents[charId];
+    const charDoc = projects[currentProjectId].documents[charId];
 
     if (!charDoc) return;
 
@@ -272,7 +369,7 @@ function renderCharacterRelationships(doc) {
 function addCharacterToChapter() {
   if (!currentDocumentId) return;
 
-  const doc = documents[currentDocumentId];
+  const doc = projects[currentProjectId].documents[currentDocumentId];
 
   if (doc.type !== "chapter") return;
 
@@ -287,7 +384,7 @@ function addCharacterToChapter() {
 }
 
 function removeCharacterFromChapter(charId) {
-  const doc = documents[currentDocumentId];
+  const doc = projects[currentProjectId].documents[currentDocumentId];
 
   doc.relationships.characters = doc.relationships.characters.filter(
     (id) => id !== charId,
@@ -300,8 +397,10 @@ function removeCharacterFromChapter(charId) {
 function getChaptersForCharacter(characterId) {
   const chapters = [];
 
-  for (const id in documents) {
-    const doc = documents[id];
+  const docs = projects[currentProjectId].documents;
+
+  for (const id in docs) {
+    const doc = projects[currentProjectId].documents[id];
 
     if (doc.type === "chapter") {
       if (
@@ -402,11 +501,8 @@ function initEventListeners() {
 
 function initApp() {
   loadFromLocalStorage();
+  renderProjectList();
   renderSidebar();
-
-  if (getItems().length > 0) {
-    handleItemClick(getItems()[0]);
-  }
 }
 
 function searchDocuments(query) {
@@ -415,8 +511,10 @@ function searchDocuments(query) {
   const lists = document.querySelectorAll("ul");
   lists.forEach((list) => (list.innerHTML = ""));
 
-  for (const id in documents) {
-    const doc = documents[id];
+  const docs = projects[currentProjectId].documents;
+
+  for (const id in docs) {
+    const doc = projects[currentProjectId].documents[id];
 
     if (
       doc.title.toLowerCase().includes(query) ||
@@ -487,6 +585,18 @@ addButtons.forEach((button) => {
 editorTitle.addEventListener("input", saveDocument);
 editorContent.addEventListener("input", saveDocument);
 addCharacterBtn.addEventListener("click", addCharacterToChapter);
+newProjectBtn.addEventListener("click", createNewProject);
+
+projectSelect.addEventListener("change", () => {
+  currentProjectId = projectSelect.value;
+  currentDocumentId = null;
+
+  saveToLocalStorage();
+  renderProjectList();
+  renderSidebar();
+
+  selectFirstDocument(); // 🔥 optional but nice
+});
 
 // ======================
 // Init
