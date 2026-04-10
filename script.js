@@ -16,6 +16,9 @@ const editorTitle = document.getElementById("editor-title");
 const editorContent = document.getElementById("editor-content");
 const tagInput = document.getElementById("tag-input");
 const tagList = document.getElementById("tag-list");
+const characterSelect = document.getElementById("character-select");
+const addCharacterBtn = document.getElementById("add-character-btn");
+const characterList = document.getElementById("character-list");
 
 const sections = document.querySelectorAll("details");
 const addButtons = document.querySelectorAll(".add-btn");
@@ -37,20 +40,18 @@ function loadFromLocalStorage() {
     documents = JSON.parse(data);
 
     for (const id in documents) {
-      if (!documents[id].tags) {
-        documents[id].tags = [];
+      const doc = documents[id];
+
+      if (!doc.tags) doc.tags = [];
+
+      if (!doc.relationships) {
+        doc.relationships = { characters: [] };
+      }
+
+      if (!doc.relationships.characters) {
+        doc.relationships.characters = [];
       }
     }
-  } else {
-    documents = {
-      chapter1: {
-        id: "chapter1",
-        title: "Chapter 1",
-        content: "",
-        type: "chapter",
-        tags: [],
-      },
-    };
 
     saveToLocalStorage();
   }
@@ -110,6 +111,15 @@ function loadDocument(id) {
   editorContent.value = doc.content;
 
   renderTags(doc);
+
+  populateCharacterSelect();
+  renderCharacterRelationships(doc);
+
+  if (doc.type === "character") {
+    renderChapterAppearances(id);
+  } else {
+    document.getElementById("chapter-appearances").innerHTML = "";
+  }
 }
 
 function saveDocument() {
@@ -145,6 +155,9 @@ function addNewItem(section) {
     content: "",
     type: type,
     tags: [],
+    relationships: {
+      characters: [],
+    },
   };
 
   attachItemListeners(newLi);
@@ -216,6 +229,108 @@ function removeTag(tag) {
 
   renderTags(doc);
   saveToLocalStorage();
+}
+
+// CHARACTER
+function populateCharacterSelect() {
+  characterSelect.innerHTML = "";
+
+  for (const id in documents) {
+    const doc = documents[id];
+
+    if (doc.type === "character") {
+      const option = document.createElement("option");
+      option.value = doc.id;
+      option.textContent = doc.title;
+
+      characterSelect.appendChild(option);
+    }
+  }
+}
+
+function renderCharacterRelationships(doc) {
+  characterList.innerHTML = "";
+
+  if (!doc.relationships || !doc.relationships.characters) return;
+
+  doc.relationships.characters.forEach((charId) => {
+    const charDoc = documents[charId];
+
+    if (!charDoc) return;
+
+    const li = document.createElement("li");
+    li.textContent = "👤 " + charDoc.title;
+
+    li.addEventListener("click", () => {
+      removeCharacterFromChapter(charId);
+    });
+
+    characterList.appendChild(li);
+  });
+}
+
+function addCharacterToChapter() {
+  if (!currentDocumentId) return;
+
+  const doc = documents[currentDocumentId];
+
+  if (doc.type !== "chapter") return;
+
+  const charId = characterSelect.value;
+
+  if (!doc.relationships.characters.includes(charId)) {
+    doc.relationships.characters.push(charId);
+  }
+
+  renderCharacterRelationships(doc);
+  saveToLocalStorage();
+}
+
+function removeCharacterFromChapter(charId) {
+  const doc = documents[currentDocumentId];
+
+  doc.relationships.characters = doc.relationships.characters.filter(
+    (id) => id !== charId,
+  );
+
+  renderCharacterRelationships(doc);
+  saveToLocalStorage();
+}
+
+function getChaptersForCharacter(characterId) {
+  const chapters = [];
+
+  for (const id in documents) {
+    const doc = documents[id];
+
+    if (doc.type === "chapter") {
+      if (
+        doc.relationships &&
+        doc.relationships.characters &&
+        doc.relationships.characters.includes(characterId)
+      ) {
+        chapters.push(doc);
+      }
+    }
+  }
+  return chapters;
+}
+
+function renderChapterAppearances(characterId) {
+  const list = document.getElementById("chapter-appearances");
+  list.innerHTML = "";
+
+  const chapters = getChaptersForCharacter(characterId);
+
+  chapters.forEach((chapter) => {
+    const li = document.createElement("li");
+    li.textContent = chapter.title;
+
+    li.addEventListener("click", () => {
+      loadDocument(chapter.id);
+    });
+    list.appendChild(li);
+  });
 }
 
 // HELPERS
@@ -371,6 +486,7 @@ addButtons.forEach((button) => {
 
 editorTitle.addEventListener("input", saveDocument);
 editorContent.addEventListener("input", saveDocument);
+addCharacterBtn.addEventListener("click", addCharacterToChapter);
 
 // ======================
 // Init

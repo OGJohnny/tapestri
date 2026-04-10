@@ -66,14 +66,29 @@
       </div>
 
       <div class="editor">
-        <input type="text" id="editor-title" placeholder="Title..." />
-        <div class="tag-container">
-          <input
-            type="text"
-            id="tag-input"
-            placeholder="Add tag and press Enter"
-          />
-          <div id="tag-list"></div>
+        <div class="editor-top">
+          <input type="text" id="editor-title" placeholder="Title..." />
+
+          <div class="tag-container">
+            <input
+              type="text"
+              id="tag-input"
+              placeholder="Add tag and press Enter"
+            />
+            <div id="tag-list"></div>
+          </div>
+
+          <div class="relationships-container">
+            <h4>Characters in this Chapter</h4>
+            <select id="character-select"></select>
+            <button id="add-character-btn">Add Character</button>
+
+            <ul id="character-list"></ul>
+          </div>
+          <div class="reverse-relationships">
+            <h4>Appears in Chapters</h4>
+            <ul id="chapter-appearances"></ul>
+          </div>
         </div>
         <textarea id="editor-content" placeholder="Start writing..."></textarea>
       </div>
