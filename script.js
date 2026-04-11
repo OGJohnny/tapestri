@@ -4,11 +4,7 @@
 let projects = {};
 let currentProjectId = null;
 let currentDocumentId = null;
-
-const appState = {
-  activeSection: null,
-  activeItemId: null,
-};
+let saveTimeout;
 
 // ======================
 // ELEMENTS (DOM)
@@ -24,19 +20,14 @@ const searchInput = document.getElementById("search-input");
 const projectSelect = document.getElementById("project-select");
 const newProjectBtn = document.getElementById("new-project-btn");
 const exportBtn = document.getElementById("export-btn");
+const exportDocBtn = document.getElementById("export-doc-btn");
 
 const sections = document.querySelectorAll("details");
 const addButtons = document.querySelectorAll(".add-btn");
 
-// ======================
-// FUNCTIONS
-// ======================
-
-// DATA
-function saveToLocalStorage() {
-  localStorage.setItem("tapestriProjects", JSON.stringify(projects));
-  localStorage.setItem("tapestriCurrentProject", currentProjectId);
-}
+// =====================
+// STORAGE
+// =====================
 
 function loadFromLocalStorage() {
   const data = localStorage.getItem("tapestriProjects");
@@ -76,7 +67,6 @@ function loadFromLocalStorage() {
       currentProjectId = Object.keys(projects)[0];
     }
   } else {
-    // 🔥 First project
     const defaultProjectId = "project1";
 
     projects = {
@@ -97,11 +87,65 @@ function loadFromLocalStorage() {
 
     currentProjectId = defaultProjectId;
 
-    saveToLocalStorage();
+    debounceSave();
   }
 }
 
+function saveToLocalStorage() {
+  localStorage.setItem("tapestriProjects", JSON.stringify(projects));
+  localStorage.setItem("tapestriCurrentProject", currentProjectId);
+}
+
+function debounceSave() {
+  clearTimeout(saveTimeout);
+
+  saveTimeout = setTimeout(() => {
+    saveToLocalStorage();
+  }, 300);
+}
+
+// =====================
+// HELPERS
+// =====================
+
+function getCurrentDocs() {
+  if (!projects || !currentProjectId || !projects[currentProjectId]) {
+    return {};
+  }
+
+  return projects[currentProjectId].documents;
+}
+
+function getWordCount(text) {
+  if (!text) return 0;
+
+  return text
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length > 0).length;
+}
+
+// =====================
 // RENDER
+// =====================
+
+function renderProjectList() {
+  projectSelect.innerHTML = "";
+
+  for (const pid in projects) {
+    const option = document.createElement("option");
+
+    option.value = pid;
+    option.textContent = projects[pid].name;
+
+    if (pid === currentProjectId) {
+      option.selected = true;
+    }
+
+    projectSelect.appendChild(option);
+  }
+}
+
 function renderSidebar() {
   const lists = document.querySelectorAll("ul");
 
@@ -128,21 +172,257 @@ function renderSidebar() {
   }
 }
 
-function renderProjectList() {
-  projectSelect.innerHTML = "";
+function loadDocument(id) {
+  const docs = getCurrentDocs();
+  const doc = docs[id];
 
-  for (const pid in projects) {
-    const option = document.createElement("option");
+  if (!doc) return;
 
-    option.value = pid;
-    option.textContent = projects[pid].name;
+  // =====================
+  // STATE
+  // =====================
+  currentDocumentId = id;
 
-    if (pid === currentProjectId) {
-      option.selected = true;
+  // =====================
+  // CONTENT
+  // =====================
+  editorTitle.value = doc.title || "";
+  editorContent.value = doc.content || "";
+
+  // =====================
+  // EMPTY STATE
+  // =====================
+  document.getElementById("empty-state").style.display = "none";
+
+  // =====================
+  // TAGS + RELATIONSHIPS
+  // =====================
+  renderTags(doc);
+  renderCharacterRelationships(id);
+  populateCharacterSelect();
+
+  // =====================
+  // REVERSE RELATIONSHIPS
+  // =====================
+  const appearancesContainer = document.querySelector(".reverse-relationships");
+
+  if (doc.type === "character") {
+    appearancesContainer.style.display = "block";
+    renderChapterAppearances(id);
+  } else {
+    appearancesContainer.style.display = "none";
+  }
+
+  // =====================
+  // ACTIVE SIDEBAR ITEM
+  // =====================
+  document
+    .querySelectorAll("li")
+    .forEach((li) => li.classList.remove("active"));
+
+  const activeItem = document.querySelector(`[data-id="${id}"]`);
+  if (activeItem) activeItem.classList.add("active");
+
+  // =====================
+  // UX POLISH
+  // =====================
+  editorContent.focus();
+  updateWordCount();
+}
+
+function clearEditor() {
+  editorTitle.value = "";
+  editorContent.value = "";
+
+  tagList.innerHTML = "";
+  characterList.innerHTML = "";
+
+  const appearances = document.getElementById("chapter-appearances");
+  if (appearances) appearances.innerHTML = "";
+
+  characterSelect.innerHTML = "";
+  document.getElementById("empty-state").style.display = "block";
+}
+
+// =====================
+// FEATURES
+// =====================
+
+function exportCurrentDocument() {
+  if (!currentDocumentId) return;
+
+  const confirmExport = confirm("Export this document?");
+  if (!confirmExport) return;
+
+  const docs = getCurrentDocs();
+  const doc = docs[currentDocumentId];
+
+  if (!doc) return;
+
+  const md = documentToMarkdown(doc);
+
+  downloadFile(`${doc.title}.md`, md);
+}
+
+function projectToMarkdown() {
+  const docs = getCurrentDocs();
+
+  let md = `# ${projects[currentProjectId].name}\n\n`;
+
+  for (const id in docs) {
+    const doc = docs[id];
+
+    if (doc.type === "chapter") {
+      md += documentToMarkdown(doc);
+    }
+  }
+
+  return md;
+}
+
+// =====================
+// EVENTS
+// =====================
+
+function initEventListeners() {
+  getItems().forEach((item) => {
+    attachItemListeners(item);
+  });
+
+  addButtons.forEach((button) => {
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const section = button.closest("details");
+      addNewItem(section);
+    });
+  });
+
+  searchInput.addEventListener("input", () => {
+    const query = searchInput.value;
+
+    if (query === "") {
+      renderSidebar();
+    } else {
+      searchDocuments(query);
+    }
+  });
+
+  tagInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+
+      const tag = tagInput.value.trim();
+
+      if (tag) {
+        addTag(tag);
+        tagInput.value = "";
+      }
+    }
+  });
+
+  getItems().forEach((item) => {
+    item.addEventListener("click", () => {
+      handleItemClick(item);
+    });
+  });
+
+  getItems().forEach((item) => {
+    item.addEventListener("dblclick", () => {
+      renameItem(item);
+    });
+  });
+
+  getItems().forEach((item) => {
+    item.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      deleteItem(item);
+    });
+  });
+
+  addButtons.forEach((button) => {
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const section = button.closest("details");
+    });
+  });
+
+  editorTitle.addEventListener("input", saveDocument);
+  addCharacterBtn.addEventListener("click", addCharacterToChapter);
+  newProjectBtn.addEventListener("click", createNewProject);
+
+  projectSelect.addEventListener("change", () => {
+    currentProjectId = projectSelect.value;
+    currentDocumentId = null;
+
+    debounceSave();
+    renderProjectList();
+    renderSidebar();
+
+    selectFirstDocument();
+  });
+
+  exportBtn.addEventListener("click", () => {
+    const confirmExport = confirm("Export entire project?");
+    if (!confirmExport) return;
+
+    const md = projectToMarkdown();
+    const name = projects[currentProjectId].name || "project";
+
+    downloadFile(`${name}.md`, md);
+  });
+
+  exportDocBtn.addEventListener("click", exportCurrentDocument);
+
+  document
+    .getElementById("rename-project-btn")
+    .addEventListener("click", renameProject);
+
+  document
+    .getElementById("delete-project-btn")
+    .addEventListener("click", deleteProject);
+
+  document
+    .getElementById("export-doc-btn")
+    .addEventListener("click", exportCurrentDocument);
+
+  editorContent.addEventListener("input", () => {
+    let doc = getCurrentDocs()[currentDocumentId];
+
+    // 🔥 FIX
+    if (!doc) {
+      const docs = getCurrentDocs();
+
+      const firstId = Object.keys(docs)[0];
+
+      if (firstId) {
+        loadDocument(firstId);
+        doc = docs[firstId];
+      } else {
+        return;
+      }
     }
 
-    projectSelect.appendChild(option);
-  }
+    doc.content = editorContent.value;
+
+    debounceSave();
+    updateWordCount();
+  });
+
+  editorTitle.addEventListener("input", saveDocument);
+  editorContent.addEventListener("input", saveDocument);
+}
+
+// =====================
+// INIT
+// =====================
+
+function initApp() {
+  loadFromLocalStorage();
+  renderProjectList();
+  renderSidebar();
+  selectFirstDocument();
 }
 
 function renderTags(doc) {
@@ -163,30 +443,14 @@ function renderTags(doc) {
   });
 }
 
-// DOCUMENT LOGIC
-function loadDocument(id) {
-  const doc = projects[currentProjectId].documents[id];
+function updateWordCount() {
+  const text = editorContent.value;
 
-  if (!doc) return;
+  const words = getWordCount(text);
+  const chars = text.length;
 
-  currentDocumentId = id;
-
-  editorTitle.value = doc.title;
-  editorContent.value = doc.content;
-
-  renderTags(doc);
-
-  populateCharacterSelect();
-  renderCharacterRelationships(doc);
-
-  const appearancesContainer = document.querySelector(".reverse-relationships");
-
-  if (doc.type === "character") {
-    appearancesContainer.style.display = "block";
-    renderChapterAppearances(id);
-  } else {
-    appearancesContainer.style.display = "none";
-  }
+  document.getElementById("word-count").textContent =
+    `Words: ${words} | Characters: ${chars}`;
 }
 
 function saveDocument() {
@@ -197,7 +461,7 @@ function saveDocument() {
   projects[currentProjectId].documents[currentDocumentId].content =
     editorContent.value;
 
-  saveToLocalStorage();
+  debounceSave();
 }
 
 function createNewProject() {
@@ -213,17 +477,9 @@ function createNewProject() {
 
   currentProjectId = id;
 
-  saveToLocalStorage();
+  debounceSave();
   renderProjectList();
   renderSidebar();
-}
-
-function getCurrentDocs() {
-  if (!projects || !currentProjectId || !projects[currentProjectId]) {
-    return {};
-  }
-
-  return projects[currentProjectId].documents;
 }
 
 function documentToMarkdown(doc) {
@@ -238,22 +494,6 @@ function documentToMarkdown(doc) {
   return md;
 }
 
-function projectToMarkdown() {
-  const docs = getCurrentDocs();
-
-  let md = `# ${projects[currentProjectId].name}\n\n`;
-
-  for (const id in docs) {
-    const doc = docs[id];
-
-    if (doc.type === "chapter") {
-      md += documentToMarkdown(doc);
-    }
-  }
-
-  return md;
-}
-
 function downloadFile(filename, content) {
   const blob = new Blob([content], { type: "text/markdown" });
 
@@ -264,19 +504,6 @@ function downloadFile(filename, content) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-}
-
-function exportCurrentDocument() {
-  if (!currentDocumentId) return;
-
-  const docs = getCurrentDocs();
-  const doc = docs[currentDocumentId];
-
-  if (!doc) return;
-
-  const md = documentToMarkdown(doc);
-
-  downloadFile(`${doc.title}.md`, md);
 }
 
 function addNewItem(section) {
@@ -310,7 +537,7 @@ function addNewItem(section) {
 
   attachItemListeners(newLi);
   handleItemClick(newLi);
-  saveToLocalStorage();
+  debounceSave();
 }
 
 function renameItem(item) {
@@ -327,7 +554,7 @@ function renameItem(item) {
     editorTitle.value = newName;
   }
 
-  saveToLocalStorage();
+  debounceSave();
 }
 
 function deleteItem(item) {
@@ -351,7 +578,7 @@ function deleteItem(item) {
     currentDocumentId = null;
   }
 
-  saveToLocalStorage();
+  debounceSave();
 }
 
 function getChaptersSorted() {
@@ -360,19 +587,6 @@ function getChaptersSorted() {
   return Object.values(docs)
     .filter((doc) => doc.type === "chapter")
     .sort((a, b) => a.title.localeCompare(b.title));
-}
-
-function clearEditor() {
-  editorTitle.value = "";
-  editorContent.value = "";
-
-  tagList.innerHTML = "";
-  characterList.innerHTML = "";
-
-  const appearances = document.getElementById("chapter-appearances");
-  if (appearances) appearances.innerHTML = "";
-
-  characterSelect.innerHTML = ""; // 🔥 clears dropdown
 }
 
 function selectFirstDocument() {
@@ -395,7 +609,7 @@ function addTag(tag) {
   }
 
   renderTags(doc);
-  saveToLocalStorage();
+  debounceSave();
 }
 
 function removeTag(tag) {
@@ -406,7 +620,7 @@ function removeTag(tag) {
   doc.tags = doc.tags.filter((t) => t !== tag);
 
   renderTags(doc);
-  saveToLocalStorage();
+  debounceSave();
 }
 
 // CHARACTER
@@ -428,14 +642,17 @@ function populateCharacterSelect() {
   }
 }
 
-function renderCharacterRelationships(doc) {
+function renderCharacterRelationships(id) {
+  const docs = getCurrentDocs();
+  const doc = docs[id];
+
+  const characterList = document.getElementById("character-list");
   characterList.innerHTML = "";
 
-  if (!doc.relationships || !doc.relationships.characters) return;
+  if (!doc || !doc.relationships || !doc.relationships.characters) return;
 
   doc.relationships.characters.forEach((charId) => {
-    const charDoc = projects[currentProjectId].documents[charId];
-
+    const charDoc = docs[charId];
     if (!charDoc) return;
 
     const li = document.createElement("li");
@@ -457,13 +674,14 @@ function addCharacterToChapter() {
   if (doc.type !== "chapter") return;
 
   const charId = characterSelect.value;
+  if (!charId) return;
 
   if (!doc.relationships.characters.includes(charId)) {
     doc.relationships.characters.push(charId);
   }
 
-  renderCharacterRelationships(doc);
-  saveToLocalStorage();
+  renderCharacterRelationships(currentDocumentId);
+  debounceSave();
 }
 
 function removeCharacterFromChapter(charId) {
@@ -473,8 +691,8 @@ function removeCharacterFromChapter(charId) {
     (id) => id !== charId,
   );
 
-  renderCharacterRelationships(doc);
-  saveToLocalStorage();
+  renderCharacterRelationships(currentDocumentId);
+  debounceSave();
 }
 
 function getChaptersForCharacter(characterId) {
@@ -548,7 +766,7 @@ function renameProject() {
 
   projects[currentProjectId].name = newName;
 
-  saveToLocalStorage();
+  debounceSave();
   renderProjectList();
 }
 
@@ -567,58 +785,10 @@ function deleteProject() {
 
   currentProjectId = remainingIds[0] || null;
 
-  saveToLocalStorage();
+  debounceSave();
   renderProjectList();
   renderSidebar();
   clearEditor();
-}
-
-// INIT
-function initEventListeners() {
-  getItems().forEach((item) => {
-    attachItemListeners(item);
-  });
-
-  addButtons.forEach((button) => {
-    button.addEventListener("click", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      const section = button.closest("details");
-      addNewItem(section);
-    });
-  });
-
-  searchInput.addEventListener("input", () => {
-    const query = searchInput.value;
-
-    if (query === "") {
-      renderSidebar();
-    } else {
-      searchDocuments(query);
-    }
-  });
-
-  tagInput.addEventListener("keypress", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-
-      const tag = tagInput.value.trim();
-
-      if (tag) {
-        addTag(tag);
-        tagInput.value = "";
-      }
-    }
-  });
-
-  editorTitle.addEventListener("input", saveDocument);
-  editorContent.addEventListener("input", saveDocument);
-}
-
-function initApp() {
-  loadFromLocalStorage();
-  renderProjectList();
-  renderSidebar();
 }
 
 function searchDocuments(query) {
@@ -658,91 +828,14 @@ function handleItemClick(item) {
   setActiveItem(item);
 }
 
-function handleSelectionToggle(currentSelection) {
-  appState.activeSection = currentSelection;
-
-  sections.forEach((section) => {
-    if (section !== currentSelection) {
-      section.removeAttribute("open");
-    }
-  });
-}
-
-const chapters = getChaptersSorted();
-
 // ======================
 // EVENT LISTENERS
 // ======================
-getItems().forEach((item) => {
-  item.addEventListener("click", () => {
-    handleItemClick(item);
-  });
-});
-
-getItems().forEach((item) => {
-  item.addEventListener("dblclick", () => {
-    renameItem(item);
-  });
-});
-
-getItems().forEach((item) => {
-  item.addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    deleteItem(item);
-  });
-});
-
-addButtons.forEach((button) => {
-  button.addEventListener("click", (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    const section = button.closest("details");
-  });
-});
-
-chapters.forEach((doc) => {
-  md += documentToMarkdown(doc);
-});
-
-editorTitle.addEventListener("input", saveDocument);
-editorContent.addEventListener("input", saveDocument);
-addCharacterBtn.addEventListener("click", addCharacterToChapter);
-newProjectBtn.addEventListener("click", createNewProject);
-
-projectSelect.addEventListener("change", () => {
-  currentProjectId = projectSelect.value;
-  currentDocumentId = null;
-
-  saveToLocalStorage();
-  renderProjectList();
-  renderSidebar();
-
-  selectFirstDocument(); // 🔥 optional but nice
-});
-
-exportBtn.addEventListener("click", () => {
-  const md = projectToMarkdown();
-  const name = projects[currentProjectId].name || "project";
-
-  downloadFile(`${name}.md`, md);
-});
-
-document
-  .getElementById("rename-project-btn")
-  .addEventListener("click", renameProject);
-
-document
-  .getElementById("delete-project-btn")
-  .addEventListener("click", deleteProject);
-
-document
-  .getElementById("export-doc-btn")
-  .addEventListener("click", exportCurrentDocument);
 
 // ======================
 // Init
 // ======================
-initEventListeners();
-initApp();
-
-document.addEventListener("DOMContentLoaded", initApp);
+document.addEventListener("DOMContentLoaded", () => {
+  initApp();
+  initEventListeners();
+});

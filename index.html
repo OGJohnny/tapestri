@@ -14,9 +14,9 @@
         <div class="project-bar">
           <select id="project-select"></select>
           <button id="new-project-btn">+</button>
+          <button id="rename-project-btn">✏️</button>
+          <button id="delete-project-btn">🗑</button>
         </div>
-        <button id="rename-project-btn">Rename</button>
-        <button id="delete-project-btn">Delete</button>
 
         <div class="search-container">
           <input type="text" id="search-input" placeholder="Search..." />
@@ -72,6 +72,7 @@
       </div>
 
       <div class="editor">
+        <div id="empty-state">Select or create a document</div>
         <div class="editor-top">
           <div class="editor-header">
             <input type="text" id="editor-title" placeholder="Title..." />
@@ -81,28 +82,35 @@
             </div>
           </div>
 
-          <div class="tag-container">
-            <input
-              type="text"
-              id="tag-input"
-              placeholder="Add tag and press Enter"
-            />
-            <div id="tag-list"></div>
+          <div class="meta-row">
+            <div class="tag-container meta-block tags-block">
+              <input
+                type="text"
+                id="tag-input"
+                placeholder="Add tag and press Enter"
+              />
+              <div id="tag-list"></div>
+            </div>
+
+            <div class="relationships-container meta-block characters-block">
+              <h4>Characters in this Chapter</h4>
+              <div class="character-controls">
+                <select id="character-select"></select>
+                <button id="add-character-btn">Add Character</button>
+              </div>
+              <ul id="character-list"></ul>
+            </div>
           </div>
 
-          <div class="relationships-container">
-            <h4>Characters in this Chapter</h4>
-            <select id="character-select"></select>
-            <button id="add-character-btn">Add Character</button>
-
-            <ul id="character-list"></ul>
-          </div>
           <div class="reverse-relationships">
             <h4>Appears in Chapters</h4>
             <ul id="chapter-appearances"></ul>
           </div>
         </div>
         <textarea id="editor-content" placeholder="Start writing..."></textarea>
+        <div class="editor-footer">
+          <div id="word-count">Words: 0</div>
+        </div>
       </div>
     </div>
   </body>

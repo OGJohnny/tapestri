@@ -2,14 +2,14 @@
    BASE / RESET
 ====================== */
 
+* {
+  box-sizing: border-box;
+}
+
 body,
 html {
   height: 100%;
   margin: 2px;
-}
-
-* {
-  box-sizing: border-box;
 }
 
 /* ======================
@@ -21,27 +21,18 @@ html {
   height: 100vh;
 }
 
-.project-bar {
-  display: flex;
-  gap: 5px;
-  margin-bottom: 10px;
-}
-
-#project-select {
-  flex: 1;
-}
-
 .sidebar {
   width: 250px;
+  height: 100vh;
   padding: 10px;
   border: 2px solid black;
   border-radius: 10px;
-
   height: 100%;
   overflow-y: auto;
   color: black;
   font-family: sans-serif;
   margin-right: 3px;
+  margin-bottom: 2px;
 }
 
 .editor {
@@ -52,10 +43,21 @@ html {
   overflow: hidden;
 }
 
-.editor-top {
-  flex-shrink: 0;
-  max-height: 200px;
-  overflow-y: auto;
+#empty-state {
+  text-align: center;
+  margin-top: 20px;
+  color: #888;
+}
+
+/* ======================
+   HEADER / STRUCTURE
+====================== */
+
+.project-bar {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  margin-bottom: 5px;
 }
 
 .editor-header {
@@ -64,15 +66,123 @@ html {
   align-items: center;
 }
 
+.editor-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .editor-actions {
   display: flex;
   gap: 5px;
 }
 
+/* ======================
+   META / TAG SYSTEM
+====================== */
+
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.meta-block {
+  flex: 1 1 200px; /* grows but wraps */
+  min-width: 200px;
+}
+
+.tag-container {
+  margin-bottom: 10px;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+.relationships-container {
+  margin-top: 5px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.reverse-relationships {
+  display: none;
+}
+
+/* ======================
+   LISTS / SIDEBAR
+====================== */
+
+details {
+  margin-bottom: 10px;
+}
+
+summary {
+  font-weight: bold;
+  cursor: pointer;
+}
+
+ul {
+  padding-left: 20px;
+}
+
+li {
+  padding: 6px 8px;
+}
+
+/* ======================
+   TAGS / PILLS
+====================== */
+
+#tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.tag {
+  background: #444;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#character-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-left: 0;
+  margin: 5px 0;
+  align-items: flex-start;
+}
+
+#chapter-appearances {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-left: 0;
+  margin-top: 5px;
+}
+
+/* ======================
+   INPUTS / EDITOR
+====================== */
+
+#editor-title {
+  width: 100%;
+  padding: 10px;
+  font-size: 18px;
+  border: none;
+  outline: none;
+  border-radius: 10px;
+  border: 2px solid black;
+  background: #edede7;
+}
+
 #editor-content {
   flex: 1;
   width: 100%;
-
   border: none;
   outline: none;
   resize: none;
@@ -81,13 +191,104 @@ html {
   border-radius: 10px;
   border: 2px solid black;
   background: #edede7;
-
   overflow-y: auto;
+}
+
+textarea {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 10px;
+  font-family: sans-serif;
+  border-radius: 10px;
+  border: 2px solid black;
+  background: #edede7;
+  margin-top: 5px;
+}
+
+/* ======================
+   BUTTONS
+====================== */
+
+button {
+  height: 28px;
+  min-width: 28px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid #aaa;
+  background: #f5f5f5;
+  cursor: pointer;
+}
+
+.add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  font-weight: 300;
+  color: rgb(47, 47, 47);
+  background: #dfdede;
+  border: 1px solid #a7a7a7;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+/* ======================
+   STATES
+====================== */
+
+.project-bar button {
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+#project-select {
+  flex: 1;
+}
+
+.editor-top {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.editor.fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: white;
+  z-index: 1000;
 }
 
 /* ======================
    COMPONENTS
 ====================== */
+
+button:hover {
+  background: #ddd;
+}
+
+.project-bar button,
+.section-header button {
+  width: 28px;
+  padding: 0;
+}
+
+#word-count {
+  font-size: 12px;
+  margin-top: 5px;
+  color: #555;
+}
 
 .search-container {
   margin-bottom: 10px;
@@ -107,10 +308,6 @@ html {
   align-items: center;
 }
 
-details {
-  margin-bottom: 10px;
-}
-
 details ul {
   margin-left: 10px;
 }
@@ -119,21 +316,17 @@ details.active-section summary {
   background: #333;
 }
 
-summary {
-  font-weight: bold;
-  cursor: pointer;
+#tag-list,
+#character-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
-.tag-container {
-  margin-bottom: 10px;
-  max-height: 80px;
-  overflow-y: auto;
-}
-
-.relationships-container {
-  margin-top: 5px;
-  max-height: 120px;
-  overflow-y: auto;
+.character-controls {
+  display: flex;
+  gap: 5px;
+  align-items: center;
 }
 
 .relationships-container h4 {
@@ -143,10 +336,6 @@ summary {
 
 .reverse-relationships h4 {
   font-size: 13px;
-}
-
-.reverse-relationships {
-  display: none;
 }
 
 /* ======================
@@ -167,15 +356,6 @@ h3 {
   font-style: italic;
 }
 
-#character-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  padding-left: 0;
-  margin: 5px 0;
-  align-items: flex-start;
-}
-
 #character-list li {
   list-style: none;
   display: inline-flex; /* 🔥 THIS fixes the width issue */
@@ -192,14 +372,6 @@ h3 {
 
 #character-list li:hover {
   background: #3d566e;
-}
-
-#chapter-appearances {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  padding-left: 0;
-  margin-top: 5px;
 }
 
 #chapter-appearances li {
@@ -222,22 +394,6 @@ h3 {
    TAGS
 ====================== */
 
-#tag-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 5px;
-}
-
-.tag {
-  background: #444;
-  color: white;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
 .tag:hover {
   background: #666;
 }
@@ -246,44 +402,11 @@ h3 {
    ELEMENTS
 ====================== */
 
-textarea {
-  flex: 1;
-  width: 100%;
-  border: none;
-  outline: none;
-  resize: none;
-  padding: 10px;
-  font-family: sans-serif;
-  border-radius: 10px;
-  border: 2px solid black;
-  background: #edede7;
-  margin-top: 5px;
-}
-
-#editor-title {
-  width: 100%;
-  padding: 10px;
-  font-size: 18px;
-  border: none;
-  outline: none;
-  border-radius: 10px;
-  border: 2px solid black;
-  background: #edede7;
-}
-
 #export-btn,
 #export-doc-btn {
   margin: 5px;
   padding: 5px 10px;
   cursor: pointer;
-}
-
-ul {
-  padding-left: 20px;
-}
-
-li {
-  padding: 6px 8px;
 }
 
 /* ======================
@@ -296,24 +419,8 @@ li:hover {
 }
 
 li.active {
-  background: #9b9b9b;
+  background: #ddd;
   border-radius: 4px;
-}
-
-.add-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  font-size: 18px;
-  font-weight: 300;
-  color: rgb(47, 47, 47);
-  background: #dfdede;
-  border: 1px solid #a7a7a7;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s ease;
 }
 
 .add-btn:hover {
