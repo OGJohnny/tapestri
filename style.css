@@ -274,6 +274,17 @@ button {
    COMPONENTS
 ====================== */
 
+.format-toolbar {
+  display: flex;
+  gap: 5px;
+  padding: 5px 0;
+}
+
+.format-toolbar button {
+  padding: 4px 8px;
+  font-size: 14px;
+}
+
 button:hover {
   background: #ddd;
 }
@@ -358,10 +369,10 @@ h3 {
 
 #character-list li {
   list-style: none;
-  display: inline-flex; /* 🔥 THIS fixes the width issue */
+  display: inline-flex;
   align-items: center;
-  width: auto; /* 🔥 prevent full width */
-  flex: 0 0 auto; /* 🔥 stops flex stretching */
+  width: auto;
+  flex: 0 0 auto;
   background: #2c3e50;
   color: white;
   padding: 4px 8px;
@@ -378,7 +389,7 @@ h3 {
   list-style: none;
   display: inline-flex;
   flex: 0 0 auto;
-  background: #6c5ce7; /* different color = different meaning */
+  background: #6c5ce7;
   color: white;
   padding: 4px 8px;
   border-radius: 6px;

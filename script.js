@@ -36,7 +36,6 @@ function loadFromLocalStorage() {
   if (data) {
     projects = JSON.parse(data);
 
-    // Fix old data
     for (const pid in projects) {
       const docs = projects[pid].documents;
 
@@ -178,32 +177,17 @@ function loadDocument(id) {
 
   if (!doc) return;
 
-  // =====================
-  // STATE
-  // =====================
   currentDocumentId = id;
 
-  // =====================
-  // CONTENT
-  // =====================
   editorTitle.value = doc.title || "";
   editorContent.value = doc.content || "";
 
-  // =====================
-  // EMPTY STATE
-  // =====================
   document.getElementById("empty-state").style.display = "none";
 
-  // =====================
-  // TAGS + RELATIONSHIPS
-  // =====================
   renderTags(doc);
   renderCharacterRelationships(id);
   populateCharacterSelect();
 
-  // =====================
-  // REVERSE RELATIONSHIPS
-  // =====================
   const appearancesContainer = document.querySelector(".reverse-relationships");
 
   if (doc.type === "character") {
@@ -213,9 +197,6 @@ function loadDocument(id) {
     appearancesContainer.style.display = "none";
   }
 
-  // =====================
-  // ACTIVE SIDEBAR ITEM
-  // =====================
   document
     .querySelectorAll("li")
     .forEach((li) => li.classList.remove("active"));
@@ -223,9 +204,6 @@ function loadDocument(id) {
   const activeItem = document.querySelector(`[data-id="${id}"]`);
   if (activeItem) activeItem.classList.add("active");
 
-  // =====================
-  // UX POLISH
-  // =====================
   editorContent.focus();
   updateWordCount();
 }
@@ -390,7 +368,6 @@ function initEventListeners() {
   editorContent.addEventListener("input", () => {
     let doc = getCurrentDocs()[currentDocumentId];
 
-    // 🔥 FIX
     if (!doc) {
       const docs = getCurrentDocs();
 
@@ -408,6 +385,69 @@ function initEventListeners() {
 
     debounceSave();
     updateWordCount();
+  });
+
+  editorContent.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+
+      const textarea = editorContent;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+
+      const value = textarea.value;
+
+      const before = value.substring(0, start);
+      const selection = value.substring(start, end);
+      const after = value.substring(end);
+
+      const tab = "  ";
+
+      // MULTI-LINE INDENT
+      if (selection.includes("\n")) {
+        const indented = selection
+          .split("\n")
+          .map((line) => tab + line)
+          .join("\n");
+
+        textarea.value = before + indented + after;
+
+        textarea.selectionStart = start;
+        textarea.selectionEnd = start + indented.length;
+      } else {
+        // SINGLE LINE
+        textarea.value = before + tab + after;
+        textarea.selectionStart = textarea.selectionEnd = start + tab.length;
+      }
+
+      saveDocument();
+    }
+  });
+
+  document.querySelectorAll(".format-toolbar button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const type = btn.dataset.format;
+      formatText(type);
+    });
+  });
+
+  editorContent.addEventListener("keydown", (e) => {
+    if (!e.ctrlKey) return;
+
+    switch (e.key.toLowerCase()) {
+      case "b":
+        e.preventDefault();
+        formatText("bold");
+        break;
+      case "i":
+        e.preventDefault();
+        formatText("italic");
+        break;
+      case "u":
+        e.preventDefault();
+        formatText("underline");
+        break;
+    }
   });
 
   editorTitle.addEventListener("input", saveDocument);
@@ -596,6 +636,58 @@ function selectFirstDocument() {
   if (firstId) {
     loadDocument(firstId);
   }
+}
+
+function formatText(type) {
+  const textarea = editorContent;
+
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+
+  const selectedText = textarea.value.substring(start, end);
+
+  if (!selectedText) {
+    const insert =
+      type === "bold" ? "****" : type === "italic" ? "**" : "<u></u>";
+
+    const before = textarea.value.substring(0, start);
+    const after = textarea.value.substring(start);
+
+    textarea.value = before + insert + after;
+
+    textarea.selectionStart = start + Math.floor(insert.length / 2);
+    textarea.selectionEnd = textarea.selectionStart;
+
+    textarea.focus();
+    return;
+  }
+
+  let formatted = "";
+
+  switch (type) {
+    case "bold":
+      formatted = `**${selectedText}**`;
+      break;
+    case "italic":
+      formatted = `*${selectedText}*`;
+      break;
+    case "underline":
+      formatted = `<u>${selectedText}</u>`;
+      break;
+  }
+
+  const before = textarea.value.substring(0, start);
+  const after = textarea.value.substring(end);
+
+  textarea.value = before + formatted + after;
+
+  // Restore selection
+  textarea.focus();
+  textarea.selectionStart = start;
+  textarea.selectionEnd = start + formatted.length;
+
+  // Save + update
+  saveDocument();
 }
 
 // TAGS
@@ -827,10 +919,6 @@ function handleItemClick(item) {
   loadDocument(id);
   setActiveItem(item);
 }
-
-// ======================
-// EVENT LISTENERS
-// ======================
 
 // ======================
 // Init
