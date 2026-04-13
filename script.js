@@ -7,6 +7,8 @@ let historyIndex = -1;
 let currentProjectId = null;
 let currentDocumentId = null;
 let saveTimeout;
+let isFocusMode = false;
+let isPreviewMode = false;
 
 // ======================
 // ELEMENTS (DOM)
@@ -30,6 +32,17 @@ const addButtons = document.querySelectorAll(".add-btn");
 // =====================
 // STORAGE
 // =====================
+
+function savePreviewMode() {
+  localStorage.setItem("tapestri_preview_mode", JSON.stringify(isPreviewMode));
+}
+
+function loadPreviewMode() {
+  const saved = localStorage.getItem("tapestri_preview_mode");
+  if (saved !== null) {
+    isPreviewMode = JSON.parse(saved);
+  }
+}
 
 function loadFromLocalStorage() {
   const data = localStorage.getItem("tapestriProjects");
@@ -103,6 +116,18 @@ function debounceSave() {
   saveTimeout = setTimeout(() => {
     saveToLocalStorage();
   }, 300);
+}
+
+function saveFocusMode() {
+  localStorage.setItem("tapestri_focus_mode", JSON.stringify(isFocusMode));
+}
+
+function loadFocusMode() {
+  const saved = localStorage.getItem("tapestri_focus_mode");
+  if (saved !== null) {
+    isFocusMode = JSON.parse(saved);
+    document.body.classList.toggle("focus-mode", isFocusMode);
+  }
 }
 
 // =====================
@@ -242,6 +267,21 @@ function clearEditor() {
 // =====================
 // FEATURES
 // =====================
+
+function toggleFocusMode() {
+  isFocusMode = !isFocusMode;
+
+  document.body.classList.toggle("focus-mode", isFocusMode);
+
+  saveFocusMode();
+}
+
+function togglePreview() {
+  isPreviewMode = !isPreviewMode;
+
+  applyPreviewMode();
+  savePreviewMode();
+}
 
 function exportCurrentDocument() {
   if (!currentDocumentId) return;
@@ -409,6 +449,14 @@ function initEventListeners() {
     updatePreview();
   });
 
+  document.addEventListener("keydown", (e) => {
+    // Ctrl + Shift + F → Toggle Focus Mode
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      toggleFocusMode();
+    }
+  });
+
   editorContent.addEventListener("keydown", (e) => {
     if (e.key === "Tab") {
       e.preventDefault();
@@ -496,6 +544,9 @@ function initApp() {
   renderProjectList();
   renderSidebar();
   selectFirstDocument();
+  loadFocusMode();
+  loadPreviewMode();
+  applyPreviewMode();
 }
 
 function renderTags(doc) {
@@ -891,6 +942,11 @@ function updatePreview() {
 }
 
 // HELPERS
+
+function applyPreviewMode() {
+  document.body.classList.toggle("preview-mode", isPreviewMode);
+}
+
 function getItems() {
   return document.querySelectorAll("li[data-id]");
 }

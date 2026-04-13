@@ -12,6 +12,37 @@ html {
   margin: 2px;
 }
 
+/* Focus Mode Base */
+body.focus-mode {
+  background: inherit;
+}
+
+/* Hide UI Elements */
+body.focus-mode .sidebar {
+  display: none;
+}
+
+body.focus-mode .topbar {
+  display: none;
+}
+
+body.focus-mode .toolbar {
+  display: none;
+}
+
+/* Expand Editor */
+body.focus-mode .editor-container {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 2rem;
+}
+
+/* Full height */
+body.focus-mode .main-content {
+  width: 100%;
+}
+
 /* ======================
    LAYOUT
 ====================== */
@@ -239,6 +270,13 @@ button {
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s ease;
+}
+
+.ui-control {
+  height: 36px;
+  padding: 0 10px;
+  font-size: 14px;
+  border-radius: 6px;
 }
 
 /* ======================
