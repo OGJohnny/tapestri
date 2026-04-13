@@ -2,6 +2,8 @@
 // DATA (APP STATE)
 // ======================
 let projects = {};
+let history = [];
+let historyIndex = -1;
 let currentProjectId = null;
 let currentDocumentId = null;
 let saveTimeout;
@@ -107,6 +109,17 @@ function debounceSave() {
 // HELPERS
 // =====================
 
+function saveHistory() {
+  const value = editorContent.value;
+
+  // Avoid Duplicates
+  if (history[historyIndex] === value) return;
+
+  history = history.slice(0, historyIndex + 1);
+  history.push(value);
+  historyIndex++;
+}
+
 function getCurrentDocs() {
   if (!projects || !currentProjectId || !projects[currentProjectId]) {
     return {};
@@ -204,8 +217,12 @@ function loadDocument(id) {
   const activeItem = document.querySelector(`[data-id="${id}"]`);
   if (activeItem) activeItem.classList.add("active");
 
+  history = [doc.content || ""];
+  historyIndex = 0;
+
   editorContent.focus();
   updateWordCount();
+  updatePreview();
 }
 
 function clearEditor() {
@@ -265,6 +282,10 @@ function projectToMarkdown() {
 function initEventListeners() {
   getItems().forEach((item) => {
     attachItemListeners(item);
+  });
+
+  document.getElementById("toggle-preview").addEventListener("click", () => {
+    document.getElementById("preview-pane").classList.toggle("hidden");
   });
 
   addButtons.forEach((button) => {
@@ -385,6 +406,7 @@ function initEventListeners() {
 
     debounceSave();
     updateWordCount();
+    updatePreview();
   });
 
   editorContent.addEventListener("keydown", (e) => {
@@ -420,6 +442,16 @@ function initEventListeners() {
         textarea.selectionStart = textarea.selectionEnd = start + tab.length;
       }
 
+      if (e.ctrlKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+
+        if (e.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+      }
+
       saveDocument();
     }
   });
@@ -452,6 +484,7 @@ function initEventListeners() {
 
   editorTitle.addEventListener("input", saveDocument);
   editorContent.addEventListener("input", saveDocument);
+  saveHistory();
 }
 
 // =====================
@@ -502,6 +535,22 @@ function saveDocument() {
     editorContent.value;
 
   debounceSave();
+}
+
+function undo() {
+  if (historyIndex > 0) {
+    historyIndex--;
+    editorContent.value = history[historyIndex];
+    updatePreview();
+  }
+}
+
+function redo() {
+  if (historyIndex < history.length - 1) {
+    historyIndex++;
+    editorContent.value = history[historyIndex];
+    updatePreview();
+  }
 }
 
 function createNewProject() {
@@ -823,6 +872,22 @@ function renderChapterAppearances(characterId) {
     });
     list.appendChild(li);
   });
+}
+
+function renderMarkdown(text) {
+  if (!text) return "";
+
+  return text
+    .replace(/^## (.*$)/gim, "<h2>$1</h2>")
+    .replace(/^# (.*$)/gim, "<h1>$1</h1>")
+    .replace(/\*\*(.*?)\*\*/gim, "<b>$1</b>")
+    .replace(/\*(.*?)\*/gim, "<i>$1</i>")
+    .replace(/\n/gim, "<br>");
+}
+
+function updatePreview() {
+  const preview = document.getElementById("preview-pane");
+  preview.innerHTML = renderMarkdown(editorContent.value);
 }
 
 // HELPERS
