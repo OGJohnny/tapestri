@@ -42,6 +42,7 @@ function loadPreviewMode() {
   if (saved !== null) {
     isPreviewMode = JSON.parse(saved);
   }
+  console.log("Preview mode:", isPreviewMode);
 }
 
 function loadFromLocalStorage() {
@@ -247,7 +248,6 @@ function loadDocument(id) {
 
   editorContent.focus();
   updateWordCount();
-  updatePreview();
 }
 
 function clearEditor() {
@@ -324,9 +324,25 @@ function initEventListeners() {
     attachItemListeners(item);
   });
 
-  document.getElementById("toggle-preview").addEventListener("click", () => {
-    document.getElementById("preview-pane").classList.toggle("hidden");
+  document.addEventListener("keydown", (e) => {
+    // Ctrl + P → Toggle Preview
+    if (e.ctrlKey && e.key.toLowerCase() === "p") {
+      e.preventDefault();
+      togglePreview();
+    }
   });
+
+  document.getElementById("togglePreviewBtn").addEventListener("click", () => {
+    document
+      .getElementById("togglePreviewBtn")
+      .addEventListener("click", togglePreview);
+  });
+
+  const togglePreviewBtn = document.getElementById("togglePreviewBtn");
+
+  if (togglePreviewBtn) {
+    togglePreviewBtn.addEventListener("click", togglePreview);
+  }
 
   addButtons.forEach((button) => {
     button.addEventListener("click", (e) => {
@@ -446,7 +462,6 @@ function initEventListeners() {
 
     debounceSave();
     updateWordCount();
-    updatePreview();
   });
 
   document.addEventListener("keydown", (e) => {
@@ -531,7 +546,12 @@ function initEventListeners() {
   });
 
   editorTitle.addEventListener("input", saveDocument);
-  editorContent.addEventListener("input", saveDocument);
+
+  editorContent.addEventListener("input", () => {
+    updatePreview();
+    saveDocument();
+  });
+
   saveHistory();
 }
 
@@ -541,12 +561,12 @@ function initEventListeners() {
 
 function initApp() {
   loadFromLocalStorage();
+  loadPreviewMode();
+  applyPreviewMode();
+  loadFocusMode();
   renderProjectList();
   renderSidebar();
   selectFirstDocument();
-  loadFocusMode();
-  loadPreviewMode();
-  applyPreviewMode();
 }
 
 function renderTags(doc) {
@@ -592,7 +612,6 @@ function undo() {
   if (historyIndex > 0) {
     historyIndex--;
     editorContent.value = history[historyIndex];
-    updatePreview();
   }
 }
 
@@ -600,7 +619,6 @@ function redo() {
   if (historyIndex < history.length - 1) {
     historyIndex++;
     editorContent.value = history[historyIndex];
-    updatePreview();
   }
 }
 
@@ -746,21 +764,7 @@ function formatText(type) {
 
   const selectedText = textarea.value.substring(start, end);
 
-  if (!selectedText) {
-    const insert =
-      type === "bold" ? "****" : type === "italic" ? "**" : "<u></u>";
-
-    const before = textarea.value.substring(0, start);
-    const after = textarea.value.substring(start);
-
-    textarea.value = before + insert + after;
-
-    textarea.selectionStart = start + Math.floor(insert.length / 2);
-    textarea.selectionEnd = textarea.selectionStart;
-
-    textarea.focus();
-    return;
-  }
+  if (!selectedText) return;
 
   let formatted = "";
 
@@ -772,7 +776,7 @@ function formatText(type) {
       formatted = `*${selectedText}*`;
       break;
     case "underline":
-      formatted = `<u>${selectedText}</u>`;
+      formatted = `__${selectedText}__`;
       break;
   }
 
@@ -788,6 +792,7 @@ function formatText(type) {
 
   // Save + update
   saveDocument();
+  updatePreview();
 }
 
 // TAGS
@@ -932,7 +937,8 @@ function renderMarkdown(text) {
     .replace(/^## (.*$)/gim, "<h2>$1</h2>")
     .replace(/^# (.*$)/gim, "<h1>$1</h1>")
     .replace(/\*\*(.*?)\*\*/gim, "<b>$1</b>")
-    .replace(/\*(.*?)\*/gim, "<i>$1</i>")
+    .replace(/__(.*?)__/gim, "<u>$1</u>")
+    .replace(/(^|[^*])\*(?!\*)(.*?)\*(?!\*)/gim, "$1<i>$2</i>")
     .replace(/\n/gim, "<br>");
 }
 

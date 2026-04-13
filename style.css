@@ -26,7 +26,15 @@ body.focus-mode .topbar {
   display: none;
 }
 
-body.focus-mode .toolbar {
+body.focus-mode .sidebar {
+  display: none;
+}
+
+body.focus-mode .meta-row {
+  display: none;
+}
+
+body.focus-mode .reverse-relationships {
   display: none;
 }
 
@@ -41,6 +49,41 @@ body.focus-mode .editor-container {
 /* Full height */
 body.focus-mode .main-content {
   width: 100%;
+}
+
+body.focus-mode .toolbar {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+body.focus-mode .editor-container {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+/* Preview OFF (default) */
+body:not(.preview-mode) #preview-pane {
+  display: none;
+}
+
+/* Preview ON */
+body.preview-mode #editor-content {
+  display: none;
+}
+
+body.focus-mode .editor-main {
+  display: block;
+  width: 100%;
+  margin: 0 auto;
+}
+
+body.preview-mode #preview-pane {
+  width: 100%;
+}
+
+body.preview-mode .editor-main {
+  display: block;
 }
 
 /* ======================
@@ -118,7 +161,7 @@ body.focus-mode .main-content {
 }
 
 .meta-block {
-  flex: 1 1 200px; /* grows but wraps */
+  flex: 1;
   min-width: 200px;
 }
 
@@ -311,7 +354,9 @@ button {
 .editor-main {
   display: flex;
   flex: 1;
+  flex-direction: column;
   gap: 10px;
+  min-height: 0;
 }
 
 #editor-content,
@@ -326,6 +371,12 @@ button {
   border-radius: 10px;
   background: #f9f9f9;
   overflow-y: auto;
+}
+
+body.focus-mode .format-toolbar {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
 }
 
 /* ======================

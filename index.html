@@ -86,28 +86,28 @@
             <button data-format="bold"><b>B</b></button>
             <button data-format="italic"><i>I</i></button>
             <button data-format="underline"><u>U</u></button>
+            <button id="togglePreviewBtn">Toggle Preview</button>
           </div>
 
           <div class="meta-row">
-            <div class="tag-container meta-block tags-block">
+            <div class="meta-block tags-block">
               <input
-                type="text"
                 id="tag-input"
                 class="ui-control"
-                placeholder="Add tag and press Enter"
+                placeholder="Add Tag and Press Enter"
               />
               <div id="tag-list"></div>
             </div>
 
-            <div class="relationships-container meta-block characters-block">
-              <h4>Characters in this Chapter</h4>
-              <div class="character-controls">
-                <select id="character-select" class="ui-control"></select>
-                <button id="add-character-btn" class="ui-control">
-                  Add Character
-                </button>
+            <div class="meta-block characters-block">
+              <div class="relationships-container">
+                <h4>Characters in this Chapter</h4>
+                <div class="character-controls">
+                  <select id="character-select"></select>
+                  <button id="add-character-btn">Add Character</button>
+                </div>
+                <ul id="character-list"></ul>
               </div>
-              <ul id="character-list" class="ui-control"></ul>
             </div>
           </div>
 
@@ -116,14 +116,15 @@
             <ul id="chapter-appearances"></ul>
           </div>
         </div>
+
         <div class="editor-main">
           <textarea
             id="editor-content"
             placeholder="Start writing..."
           ></textarea>
           <div id="preview-pane"></div>
-          <button id="toggle-preview" class="ui-control">Toggle Preview</button>
         </div>
+
         <div class="editor-footer">
           <div id="word-count">Words: 0</div>
         </div>
