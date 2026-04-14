@@ -42,7 +42,6 @@ function loadPreviewMode() {
   if (saved !== null) {
     isPreviewMode = JSON.parse(saved);
   }
-  console.log("Preview mode:", isPreviewMode);
 }
 
 function loadFromLocalStorage() {
@@ -324,6 +323,58 @@ function initEventListeners() {
   getItems().forEach((item) => {
     attachItemListeners(item);
   });
+
+  const menus = {
+    file: document.getElementById("file-menu"),
+    edit: document.getElementById("edit-menu"),
+    view: document.getElementById("view-menu"),
+  };
+
+  document.querySelectorAll(".menu-item").forEach((item) => {
+    item.addEventListener("click", (e) => {
+      const menuName = item.dataset.menu;
+
+      // Close all first
+      Object.values(menus).forEach((m) => (m.style.display = "none"));
+
+      // Open selected
+      menus[menuName].style.display = "block";
+    });
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".menu-bar") && !e.target.closest(".menu-dropdown")) {
+      Object.values(menus).forEach((m) => (m.style.display = "none"));
+    }
+  });
+
+  document.getElementById("new-project").addEventListener("click", () => {
+    document.getElementById("new-project-btn").click();
+  });
+
+  document.getElementById("export-project").addEventListener("click", () => {
+    document.getElementById("export-btn").click();
+  });
+
+  document.getElementById("export-doc").addEventListener("click", () => {
+    document.getElementById("export-doc-btn").click();
+  });
+
+  document.querySelectorAll("#edit-menu [data-format]").forEach((item) => {
+    item.addEventListener("click", () => {
+      formatText(item.dataset.format);
+    });
+  });
+
+  document.getElementById("toggle-focus").addEventListener("click", () => {
+    toggleFocusMode();
+  });
+
+  document
+    .getElementById("toggle-preview-menu")
+    .addEventListener("click", () => {
+      togglePreview();
+    });
 
   document.addEventListener("keydown", (e) => {
     // Ctrl + P → Toggle Preview

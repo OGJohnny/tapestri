@@ -9,6 +9,29 @@
     <script defer src="./script.js"></script>
   </head>
   <body>
+    <div class="menu-bar">
+      <div class="menu-item" data-menu="file">File</div>
+      <div class="menu-item" data-menu="edit">Edit</div>
+      <div class="menu-item" data-menu="view">View</div>
+    </div>
+
+    <div class="menu-dropdown" id="file-menu">
+      <div class="menu-option" id="new-project">New Project</div>
+      <div class="menu-option" id="export-project">Export Project</div>
+      <div class="menu-option" id="export-doc">Export Document</div>
+    </div>
+
+    <div class="menu-dropdown" id="edit-menu">
+      <div class="menu-option" data-format="bold">Bold (Ctrl+B)</div>
+      <div class="menu-option" data-format="italic">Italic (Ctrl+I)</div>
+      <div class="menu-option" data-format="underline">Underline (Ctrl+U)</div>
+    </div>
+
+    <div class="menu-dropdown" id="view-menu">
+      <div class="menu-option" id="toggle-focus">Toggle Focus Mode</div>
+      <div class="menu-option" id="toggle-preview-menu">Toggle Preview</div>
+    </div>
+
     <div class="app">
       <div class="sidebar">
         <div class="project-bar">
