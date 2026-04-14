@@ -62,11 +62,6 @@ body.focus-mode .editor-container {
   margin: 0 auto;
 }
 
-/* Preview OFF (default) */
-body:not(.preview-mode) #preview-pane {
-  display: none;
-}
-
 /* Preview ON */
 body.preview-mode #editor-content {
   display: none;

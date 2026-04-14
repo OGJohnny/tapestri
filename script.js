@@ -2,9 +2,10 @@
 // DATA (APP STATE)
 // ======================
 let projects = {};
+let currentProjectId = null;
 let history = [];
 let historyIndex = -1;
-let currentProjectId = null;
+let savedSelection = { start: 0, end: 0 };
 let currentDocumentId = null;
 let saveTimeout;
 let isFocusMode = false;
@@ -23,9 +24,6 @@ const characterList = document.getElementById("character-list");
 const searchInput = document.getElementById("search-input");
 const projectSelect = document.getElementById("project-select");
 const newProjectBtn = document.getElementById("new-project-btn");
-const exportBtn = document.getElementById("export-btn");
-const exportDocBtn = document.getElementById("export-doc-btn");
-
 const sections = document.querySelectorAll("details");
 const addButtons = document.querySelectorAll(".add-btn");
 
@@ -42,6 +40,23 @@ function loadPreviewMode() {
   if (saved !== null) {
     isPreviewMode = JSON.parse(saved);
   }
+}
+
+function saveFocusMode() {
+  localStorage.setItem("tapestri_focus_mode", JSON.stringify(isFocusMode));
+}
+
+function loadFocusMode() {
+  const saved = localStorage.getItem("tapestri_focus_mode");
+  if (saved !== null) {
+    isFocusMode = JSON.parse(saved);
+    document.body.classList.toggle("focus-mode", isFocusMode);
+  }
+}
+
+function saveToLocalStorage() {
+  localStorage.setItem("tapestriProjects", JSON.stringify(projects));
+  localStorage.setItem("tapestriCurrentProject", currentProjectId);
 }
 
 function loadFromLocalStorage() {
@@ -105,11 +120,6 @@ function loadFromLocalStorage() {
   }
 }
 
-function saveToLocalStorage() {
-  localStorage.setItem("tapestriProjects", JSON.stringify(projects));
-  localStorage.setItem("tapestriCurrentProject", currentProjectId);
-}
-
 function debounceSave() {
   clearTimeout(saveTimeout);
 
@@ -118,21 +128,155 @@ function debounceSave() {
   }, 300);
 }
 
-function saveFocusMode() {
-  localStorage.setItem("tapestri_focus_mode", JSON.stringify(isFocusMode));
-}
-
-function loadFocusMode() {
-  const saved = localStorage.getItem("tapestri_focus_mode");
-  if (saved !== null) {
-    isFocusMode = JSON.parse(saved);
-    document.body.classList.toggle("focus-mode", isFocusMode);
-  }
-}
-
 // =====================
 // HELPERS
 // =====================
+
+function getCurrentDocs() {
+  if (!projects || !currentProjectId || !projects[currentProjectId]) {
+    return {};
+  }
+
+  return projects[currentProjectId].documents;
+}
+
+function getItems() {
+  return document.querySelectorAll("li[data-id]");
+}
+
+function getChaptersSorted() {
+  const docs = getCurrentDocs();
+
+  return Object.values(docs)
+    .filter((doc) => doc.type === "chapter")
+    .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function renderMarkdown(text) {
+  if (!text) return "";
+
+  return text
+    .replace(/^## (.*$)/gim, "<h2>$1</h2>")
+    .replace(/^# (.*$)/gim, "<h1>$1</h1>")
+    .replace(/\*\*(.*?)\*\*/gim, "<b>$1</b>")
+    .replace(/__(.*?)__/gim, "<u>$1</u>")
+    .replace(/(^|[^*])\*(?!\*)(.*?)\*(?!\*)/gim, "$1<i>$2</i>")
+    .replace(/\n/gim, "<br>");
+}
+
+function getWordCount(text) {
+  if (!text) return 0;
+
+  return text
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length > 0).length;
+}
+
+// ====================
+// CORE EDITOR FEATURES
+// ====================
+
+function saveDocument() {
+  if (!currentDocumentId) return;
+
+  projects[currentProjectId].documents[currentDocumentId].title =
+    editorTitle.value;
+  projects[currentProjectId].documents[currentDocumentId].content =
+    editorContent.value;
+
+  debounceSave();
+}
+
+function selectFirstDocument() {
+  const docs = projects[currentProjectId]?.documents || {};
+  const firstId = Object.keys(docs)[0];
+
+  if (firstId) {
+    loadDocument(firstId);
+  }
+}
+
+function updatePreview() {
+  const preview = document.getElementById("preview-pane");
+  preview.innerHTML = renderMarkdown(editorContent.value);
+}
+
+function formatText(type) {
+  saveHistory();
+  const textarea = editorContent;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const selectedText = textarea.value.substring(start, end);
+
+  // Restore Selection
+  textarea.focus();
+  textarea.selectionStart = start;
+  textarea.selectionEnd = end;
+
+  if (!selectedText) return;
+
+  let formatted = "";
+
+  switch (type) {
+    case "bold":
+      formatted = `**${selectedText}**`;
+      break;
+    case "italic":
+      formatted = `*${selectedText}*`;
+      break;
+    case "underline":
+      formatted = `__${selectedText}__`;
+      break;
+  }
+
+  const before = textarea.value.substring(0, start);
+  const after = textarea.value.substring(end);
+
+  textarea.value = before + formatted + after;
+
+  // Restore selection
+  textarea.focus();
+  textarea.selectionStart = start;
+  textarea.selectionEnd = start + formatted.length;
+
+  // Save + update
+  saveDocument();
+  updatePreview();
+}
+
+function togglePreview() {
+  isPreviewMode = !isPreviewMode;
+
+  applyPreviewMode();
+  savePreviewMode();
+}
+
+function toggleFocusMode() {
+  isFocusMode = !isFocusMode;
+
+  document.body.classList.toggle("focus-mode", isFocusMode);
+
+  saveFocusMode();
+}
+
+function applyPreviewMode() {
+  document.body.classList.toggle("preview-mode", isPreviewMode);
+}
+
+function updateWordCount() {
+  const text = editorContent.value;
+
+  const words = getWordCount(text);
+  const chars = text.length;
+
+  document.getElementById("word-count").textContent =
+    `Words: ${words} | Characters: ${chars}`;
+}
+
+// ======================
+// HISTORY SYSTEM
+// ======================
 
 function saveHistory() {
   const value = editorContent.value;
@@ -145,69 +289,182 @@ function saveHistory() {
   historyIndex++;
 }
 
-function getCurrentDocs() {
-  if (!projects || !currentProjectId || !projects[currentProjectId]) {
-    return {};
-  }
-
-  return projects[currentProjectId].documents;
-}
-
-function getWordCount(text) {
-  if (!text) return 0;
-
-  return text
-    .trim()
-    .split(/\s+/)
-    .filter((word) => word.length > 0).length;
-}
-
-// =====================
-// RENDER
-// =====================
-
-function renderProjectList() {
-  projectSelect.innerHTML = "";
-
-  for (const pid in projects) {
-    const option = document.createElement("option");
-
-    option.value = pid;
-    option.textContent = projects[pid].name;
-
-    if (pid === currentProjectId) {
-      option.selected = true;
-    }
-
-    projectSelect.appendChild(option);
+function undo() {
+  if (historyIndex > 0) {
+    historyIndex--;
+    editorContent.value = history[historyIndex];
   }
 }
 
-function renderSidebar() {
-  const lists = document.querySelectorAll("ul");
+function redo() {
+  if (historyIndex < history.length - 1) {
+    historyIndex++;
+    editorContent.value = history[historyIndex];
+  }
+}
 
-  lists.forEach((list) => {
-    list.innerHTML = "";
+// ======================
+// TAG SYSTEM
+//=======================
+
+function renderTags(doc) {
+  tagList.innerHTML = "";
+
+  if (!doc || !doc.tags) return;
+
+  doc.tags.forEach((tag) => {
+    const span = document.createElement("span");
+    span.textContent = tag;
+    span.classList.add("tag");
+
+    span.addEventListener("click", () => {
+      removeTag(tag);
+    });
+
+    tagList.appendChild(span);
   });
+}
+
+function addTag(tag) {
+  if (!currentDocumentId) return;
+
+  const doc = projects[currentProjectId].documents[currentDocumentId];
+
+  if (!doc.tags.includes(tag)) {
+    doc.tags.push(tag);
+  }
+
+  renderTags(doc);
+  debounceSave();
+}
+
+function removeTag(tag) {
+  if (!currentDocumentId) return;
+
+  const doc = projects[currentProjectId].documents[currentDocumentId];
+
+  doc.tags = doc.tags.filter((t) => t !== tag);
+
+  renderTags(doc);
+  debounceSave();
+}
+
+// ======================
+// RELATIONSHIPS
+// ======================
+
+function populateCharacterSelect() {
+  characterSelect.innerHTML = "";
 
   const docs = projects[currentProjectId]?.documents || {};
 
   for (const id in docs) {
     const doc = projects[currentProjectId].documents[id];
 
-    const li = document.createElement("li");
-    li.textContent = doc.title;
-    li.dataset.id = doc.id;
-    li.dataset.type = doc.type;
+    if (doc.type === "character") {
+      const option = document.createElement("option");
+      option.value = doc.id;
+      option.textContent = doc.title;
 
-    const list = document.querySelector(`ul[data-type="${doc.type}"]`);
-
-    if (list) {
-      list.appendChild(li);
-      attachItemListeners(li);
+      characterSelect.appendChild(option);
     }
   }
 }
+
+function renderCharacterRelationships(id) {
+  const docs = getCurrentDocs();
+  const doc = docs[id];
+
+  const characterList = document.getElementById("character-list");
+  characterList.innerHTML = "";
+
+  if (!doc || !doc.relationships || !doc.relationships.characters) return;
+
+  doc.relationships.characters.forEach((charId) => {
+    const charDoc = docs[charId];
+    if (!charDoc) return;
+
+    const li = document.createElement("li");
+    li.textContent = "👤 " + charDoc.title;
+
+    li.addEventListener("click", () => {
+      removeCharacterFromChapter(charId);
+    });
+
+    characterList.appendChild(li);
+  });
+}
+
+function addCharacterToChapter() {
+  if (!currentDocumentId) return;
+
+  const doc = projects[currentProjectId].documents[currentDocumentId];
+
+  if (doc.type !== "chapter") return;
+
+  const charId = characterSelect.value;
+  if (!charId) return;
+
+  if (!doc.relationships.characters.includes(charId)) {
+    doc.relationships.characters.push(charId);
+  }
+
+  renderCharacterRelationships(currentDocumentId);
+  debounceSave();
+}
+
+function removeCharacterFromChapter(charId) {
+  const doc = projects[currentProjectId].documents[currentDocumentId];
+
+  doc.relationships.characters = doc.relationships.characters.filter(
+    (id) => id !== charId,
+  );
+
+  renderCharacterRelationships(currentDocumentId);
+  debounceSave();
+}
+
+function getChaptersForCharacter(characterId) {
+  const chapters = [];
+
+  const docs = projects[currentProjectId]?.documents || {};
+
+  for (const id in docs) {
+    const doc = projects[currentProjectId].documents[id];
+
+    if (doc.type === "chapter") {
+      if (
+        doc.relationships &&
+        doc.relationships.characters &&
+        doc.relationships.characters.includes(characterId)
+      ) {
+        chapters.push(doc);
+      }
+    }
+  }
+  return chapters;
+}
+
+function renderChapterAppearances(characterId) {
+  const list = document.getElementById("chapter-appearances");
+  list.innerHTML = "";
+
+  const chapters = getChaptersForCharacter(characterId);
+
+  chapters.forEach((chapter) => {
+    const li = document.createElement("li");
+    li.textContent = chapter.title;
+
+    li.addEventListener("click", () => {
+      loadDocument(chapter.id);
+    });
+    list.appendChild(li);
+  });
+}
+
+// =========================
+// DOCUMENT MANAGEMENT
+// =========================
 
 function loadDocument(id) {
   const docs = getCurrentDocs();
@@ -264,23 +521,239 @@ function clearEditor() {
   document.getElementById("empty-state").style.display = "block";
 }
 
-// =====================
-// FEATURES
-// =====================
+function addNewItem(section) {
+  const ul = section.querySelector("ul");
 
-function toggleFocusMode() {
-  isFocusMode = !isFocusMode;
+  if (!ul) {
+    console.error("No UL found in section");
+    return;
+  }
 
-  document.body.classList.toggle("focus-mode", isFocusMode);
+  const type = ul.dataset.type;
+  const id = Date.now().toString();
 
-  saveFocusMode();
+  const newLi = document.createElement("li");
+  newLi.textContent = "New " + type;
+  newLi.dataset.id = id;
+  newLi.dataset.type = type;
+
+  ul.appendChild(newLi);
+
+  projects[currentProjectId].documents[id] = {
+    id: id,
+    title: newLi.textContent,
+    content: "",
+    type: type,
+    tags: [],
+    relationships: {
+      characters: [],
+    },
+  };
+
+  attachItemListeners(newLi);
+  handleItemClick(newLi);
+  debounceSave();
 }
 
-function togglePreview() {
-  isPreviewMode = !isPreviewMode;
+function renameItem(item) {
+  const newName = prompt("Enter new name:");
 
-  applyPreviewMode();
-  savePreviewMode();
+  if (!newName) return;
+
+  item.textContent = newName;
+
+  const id = item.dataset.id;
+  projects[currentProjectId].documents[id].title = newName;
+
+  if (currentDocumentId === id) {
+    editorTitle.value = newName;
+  }
+
+  debounceSave();
+}
+
+function deleteItem(item) {
+  const confirmDelete = confirm("Delete this item?");
+
+  if (!confirmDelete) return;
+
+  const id = item.dataset.id;
+
+  delete projects[currentProjectId].documents[id];
+
+  const nextItem = item.nextElementSibling || item.previousElementSibling;
+
+  item.remove();
+
+  if (nextItem) {
+    handleItemClick(nextItem);
+  } else {
+    editorTitle.value = "";
+    editorContent.value = "";
+    currentDocumentId = null;
+  }
+
+  debounceSave();
+}
+
+function setActiveItem(clickedItem) {
+  getItems().forEach((item) => item.classList.remove("active"));
+  clickedItem.classList.add("active");
+}
+
+function handleItemClick(item) {
+  const id = item.dataset.id;
+
+  currentDocumentId = id;
+  loadDocument(id);
+  setActiveItem(item);
+}
+
+// ===========================
+// PROJECT SYSTEM
+// ===========================
+
+function createNewProject() {
+  const name = prompt("Project name?");
+  if (!name) return;
+
+  const id = "project_" + Date.now();
+
+  projects[id] = {
+    name: name,
+    documents: {},
+  };
+
+  currentProjectId = id;
+
+  debounceSave();
+  renderProjectList();
+  renderSidebar();
+}
+
+function deleteProject() {
+  if (!currentProjectId) return;
+
+  const confirmDelete = confirm(
+    "Are you sure you want to delete this project?",
+  );
+
+  if (!confirmDelete) return;
+
+  delete projects[currentProjectId];
+
+  const remainingIds = Object.keys(projects);
+
+  currentProjectId = remainingIds[0] || null;
+
+  debounceSave();
+  renderProjectList();
+  renderSidebar();
+  clearEditor();
+}
+
+function renameProject() {
+  if (!currentProjectId) return;
+
+  const newName = prompt("Rename project:");
+  if (!newName) return;
+
+  projects[currentProjectId].name = newName;
+
+  debounceSave();
+  renderProjectList();
+}
+
+function renderProjectList() {
+  projectSelect.innerHTML = "";
+
+  for (const pid in projects) {
+    const option = document.createElement("option");
+
+    option.value = pid;
+    option.textContent = projects[pid].name;
+
+    if (pid === currentProjectId) {
+      option.selected = true;
+    }
+
+    projectSelect.appendChild(option);
+  }
+}
+
+function renderSidebar() {
+  const lists = document.querySelectorAll("ul");
+
+  lists.forEach((list) => {
+    list.innerHTML = "";
+  });
+
+  const docs = projects[currentProjectId]?.documents || {};
+
+  for (const id in docs) {
+    const doc = projects[currentProjectId].documents[id];
+
+    const li = document.createElement("li");
+    li.textContent = doc.title;
+    li.dataset.id = doc.id;
+    li.dataset.type = doc.type;
+
+    const list = document.querySelector(`ul[data-type="${doc.type}"]`);
+
+    if (list) {
+      list.appendChild(li);
+      attachItemListeners(li);
+    }
+  }
+}
+
+function searchDocuments(query) {
+  query = query.toLowerCase();
+
+  const lists = document.querySelectorAll("ul");
+  lists.forEach((list) => (list.innerHTML = ""));
+
+  const docs = projects[currentProjectId]?.documents || {};
+
+  for (const id in docs) {
+    const doc = projects[currentProjectId].documents[id];
+
+    if (
+      doc.title.toLowerCase().includes(query) ||
+      doc.content.toLowerCase().includes(query)
+    ) {
+      const li = document.createElement("li");
+      li.textContent = doc.title;
+      li.dataset.id = doc.id;
+      li.dataset.type = doc.type;
+
+      const list = document.querySelector(`ul[data-type="${doc.type}"]`);
+      if (list) {
+        list.appendChild(li);
+        attachItemListeners(li);
+      }
+    }
+  }
+}
+
+// =====================
+// EXPORT SYSTEM
+// =====================
+
+function exportProject() {
+  if (!currentProjectId) return;
+
+  const confirmExport = confirm("Export this project?");
+  if (!confirmExport) return;
+
+  const docs = getCurrentDocs();
+  const doc = docs[currentProjectId];
+
+  if (!doc) return;
+
+  const md = projectToMarkdown(doc);
+
+  downloadFile(`${doc.title}.md`, md);
 }
 
 function exportCurrentDocument() {
@@ -315,8 +788,81 @@ function projectToMarkdown() {
   return md;
 }
 
+function documentToMarkdown(doc) {
+  let md = `## ${doc.title}\n\n`;
+
+  if (doc.tags?.length) {
+    md += `> Tags: ${doc.tags.join(", ")}\n\n`;
+  }
+
+  md += `${doc.content.trim()}\n\n---\n\n`;
+
+  return md;
+}
+
+function downloadFile(filename, content) {
+  const blob = new Blob([content], { type: "text/markdown" });
+
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 // =====================
-// EVENTS
+// MENU SYSTEM
+// =====================
+
+function initMenuSystem() {
+  const menus = {
+    file: document.getElementById("file-menu"),
+    edit: document.getElementById("edit-menu"),
+    view: document.getElementById("view-menu"),
+  };
+
+  let activeMenu = null;
+
+  document.querySelectorAll(".menu-item").forEach((item) => {
+    item.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const menuName = item.dataset.menu;
+      const menu = menus[menuName];
+
+      if (activeMenu === menuName) {
+        menu.style.display = "none";
+        activeMenu = null;
+        return;
+      }
+
+      document.querySelectorAll(".menu-option").forEach((item) => {
+        item.addEventListener("mousedown", (e) => {
+          e.preventDefault(); // 🔥 THIS fixes selection loss
+        });
+      });
+
+      Object.values(menus).forEach((m) => (m.style.display = "none"));
+
+      menu.style.display = "block";
+      activeMenu = menuName;
+    });
+  });
+
+  document.addEventListener("click", (e) => {
+    const isMenuItem = e.target.closest(".menu-item");
+    const isDropdown = e.target.closest(".menu-dropdown");
+
+    if (!isMenuItem && !isDropdown) {
+      Object.values(menus).forEach((m) => (m.style.display = "none"));
+      activeMenu = null;
+    }
+  });
+}
+
+// =====================
+// EVENTS SYSTEM
 // =====================
 
 function initEventListeners() {
@@ -324,28 +870,9 @@ function initEventListeners() {
     attachItemListeners(item);
   });
 
-  const menus = {
-    file: document.getElementById("file-menu"),
-    edit: document.getElementById("edit-menu"),
-    view: document.getElementById("view-menu"),
-  };
-
-  document.querySelectorAll(".menu-item").forEach((item) => {
-    item.addEventListener("click", (e) => {
-      const menuName = item.dataset.menu;
-
-      // Close all first
-      Object.values(menus).forEach((m) => (m.style.display = "none"));
-
-      // Open selected
-      menus[menuName].style.display = "block";
-    });
-  });
-
-  document.addEventListener("click", (e) => {
-    if (!e.target.closest(".menu-bar") && !e.target.closest(".menu-dropdown")) {
-      Object.values(menus).forEach((m) => (m.style.display = "none"));
-    }
+  editorContent.addEventListener("select", () => {
+    savedSelection.start = editorContent.selectionStart;
+    savedSelection.end = editorContent.selectionEnd;
   });
 
   document.getElementById("new-project").addEventListener("click", () => {
@@ -353,11 +880,20 @@ function initEventListeners() {
   });
 
   document.getElementById("export-project").addEventListener("click", () => {
-    document.getElementById("export-btn").click();
+    const project = getCurrentDocs();
+
+    if (!project) return;
+
+    const markdown = projectToMarkdown(project);
+
+    const filename = prompt("Enter file name:", "project.md");
+    if (!filename) return;
+
+    downloadFile(filename, markdown);
   });
 
   document.getElementById("export-doc").addEventListener("click", () => {
-    document.getElementById("export-doc-btn").click();
+    exportCurrentDocument();
   });
 
   document.querySelectorAll("#edit-menu [data-format]").forEach((item) => {
@@ -470,18 +1006,6 @@ function initEventListeners() {
     selectFirstDocument();
   });
 
-  exportBtn.addEventListener("click", () => {
-    const confirmExport = confirm("Export entire project?");
-    if (!confirmExport) return;
-
-    const md = projectToMarkdown();
-    const name = projects[currentProjectId].name || "project";
-
-    downloadFile(`${name}.md`, md);
-  });
-
-  exportDocBtn.addEventListener("click", exportCurrentDocument);
-
   document
     .getElementById("rename-project-btn")
     .addEventListener("click", renameProject);
@@ -489,10 +1013,6 @@ function initEventListeners() {
   document
     .getElementById("delete-project-btn")
     .addEventListener("click", deleteProject);
-
-  document
-    .getElementById("export-doc-btn")
-    .addEventListener("click", exportCurrentDocument);
 
   editorContent.addEventListener("input", () => {
     let doc = getCurrentDocs()[currentDocumentId];
@@ -600,414 +1120,13 @@ function initEventListeners() {
   editorTitle.addEventListener("input", saveDocument);
 
   editorContent.addEventListener("input", () => {
+    saveHistory();
     updatePreview();
     saveDocument();
   });
 
+  initMenuSystem();
   saveHistory();
-}
-
-// =====================
-// INIT
-// =====================
-
-function initApp() {
-  loadFromLocalStorage();
-  updatePreview();
-  loadPreviewMode();
-  applyPreviewMode();
-  loadFocusMode();
-  renderProjectList();
-  renderSidebar();
-  selectFirstDocument();
-}
-
-function renderTags(doc) {
-  tagList.innerHTML = "";
-
-  if (!doc || !doc.tags) return;
-
-  doc.tags.forEach((tag) => {
-    const span = document.createElement("span");
-    span.textContent = tag;
-    span.classList.add("tag");
-
-    span.addEventListener("click", () => {
-      removeTag(tag);
-    });
-
-    tagList.appendChild(span);
-  });
-}
-
-function updateWordCount() {
-  const text = editorContent.value;
-
-  const words = getWordCount(text);
-  const chars = text.length;
-
-  document.getElementById("word-count").textContent =
-    `Words: ${words} | Characters: ${chars}`;
-}
-
-function saveDocument() {
-  if (!currentDocumentId) return;
-
-  projects[currentProjectId].documents[currentDocumentId].title =
-    editorTitle.value;
-  projects[currentProjectId].documents[currentDocumentId].content =
-    editorContent.value;
-
-  debounceSave();
-}
-
-function undo() {
-  if (historyIndex > 0) {
-    historyIndex--;
-    editorContent.value = history[historyIndex];
-  }
-}
-
-function redo() {
-  if (historyIndex < history.length - 1) {
-    historyIndex++;
-    editorContent.value = history[historyIndex];
-  }
-}
-
-function createNewProject() {
-  const name = prompt("Project name?");
-  if (!name) return;
-
-  const id = "project_" + Date.now();
-
-  projects[id] = {
-    name: name,
-    documents: {},
-  };
-
-  currentProjectId = id;
-
-  debounceSave();
-  renderProjectList();
-  renderSidebar();
-}
-
-function documentToMarkdown(doc) {
-  let md = `## ${doc.title}\n\n`;
-
-  if (doc.tags?.length) {
-    md += `> Tags: ${doc.tags.join(", ")}\n\n`;
-  }
-
-  md += `${doc.content.trim()}\n\n---\n\n`;
-
-  return md;
-}
-
-function downloadFile(filename, content) {
-  const blob = new Blob([content], { type: "text/markdown" });
-
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-}
-
-function addNewItem(section) {
-  const ul = section.querySelector("ul");
-
-  if (!ul) {
-    console.error("No UL found in section");
-    return;
-  }
-
-  const type = ul.dataset.type;
-  const id = Date.now().toString();
-
-  const newLi = document.createElement("li");
-  newLi.textContent = "New " + type;
-  newLi.dataset.id = id;
-  newLi.dataset.type = type;
-
-  ul.appendChild(newLi);
-
-  projects[currentProjectId].documents[id] = {
-    id: id,
-    title: newLi.textContent,
-    content: "",
-    type: type,
-    tags: [],
-    relationships: {
-      characters: [],
-    },
-  };
-
-  attachItemListeners(newLi);
-  handleItemClick(newLi);
-  debounceSave();
-}
-
-function renameItem(item) {
-  const newName = prompt("Enter new name:");
-
-  if (!newName) return;
-
-  item.textContent = newName;
-
-  const id = item.dataset.id;
-  projects[currentProjectId].documents[id].title = newName;
-
-  if (currentDocumentId === id) {
-    editorTitle.value = newName;
-  }
-
-  debounceSave();
-}
-
-function deleteItem(item) {
-  const confirmDelete = confirm("Delete this item?");
-
-  if (!confirmDelete) return;
-
-  const id = item.dataset.id;
-
-  delete projects[currentProjectId].documents[id];
-
-  const nextItem = item.nextElementSibling || item.previousElementSibling;
-
-  item.remove();
-
-  if (nextItem) {
-    handleItemClick(nextItem);
-  } else {
-    editorTitle.value = "";
-    editorContent.value = "";
-    currentDocumentId = null;
-  }
-
-  debounceSave();
-}
-
-function getChaptersSorted() {
-  const docs = getCurrentDocs();
-
-  return Object.values(docs)
-    .filter((doc) => doc.type === "chapter")
-    .sort((a, b) => a.title.localeCompare(b.title));
-}
-
-function selectFirstDocument() {
-  const docs = projects[currentProjectId]?.documents || {};
-  const firstId = Object.keys(docs)[0];
-
-  if (firstId) {
-    loadDocument(firstId);
-  }
-}
-
-function formatText(type) {
-  const textarea = editorContent;
-
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-
-  const selectedText = textarea.value.substring(start, end);
-
-  if (!selectedText) return;
-
-  let formatted = "";
-
-  switch (type) {
-    case "bold":
-      formatted = `**${selectedText}**`;
-      break;
-    case "italic":
-      formatted = `*${selectedText}*`;
-      break;
-    case "underline":
-      formatted = `__${selectedText}__`;
-      break;
-  }
-
-  const before = textarea.value.substring(0, start);
-  const after = textarea.value.substring(end);
-
-  textarea.value = before + formatted + after;
-
-  // Restore selection
-  textarea.focus();
-  textarea.selectionStart = start;
-  textarea.selectionEnd = start + formatted.length;
-
-  // Save + update
-  saveDocument();
-  updatePreview();
-}
-
-// TAGS
-function addTag(tag) {
-  if (!currentDocumentId) return;
-
-  const doc = projects[currentProjectId].documents[currentDocumentId];
-
-  if (!doc.tags.includes(tag)) {
-    doc.tags.push(tag);
-  }
-
-  renderTags(doc);
-  debounceSave();
-}
-
-function removeTag(tag) {
-  if (!currentDocumentId) return;
-
-  const doc = projects[currentProjectId].documents[currentDocumentId];
-
-  doc.tags = doc.tags.filter((t) => t !== tag);
-
-  renderTags(doc);
-  debounceSave();
-}
-
-// CHARACTER
-function populateCharacterSelect() {
-  characterSelect.innerHTML = "";
-
-  const docs = projects[currentProjectId]?.documents || {};
-
-  for (const id in docs) {
-    const doc = projects[currentProjectId].documents[id];
-
-    if (doc.type === "character") {
-      const option = document.createElement("option");
-      option.value = doc.id;
-      option.textContent = doc.title;
-
-      characterSelect.appendChild(option);
-    }
-  }
-}
-
-function renderCharacterRelationships(id) {
-  const docs = getCurrentDocs();
-  const doc = docs[id];
-
-  const characterList = document.getElementById("character-list");
-  characterList.innerHTML = "";
-
-  if (!doc || !doc.relationships || !doc.relationships.characters) return;
-
-  doc.relationships.characters.forEach((charId) => {
-    const charDoc = docs[charId];
-    if (!charDoc) return;
-
-    const li = document.createElement("li");
-    li.textContent = "👤 " + charDoc.title;
-
-    li.addEventListener("click", () => {
-      removeCharacterFromChapter(charId);
-    });
-
-    characterList.appendChild(li);
-  });
-}
-
-function addCharacterToChapter() {
-  if (!currentDocumentId) return;
-
-  const doc = projects[currentProjectId].documents[currentDocumentId];
-
-  if (doc.type !== "chapter") return;
-
-  const charId = characterSelect.value;
-  if (!charId) return;
-
-  if (!doc.relationships.characters.includes(charId)) {
-    doc.relationships.characters.push(charId);
-  }
-
-  renderCharacterRelationships(currentDocumentId);
-  debounceSave();
-}
-
-function removeCharacterFromChapter(charId) {
-  const doc = projects[currentProjectId].documents[currentDocumentId];
-
-  doc.relationships.characters = doc.relationships.characters.filter(
-    (id) => id !== charId,
-  );
-
-  renderCharacterRelationships(currentDocumentId);
-  debounceSave();
-}
-
-function getChaptersForCharacter(characterId) {
-  const chapters = [];
-
-  const docs = projects[currentProjectId]?.documents || {};
-
-  for (const id in docs) {
-    const doc = projects[currentProjectId].documents[id];
-
-    if (doc.type === "chapter") {
-      if (
-        doc.relationships &&
-        doc.relationships.characters &&
-        doc.relationships.characters.includes(characterId)
-      ) {
-        chapters.push(doc);
-      }
-    }
-  }
-  return chapters;
-}
-
-function renderChapterAppearances(characterId) {
-  const list = document.getElementById("chapter-appearances");
-  list.innerHTML = "";
-
-  const chapters = getChaptersForCharacter(characterId);
-
-  chapters.forEach((chapter) => {
-    const li = document.createElement("li");
-    li.textContent = chapter.title;
-
-    li.addEventListener("click", () => {
-      loadDocument(chapter.id);
-    });
-    list.appendChild(li);
-  });
-}
-
-function renderMarkdown(text) {
-  if (!text) return "";
-
-  return text
-    .replace(/^## (.*$)/gim, "<h2>$1</h2>")
-    .replace(/^# (.*$)/gim, "<h1>$1</h1>")
-    .replace(/\*\*(.*?)\*\*/gim, "<b>$1</b>")
-    .replace(/__(.*?)__/gim, "<u>$1</u>")
-    .replace(/(^|[^*])\*(?!\*)(.*?)\*(?!\*)/gim, "$1<i>$2</i>")
-    .replace(/\n/gim, "<br>");
-}
-
-function updatePreview() {
-  const preview = document.getElementById("preview-pane");
-  preview.innerHTML = renderMarkdown(editorContent.value);
-}
-
-// HELPERS
-
-function applyPreviewMode() {
-  document.body.classList.toggle("preview-mode", isPreviewMode);
-}
-
-function getItems() {
-  return document.querySelectorAll("li[data-id]");
 }
 
 function attachItemListeners(item) {
@@ -1025,79 +1144,19 @@ function attachItemListeners(item) {
   });
 }
 
-function setActiveItem(clickedItem) {
-  getItems().forEach((item) => item.classList.remove("active"));
-  clickedItem.classList.add("active");
-}
+// =====================
+// INIT
+// =====================
 
-function renameProject() {
-  if (!currentProjectId) return;
-
-  const newName = prompt("Rename project:");
-  if (!newName) return;
-
-  projects[currentProjectId].name = newName;
-
-  debounceSave();
-  renderProjectList();
-}
-
-function deleteProject() {
-  if (!currentProjectId) return;
-
-  const confirmDelete = confirm(
-    "Are you sure you want to delete this project?",
-  );
-
-  if (!confirmDelete) return;
-
-  delete projects[currentProjectId];
-
-  const remainingIds = Object.keys(projects);
-
-  currentProjectId = remainingIds[0] || null;
-
-  debounceSave();
+function initApp() {
+  loadFromLocalStorage();
+  updatePreview();
+  loadPreviewMode();
+  applyPreviewMode();
+  loadFocusMode();
   renderProjectList();
   renderSidebar();
-  clearEditor();
-}
-
-function searchDocuments(query) {
-  query = query.toLowerCase();
-
-  const lists = document.querySelectorAll("ul");
-  lists.forEach((list) => (list.innerHTML = ""));
-
-  const docs = projects[currentProjectId]?.documents || {};
-
-  for (const id in docs) {
-    const doc = projects[currentProjectId].documents[id];
-
-    if (
-      doc.title.toLowerCase().includes(query) ||
-      doc.content.toLowerCase().includes(query)
-    ) {
-      const li = document.createElement("li");
-      li.textContent = doc.title;
-      li.dataset.id = doc.id;
-      li.dataset.type = doc.type;
-
-      const list = document.querySelector(`ul[data-type="${doc.type}"]`);
-      if (list) {
-        list.appendChild(li);
-        attachItemListeners(li);
-      }
-    }
-  }
-}
-
-function handleItemClick(item) {
-  const id = item.dataset.id;
-
-  currentDocumentId = id;
-  loadDocument(id);
-  setActiveItem(item);
+  selectFirstDocument();
 }
 
 // ======================
