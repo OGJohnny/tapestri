@@ -203,18 +203,15 @@ function updatePreview() {
 }
 
 function formatText(type) {
-  saveHistory();
   const textarea = editorContent;
+
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
+
   const selectedText = textarea.value.substring(start, end);
-
-  // Restore Selection
-  textarea.focus();
-  textarea.selectionStart = start;
-  textarea.selectionEnd = end;
-
   if (!selectedText) return;
+
+  saveHistory();
 
   let formatted = "";
 
@@ -233,16 +230,21 @@ function formatText(type) {
   const before = textarea.value.substring(0, start);
   const after = textarea.value.substring(end);
 
-  textarea.value = before + formatted + after;
+  const newValue = before + formatted + after;
 
-  // Restore selection
+  textarea.value = newValue;
+
   textarea.focus();
   textarea.selectionStart = start;
   textarea.selectionEnd = start + formatted.length;
 
-  // Save + update
-  saveDocument();
+  history = history.slice(0, historyIndex + 1);
+  history.push(newValue);
+  historyIndex = history.length - 1;
+
   updatePreview();
+  updateWordCount();
+  //  saveDocument();
 }
 
 function togglePreview() {
@@ -281,18 +283,22 @@ function updateWordCount() {
 function saveHistory() {
   const value = editorContent.value;
 
-  // Avoid Duplicates
-  if (history[historyIndex] === value) return;
+  if (historyIndex >= 0 && history[historyIndex] === value) return;
 
   history = history.slice(0, historyIndex + 1);
   history.push(value);
-  historyIndex++;
+  historyIndex = history.length - 1;
+  console.log("Saving history:", editorContent.value);
 }
 
 function undo() {
   if (historyIndex > 0) {
     historyIndex--;
     editorContent.value = history[historyIndex];
+
+    updatePreview();
+    updateWordCount();
+    saveDocument();
   }
 }
 
@@ -300,6 +306,10 @@ function redo() {
   if (historyIndex < history.length - 1) {
     historyIndex++;
     editorContent.value = history[historyIndex];
+
+    updatePreview();
+    updateWordCount();
+    saveDocument();
   }
 }
 
@@ -499,7 +509,7 @@ function loadDocument(id) {
   const activeItem = document.querySelector(`[data-id="${id}"]`);
   if (activeItem) activeItem.classList.add("active");
 
-  history = [doc.content || ""];
+  history = [editorContent.value];
   historyIndex = 0;
 
   editorContent.focus();
@@ -865,14 +875,122 @@ function initMenuSystem() {
 // EVENTS SYSTEM
 // =====================
 
-function initEventListeners() {
-  getItems().forEach((item) => {
-    attachItemListeners(item);
-  });
-
+function initEditorEvents() {
   editorContent.addEventListener("select", () => {
     savedSelection.start = editorContent.selectionStart;
     savedSelection.end = editorContent.selectionEnd;
+  });
+
+  editorContent.addEventListener("input", () => {
+    let doc = getCurrentDocs()[currentDocumentId];
+
+    if (!doc) {
+      const docs = getCurrentDocs();
+      const firstId = Object.keys(docs)[0];
+      if (firstId) {
+        loadDocument(firstId);
+        doc = docs[firstId];
+      } else {
+        return;
+      }
+    }
+
+    saveHistory();
+
+    doc.content = editorContent.value;
+
+    updatePreview();
+    updateWordCount();
+    debounceSave();
+  });
+
+  editorContent.addEventListener("keydown", (e) => {
+    // UNDO / REDO
+    if (e.ctrlKey && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+
+      if (e.shiftKey) {
+        redo();
+      } else {
+        undo();
+      }
+      return;
+    }
+
+    // TAB HANDLING
+    if (e.key === "Tab") {
+      e.preventDefault();
+
+      const textarea = editorContent;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const value = textarea.value;
+
+      const before = value.substring(0, start);
+      const selection = value.substring(start, end);
+      const after = value.substring(end);
+
+      const tab = "  ";
+
+      if (selection.includes("\n")) {
+        const indented = selection
+          .split("\n")
+          .map((line) => tab + line)
+          .join("\n");
+
+        textarea.value = before + indented + after;
+        textarea.selectionStart = start;
+        textarea.selectionEnd = start + indented.length;
+      } else {
+        textarea.value = before + tab + after;
+        textarea.selectionStart = textarea.selectionEnd = start + tab.length;
+      }
+
+      saveHistory();
+      updatePreview();
+      updateWordCount();
+      saveDocument();
+    }
+  });
+
+  editorTitle.addEventListener("input", saveDocument);
+}
+
+function initSidebarEvents() {
+  addButtons.forEach((button) => {
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const section = button.closest("details");
+      addNewItem(section);
+    });
+  });
+}
+
+function initKeyboardShortcuts() {
+  editorContent.addEventListener("keydown", (e) => {
+    if (!e.ctrlKey) return;
+
+    switch (e.key.toLowerCase()) {
+      case "b":
+        e.preventDefault();
+        formatText("bold");
+        break;
+      case "i":
+        e.preventDefault();
+        formatText("italic");
+        break;
+      case "u":
+        e.preventDefault();
+        formatText("underline");
+        break;
+    }
+  });
+}
+
+function initEventListeners() {
+  getItems().forEach((item) => {
+    attachItemListeners(item);
   });
 
   document.getElementById("new-project").addEventListener("click", () => {
@@ -932,15 +1050,6 @@ function initEventListeners() {
     togglePreviewBtn.addEventListener("click", togglePreview);
   }
 
-  addButtons.forEach((button) => {
-    button.addEventListener("click", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      const section = button.closest("details");
-      addNewItem(section);
-    });
-  });
-
   searchInput.addEventListener("input", () => {
     const query = searchInput.value;
 
@@ -983,15 +1092,6 @@ function initEventListeners() {
     });
   });
 
-  addButtons.forEach((button) => {
-    button.addEventListener("click", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      const section = button.closest("details");
-    });
-  });
-
-  editorTitle.addEventListener("input", saveDocument);
   addCharacterBtn.addEventListener("click", addCharacterToChapter);
   newProjectBtn.addEventListener("click", createNewProject);
 
@@ -1014,80 +1114,11 @@ function initEventListeners() {
     .getElementById("delete-project-btn")
     .addEventListener("click", deleteProject);
 
-  editorContent.addEventListener("input", () => {
-    let doc = getCurrentDocs()[currentDocumentId];
-
-    if (!doc) {
-      const docs = getCurrentDocs();
-
-      const firstId = Object.keys(docs)[0];
-
-      if (firstId) {
-        loadDocument(firstId);
-        doc = docs[firstId];
-      } else {
-        return;
-      }
-    }
-
-    doc.content = editorContent.value;
-
-    debounceSave();
-    updateWordCount();
-  });
-
   document.addEventListener("keydown", (e) => {
     // Ctrl + Shift + F → Toggle Focus Mode
     if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "f") {
       e.preventDefault();
       toggleFocusMode();
-    }
-  });
-
-  editorContent.addEventListener("keydown", (e) => {
-    if (e.key === "Tab") {
-      e.preventDefault();
-
-      const textarea = editorContent;
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-
-      const value = textarea.value;
-
-      const before = value.substring(0, start);
-      const selection = value.substring(start, end);
-      const after = value.substring(end);
-
-      const tab = "  ";
-
-      // MULTI-LINE INDENT
-      if (selection.includes("\n")) {
-        const indented = selection
-          .split("\n")
-          .map((line) => tab + line)
-          .join("\n");
-
-        textarea.value = before + indented + after;
-
-        textarea.selectionStart = start;
-        textarea.selectionEnd = start + indented.length;
-      } else {
-        // SINGLE LINE
-        textarea.value = before + tab + after;
-        textarea.selectionStart = textarea.selectionEnd = start + tab.length;
-      }
-
-      if (e.ctrlKey && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-
-        if (e.shiftKey) {
-          redo();
-        } else {
-          undo();
-        }
-      }
-
-      saveDocument();
     }
   });
 
@@ -1098,35 +1129,11 @@ function initEventListeners() {
     });
   });
 
-  editorContent.addEventListener("keydown", (e) => {
-    if (!e.ctrlKey) return;
-
-    switch (e.key.toLowerCase()) {
-      case "b":
-        e.preventDefault();
-        formatText("bold");
-        break;
-      case "i":
-        e.preventDefault();
-        formatText("italic");
-        break;
-      case "u":
-        e.preventDefault();
-        formatText("underline");
-        break;
-    }
-  });
-
-  editorTitle.addEventListener("input", saveDocument);
-
-  editorContent.addEventListener("input", () => {
-    saveHistory();
-    updatePreview();
-    saveDocument();
-  });
-
-  initMenuSystem();
   saveHistory();
+  initMenuSystem();
+  initEditorEvents();
+  initSidebarEvents();
+  initKeyboardShortcuts();
 }
 
 function attachItemListeners(item) {
