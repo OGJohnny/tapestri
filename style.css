@@ -86,6 +86,30 @@ body.preview-mode .editor-main {
   display: block;
 }
 
+/* Smooth fade only (safe version) */
+#preview-pane,
+#editor-content {
+  transition: opacity 0.2s ease;
+}
+
+/* Default: preview hidden */
+body:not(.preview-mode) #preview-pane {
+  opacity: 0;
+  pointer-events: none;
+  display: none;
+}
+
+/* Preview mode ON */
+body.preview-mode #preview-pane {
+  display: block;
+  opacity: 1;
+}
+
+/* Hide editor in preview */
+body.preview-mode #editor-content {
+  display: none;
+}
+
 /* ======================
    LAYOUT
 ====================== */
@@ -549,8 +573,4 @@ li.active {
   border-color: black;
   transform: scale(0.95);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-.hidden {
-  display: none;
 }

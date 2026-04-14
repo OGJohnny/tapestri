@@ -248,6 +248,7 @@ function loadDocument(id) {
 
   editorContent.focus();
   updateWordCount();
+  updatePreview();
 }
 
 function clearEditor() {
@@ -561,6 +562,7 @@ function initEventListeners() {
 
 function initApp() {
   loadFromLocalStorage();
+  updatePreview();
   loadPreviewMode();
   applyPreviewMode();
   loadFocusMode();
