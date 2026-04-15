@@ -241,6 +241,11 @@ li {
   cursor: pointer;
 }
 
+#tag-input {
+  border: 1px solid #aaa;
+  border-radius: 6px;
+}
+
 #character-list {
   display: flex;
   flex-wrap: wrap;
@@ -352,6 +357,9 @@ button {
 
 #project-select {
   flex: 1;
+  height: 28px;
+  border: 1px solid #aaa;
+  border-radius: 6px;
 }
 
 .editor-top {
@@ -414,8 +422,9 @@ body.focus-mode .format-toolbar {
 }
 
 .format-toolbar select {
-  height: 32px;
+  height: 28px;
   padding: 4px 6px;
+  border: 1px solid #aaa;
 }
 
 button:hover {
@@ -471,6 +480,12 @@ details.active-section summary {
   display: flex;
   gap: 5px;
   align-items: center;
+}
+
+#character-select {
+  height: 28px;
+  border: 1px solid #aaa;
+  border-radius: 6px;
 }
 
 .relationships-container h4 {

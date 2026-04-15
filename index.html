@@ -13,6 +13,7 @@
       <div class="menu-item" data-menu="file">File</div>
       <div class="menu-item" data-menu="edit">Edit</div>
       <div class="menu-item" data-menu="view">View</div>
+      <div class="menu-item" data-menu="help">Help</div>
     </div>
 
     <div class="menu-dropdown" id="file-menu">
@@ -30,6 +31,11 @@
     <div class="menu-dropdown" id="view-menu">
       <div class="menu-option" id="toggle-focus">Toggle Focus Mode</div>
       <div class="menu-option" id="toggle-preview-menu">Toggle Preview</div>
+    </div>
+
+    <div class="menu-dropdown" id="help-menu">
+      <div class="menu-option" id="help-about">About Tapestri</div>
+      <div class="menu-option" id="help-shortcuts">Keyboard Shortcuts</div>
     </div>
 
     <div class="app">
@@ -108,10 +114,14 @@
               <option value="18px">Large</option>
               <option value="22px">Extra Large</option>
             </select>
-            <button data-format="bold"><b>B</b></button>
-            <button data-format="italic"><i>I</i></button>
-            <button data-format="underline"><u>U</u></button>
-            <button id="togglePreviewBtn">Toggle Preview</button>
+            <button data-format="bold" title="Bold (Ctrl+B)">B</button>
+            <button data-format="italic" title="Italic (Ctrl+I)">I</button>
+            <button data-format="underline" title="Underline (Ctrl+U)">
+              U
+            </button>
+            <button id="togglePreviewBtn" title="Toggle Preview">
+              Preview
+            </button>
           </div>
 
           <div class="meta-row">
@@ -190,6 +200,17 @@
         <div class="modal-actions">
           <button id="confirm-export">Export</button>
           <button id="cancel-export">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <div id="help-modal" class="modal hidden">
+      <div class="modal-content">
+        <h2 id="help-title">Help</h2>
+
+        <div id="help-body"></div>
+
+        <div class="modal-actions">
+          <button id="close-help">Close</button>
         </div>
       </div>
     </div>

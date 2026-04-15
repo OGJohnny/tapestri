@@ -910,6 +910,37 @@ function convertToPlainText(markdown) {
     .replace(/<u>|<\/u>/g, "");
 }
 
+function openHelpModal(title, content) {
+  document.getElementById("help-title").textContent = title;
+  document.getElementById("help-body").innerHTML = content;
+  document.getElementById("help-modal").classList.remove("hidden");
+}
+
+function closeHelpModal() {
+  document.getElementById("help-modal").classList.add("hidden");
+}
+
+function getAboutContent() {
+  return `
+    <p><strong>Tapestri</strong> is an AI-enhanced creative writing studio.</p>
+    <p>Designed for long-form storytelling, worldbuilding, and character development.</p>
+    <p>Built to evolve into a fully local AI-powered writing system.</p>
+  `;
+}
+
+function getShortcutsContent() {
+  return `
+    <ul>
+      <li><strong>Ctrl + B</strong> — Bold</li>
+      <li><strong>Ctrl + I</strong> — Italic</li>
+      <li><strong>Ctrl + U</strong> — Underline</li>
+      <li><strong>Ctrl + Z</strong> — Undo</li>
+      <li><strong>Ctrl + Shift + Z</strong> — Redo</li>
+      <li><strong>Tab</strong> — Indent</li>
+    </ul>
+  `;
+}
+
 // =====================
 // MENU SYSTEM
 // =====================
@@ -919,6 +950,7 @@ function initMenuSystem() {
     file: document.getElementById("file-menu"),
     edit: document.getElementById("edit-menu"),
     view: document.getElementById("view-menu"),
+    help: document.getElementById("help-menu"),
   };
 
   let activeMenu = null;
@@ -971,6 +1003,18 @@ function initMenuSystem() {
     exportMode = "document";
     openExportModal();
   });
+
+  document.getElementById("help-about").addEventListener("click", () => {
+    openHelpModal("About Tapestri", getAboutContent());
+  });
+
+  document.getElementById("help-shortcuts").addEventListener("click", () => {
+    openHelpModal("Keyboard Shortcuts", getShortcutsContent());
+  });
+
+  document
+    .getElementById("close-help")
+    .addEventListener("click", closeHelpModal);
 }
 
 // =====================
