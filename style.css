@@ -610,3 +610,62 @@ li.active {
 .menu-option:hover {
   background: #f0f0f0;
 }
+
+/* Modal System */
+
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.4);
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-content {
+  background: #1e1e1e;
+  color: #eaeaea;
+  padding: 20px;
+  border-radius: 10px;
+  width: 300px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modal-content input {
+  padding: 8px;
+  border-radius: 5px;
+  border: none;
+}
+
+.modal-content h2,
+.modal-content label {
+  color: #ffffff;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: space-between;
+}
+
+.export-options {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 10px 0;
+}
+
+.export-options label {
+  font-size: 14px;
+}

@@ -149,5 +149,38 @@
         </div>
       </div>
     </div>
+
+    <div id="export-modal" class="modal hidden">
+      <div class="modal-content">
+        <h2>Export Project</h2>
+
+        <label>File Name</label>
+        <input type="text" id="export-filename" placeholder="my-project.md" />
+
+        <div class="export-options">
+          <label
+            ><input type="checkbox" value="chapter" checked />Chapters</label
+          >
+          <label
+            ><input
+              type="checkbox"
+              value="character"
+              checked
+            />Characters</label
+          >
+          <label><input type="checkbox" value="world" checked />World</label>
+          <label
+            ><input type="checkbox" value="timeline" checked />Timeline</label
+          >
+          <label><input type="checkbox" value="notes" checked />Notes</label>
+          <label><input type="checkbox" value="ideas" checked />Ideas</label>
+        </div>
+
+        <div class="modal-actions">
+          <button id="confirm-export">Export</button>
+          <button id="cancel-export">Cancel</button>
+        </div>
+      </div>
+    </div>
   </body>
 </html>

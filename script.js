@@ -10,6 +10,7 @@ let currentDocumentId = null;
 let saveTimeout;
 let isFocusMode = false;
 let isPreviewMode = false;
+let exportMode = "project";
 
 // ======================
 // ELEMENTS (DOM)
@@ -244,7 +245,6 @@ function formatText(type) {
 
   updatePreview();
   updateWordCount();
-  //  saveDocument();
 }
 
 function togglePreview() {
@@ -288,7 +288,6 @@ function saveHistory() {
   history = history.slice(0, historyIndex + 1);
   history.push(value);
   historyIndex = history.length - 1;
-  console.log("Saving history:", editorContent.value);
 }
 
 function undo() {
@@ -750,36 +749,97 @@ function searchDocuments(query) {
 // EXPORT SYSTEM
 // =====================
 
-function exportProject() {
-  if (!currentProjectId) return;
+function openExportModal() {
+  const modal = document.getElementById("export-modal");
+  modal.classList.remove("hidden");
 
-  const confirmExport = confirm("Export this project?");
-  if (!confirmExport) return;
+  const input = document.getElementById("export-filename");
 
+  if (exportMode === "document") {
+    input.value = "document.md";
+  } else {
+    input.value = "project.md";
+  }
+
+  input.focus();
+
+  const options = modal.querySelector(".export-options");
+
+  if (exportMode === "document") {
+    options.style.display = "none";
+  } else {
+    options.style.display = "block";
+
+    const checkboxes = modal.querySelectorAll("input[type='checkbox']");
+    checkboxes.forEach((cb) => (cb.checked = true));
+  }
+}
+
+function closeExportModal() {
+  document.getElementById("export-modal").classList.add("hidden");
+}
+
+function handleExportConfirm() {
+  const filename = document.getElementById("export-filename").value.trim();
+  if (!filename) return;
+
+  let content = "";
+
+  if (exportMode === "document") {
+    content = exportCurrentDocument();
+  } else {
+    const checkboxes = document.querySelectorAll(
+      "#export-modal input[type='checkbox']:checked",
+    );
+
+    const selectedSections = Array.from(checkboxes).map((cb) => cb.value);
+
+    content = buildExportContent(selectedSections);
+  }
+
+  downloadFile(filename, content);
+
+  closeExportModal();
+}
+
+function buildExportContent(selectedSections) {
   const docs = getCurrentDocs();
-  const doc = docs[currentProjectId];
+  if (!docs) return "";
 
-  if (!doc) return;
+  let output = "";
 
-  const md = projectToMarkdown(doc);
+  const sectionTitles = {
+    chapter: "Manuscript",
+    character: "Characters",
+    world: "Worldbuilding",
+    timeline: "Timeline",
+    notes: "Notes",
+    ideas: "Ideas",
+  };
 
-  downloadFile(`${doc.title}.md`, md);
+  selectedSections.forEach((section) => {
+    const filteredDocs = Object.values(docs).filter(
+      (doc) => doc.type === section,
+    );
+
+    if (filteredDocs.length === 0) return;
+
+    output += `# ${sectionTitles[section] || section}\n\n`;
+
+    filteredDocs.forEach((doc) => {
+      output += `## ${doc.title || "Untitled"}\n\n`;
+      output += `${doc.content || ""}\n\n`;
+    });
+  });
+
+  return output;
 }
 
 function exportCurrentDocument() {
-  if (!currentDocumentId) return;
+  const doc = getCurrentDocs()[currentDocumentId];
+  if (!doc) return "";
 
-  const confirmExport = confirm("Export this document?");
-  if (!confirmExport) return;
-
-  const docs = getCurrentDocs();
-  const doc = docs[currentDocumentId];
-
-  if (!doc) return;
-
-  const md = documentToMarkdown(doc);
-
-  downloadFile(`${doc.title}.md`, md);
+  return `# ${doc.title}\n\n${doc.content}`;
 }
 
 function projectToMarkdown() {
@@ -849,7 +909,7 @@ function initMenuSystem() {
 
       document.querySelectorAll(".menu-option").forEach((item) => {
         item.addEventListener("mousedown", (e) => {
-          e.preventDefault(); // 🔥 THIS fixes selection loss
+          e.preventDefault();
         });
       });
 
@@ -868,6 +928,20 @@ function initMenuSystem() {
       Object.values(menus).forEach((m) => (m.style.display = "none"));
       activeMenu = null;
     }
+  });
+
+  document.getElementById("export-project").addEventListener("click", () => {
+    openExportModal();
+  });
+
+  document.getElementById("export-project").addEventListener("click", () => {
+    exportMode = "project";
+    openExportModal();
+  });
+
+  document.getElementById("export-doc").addEventListener("click", () => {
+    exportMode = "document";
+    openExportModal();
   });
 }
 
@@ -997,19 +1071,6 @@ function initEventListeners() {
     document.getElementById("new-project-btn").click();
   });
 
-  document.getElementById("export-project").addEventListener("click", () => {
-    const project = getCurrentDocs();
-
-    if (!project) return;
-
-    const markdown = projectToMarkdown(project);
-
-    const filename = prompt("Enter file name:", "project.md");
-    if (!filename) return;
-
-    downloadFile(filename, markdown);
-  });
-
   document.getElementById("export-doc").addEventListener("click", () => {
     exportCurrentDocument();
   });
@@ -1129,6 +1190,14 @@ function initEventListeners() {
     });
   });
 
+  document
+    .getElementById("confirm-export")
+    .addEventListener("click", handleExportConfirm);
+
+  document
+    .getElementById("cancel-export")
+    .addEventListener("click", closeExportModal);
+
   saveHistory();
   initMenuSystem();
   initEditorEvents();
@@ -1166,9 +1235,6 @@ function initApp() {
   selectFirstDocument();
 }
 
-// ======================
-// Init
-// ======================
 document.addEventListener("DOMContentLoaded", () => {
   initApp();
   initEventListeners();
