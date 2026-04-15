@@ -934,6 +934,7 @@ function getShortcutsContent() {
       <li><strong>Ctrl + B</strong> — Bold</li>
       <li><strong>Ctrl + I</strong> — Italic</li>
       <li><strong>Ctrl + U</strong> — Underline</li>
+      <li><strong>Ctrl + P</strong> — Toggle Preview</li>
       <li><strong>Ctrl + Z</strong> — Undo</li>
       <li><strong>Ctrl + Shift + Z</strong> — Redo</li>
       <li><strong>Tab</strong> — Indent</li>
@@ -954,24 +955,38 @@ function initMenuSystem() {
   };
 
   let activeMenu = null;
+  let menuMode = false;
 
   document.querySelectorAll(".menu-item").forEach((item) => {
     item.addEventListener("mousedown", (e) => {
       e.preventDefault();
+
       const menuName = item.dataset.menu;
       const menu = menus[menuName];
 
+      // Toggle off if same menu clicked
       if (activeMenu === menuName) {
         menu.style.display = "none";
         activeMenu = null;
+        menuMode = false;
         return;
       }
 
-      document.querySelectorAll(".menu-option").forEach((item) => {
-        item.addEventListener("mousedown", (e) => {
-          e.preventDefault();
-        });
-      });
+      menuMode = true;
+
+      Object.values(menus).forEach((m) => (m.style.display = "none"));
+
+      menu.style.display = "block";
+      activeMenu = menuName;
+    });
+  });
+
+  document.querySelectorAll(".menu-item").forEach((item) => {
+    item.addEventListener("mouseenter", () => {
+      if (!menuMode) return;
+
+      const menuName = item.dataset.menu;
+      const menu = menus[menuName];
 
       Object.values(menus).forEach((m) => (m.style.display = "none"));
 
@@ -987,6 +1002,7 @@ function initMenuSystem() {
     if (!isMenuItem && !isDropdown) {
       Object.values(menus).forEach((m) => (m.style.display = "none"));
       activeMenu = null;
+      menuMode = false;
     }
   });
 
@@ -1015,6 +1031,16 @@ function initMenuSystem() {
   document
     .getElementById("close-help")
     .addEventListener("click", closeHelpModal);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    if (menuMode) {
+      Object.values(menus).forEach((m) => (m.style.display = "none"));
+      activeMenu = null;
+      menuMode = false;
+    }
+  });
 }
 
 // =====================
@@ -1178,6 +1204,12 @@ function initEventListeners() {
     if (e.ctrlKey && e.key.toLowerCase() === "p") {
       e.preventDefault();
       togglePreview();
+    }
+
+    if (e.key === "Escape") {
+      if (document.body.classList.contains("focus-mode")) {
+        toggleFocusMode();
+      }
     }
   });
 

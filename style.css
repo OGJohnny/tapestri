@@ -12,6 +12,14 @@ html {
   margin: 2px;
 }
 
+.app,
+.sidebar,
+.editor-top,
+.meta-row,
+.format-toolbar {
+  transition: all 0.25s ease;
+}
+
 /* Focus Mode Base */
 body.focus-mode {
   background: inherit;
@@ -60,11 +68,6 @@ body.focus-mode .toolbar {
 body.focus-mode .editor-container {
   max-width: 800px;
   margin: 0 auto;
-}
-
-/* Preview ON */
-body.preview-mode #editor-content {
-  display: none;
 }
 
 body.focus-mode .editor-main {
@@ -404,6 +407,27 @@ body.focus-mode .format-toolbar {
   display: flex;
   justify-content: center;
   gap: 10px;
+  opacity: 0.2s;
+  transition: opacity 0.2s ease;
+}
+
+body.focus-mode .format-toolbar:hover {
+  opacity: 1;
+}
+
+body.focus-mode #editor-content {
+  font-size: 18px;
+  line-height: 1.7;
+  padding: 30px;
+  background: #edede7;
+}
+
+body.focus-mode .editor-footer {
+  opacity: 0.2;
+}
+
+body.focus-mode .editor-footer:hover {
+  opacity: 1;
 }
 
 /* ======================
