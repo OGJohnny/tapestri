@@ -413,6 +413,11 @@ body.focus-mode .format-toolbar {
   font-size: 14px;
 }
 
+.format-toolbar select {
+  height: 32px;
+  padding: 4px 6px;
+}
+
 button:hover {
   background: #ddd;
 }
@@ -652,6 +657,12 @@ li.active {
 .modal-content h2,
 .modal-content label {
   color: #ffffff;
+}
+
+.modal-content select {
+  padding: 6px;
+  border-radius: 5px;
+  border: none;
 }
 
 .modal-actions {

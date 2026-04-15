@@ -102,6 +102,12 @@
           </div>
 
           <div class="format-toolbar">
+            <select id="font-size" class="ui-control">
+              <option value="14px">Small</option>
+              <option value="16px" selected>Normal</option>
+              <option value="18px">Large</option>
+              <option value="22px">Extra Large</option>
+            </select>
             <button data-format="bold"><b>B</b></button>
             <button data-format="italic"><i>I</i></button>
             <button data-format="underline"><u>U</u></button>
@@ -156,6 +162,11 @@
 
         <label>File Name</label>
         <input type="text" id="export-filename" placeholder="my-project.md" />
+        <label>Format</label>
+        <select id="export-format">
+          <option value="md">Markdown (.md)</option>
+          <option value="txt">Plain Text (.txt)</option>
+        </select>
 
         <div class="export-options">
           <label

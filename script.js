@@ -276,6 +276,11 @@ function updateWordCount() {
     `Words: ${words} | Characters: ${chars}`;
 }
 
+function setEditorFontSize(size) {
+  editorContent.style.fontSize = size;
+  localStorage.setItem("editorFontSize", size);
+}
+
 // ======================
 // HISTORY SYSTEM
 // ======================
@@ -797,7 +802,20 @@ function handleExportConfirm() {
     content = buildExportContent(selectedSections);
   }
 
-  downloadFile(filename, content);
+  const formatSelect = document.getElementById("export-format");
+  const format = formatSelect.options[formatSelect.selectedIndex].value;
+
+  let finalFilename = filename;
+  let finalContent = content;
+
+  if (format === "txt") {
+    finalFilename = filename.replace(/\.(md|txt)$/i, "") + ".txt";
+    finalContent = convertToPlainText(content);
+  } else {
+    finalFilename = filename.replace(/\.\w+$/, "") + ".md";
+  }
+
+  downloadFile(finalFilename, finalContent);
 
   closeExportModal();
 }
@@ -880,6 +898,16 @@ function downloadFile(filename, content) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+}
+
+function convertToPlainText(markdown) {
+  return markdown
+    .replace(/^# /gm, "")
+    .replace(/^## /gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/__/g, "")
+    .replace(/<u>|<\/u>/g, "");
 }
 
 // =====================
@@ -976,6 +1004,16 @@ function initEditorEvents() {
     updatePreview();
     updateWordCount();
     debounceSave();
+  });
+
+  document.getElementById("font-size").addEventListener("change", (e) => {
+    const start = editorContent.selectionStart;
+    const end = editorContent.selectionEnd;
+
+    setEditorFontSize(e.target.value);
+
+    editorContent.focus();
+    editorContent.setSelectionRange(start, end);
   });
 
   editorContent.addEventListener("keydown", (e) => {
@@ -1233,6 +1271,11 @@ function initApp() {
   renderProjectList();
   renderSidebar();
   selectFirstDocument();
+  const savedSize = localStorage.getItem("editorFontSize");
+  if (savedSize) {
+    setEditorFontSize(savedSize);
+    document.getElementById("font-size").value = savedSize;
+  }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
