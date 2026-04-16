@@ -383,6 +383,8 @@ textarea {
   border-radius: 10px;
   background: #edede7;
   overflow-y: auto;
+  user-select: text;
+  cursor: default;
 }
 
 #preview-pane,
@@ -390,6 +392,20 @@ textarea {
   flex: 1;
   height: 100%;
   transition: opacity 0.2s ease;
+}
+
+#graph-canvas {
+  width: 100%;
+  height: 300px;
+}
+
+#graph-modal .modal-content {
+  width: 90%;
+  height: 90%;
+}
+
+.graph-footer {
+  text-align: right;
 }
 
 /* =====================
@@ -471,6 +487,25 @@ button {
   border: none;
 }
 
+.mode-indicator {
+  display: none;
+  display: none;
+  font-size: 14px;
+  font-weight: 500;
+  background: #dcdcdc;
+  color: #333;
+  padding: 4px 10px;
+  border-radius: 12px;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+#graph-modal button {
+  width: auto;
+  display: inline-block;
+  margin-top: 10px;
+}
+
 /* ======================
    FEATURES
 ====================== */
@@ -498,6 +533,36 @@ body.preview-mode #preview-pane {
 
 /* Hide editor in preview */
 body.preview-mode #editor-content {
+  display: none;
+}
+
+body.preview-mode .format-toolbar {
+  opacity: 1 !important;
+  justify-content: center;
+}
+
+body.preview-mode .format-toolbar button {
+  display: none;
+}
+
+body.preview-mode .mode-indicator {
+  display: block;
+}
+
+body.preview-mode .format-toolbar button,
+body.preview-mode .format-toolbar select {
+  display: none;
+}
+
+body.focus-mode.preview-mode .format-toolbar {
+  opacity: 1;
+}
+
+body.preview-mode .meta-row {
+  display: none;
+}
+
+body.preview-mode .reverse-relationships {
   display: none;
 }
 
@@ -655,6 +720,10 @@ li.active {
 
 .export-options label {
   font-size: 14px;
+}
+
+.hidden {
+  display: none;
 }
 
 /* ======================

@@ -42,9 +42,9 @@
       <div class="sidebar">
         <div class="project-bar">
           <select id="project-select"></select>
-          <button id="new-project-btn">+</button>
-          <button id="rename-project-btn">✏️</button>
-          <button id="delete-project-btn">🗑</button>
+          <button id="new-project-btn" title="New Project">+</button>
+          <button id="rename-project-btn" title="Rename Project">✏️</button>
+          <button id="delete-project-btn" title="Delete Project">🗑</button>
         </div>
 
         <div class="search-container">
@@ -54,7 +54,7 @@
         <details open>
           <summary class="section-header">
             <span>Manuscript</span>
-            <button class="add-btn">+</button>
+            <button class="add-btn" title="Add New Chapter">+</button>
           </summary>
           <ul data-type="chapter"></ul>
         </details>
@@ -62,7 +62,7 @@
         <details>
           <summary class="section-header">
             <span>Characters</span>
-            <button class="add-btn">+</button>
+            <button class="add-btn" title="Add New Character">+</button>
           </summary>
           <ul data-type="character"></ul>
         </details>
@@ -70,7 +70,7 @@
         <details>
           <summary class="section-header">
             <span>Worldbuilding</span>
-            <button class="add-btn">+</button>
+            <button class="add-btn" title="Add Worldbuilding Entry">+</button>
           </summary>
           <ul data-type="world"></ul>
         </details>
@@ -78,7 +78,7 @@
         <details>
           <summary class="section-header">
             <span>Timeline</span>
-            <button class="add-btn">+</button>
+            <button class="add-btn" title="Add Timeline Event">+</button>
           </summary>
           <ul data-type="timeline"></ul>
         </details>
@@ -86,7 +86,7 @@
         <details>
           <summary class="section-header">
             <span>Research</span>
-            <button class="add-btn">+</button>
+            <button class="add-btn" title="Add Research Note">+</button>
           </summary>
           <ul data-type="notes"></ul>
         </details>
@@ -94,7 +94,7 @@
         <details>
           <summary class="section-header">
             <span>Ideas</span>
-            <button class="add-btn">+</button>
+            <button class="add-btn" title="Add Idea">+</button>
           </summary>
           <ul data-type="ideas"></ul>
         </details>
@@ -108,6 +108,10 @@
           </div>
 
           <div class="format-toolbar">
+            <div id="mode-indicator" class="mode-indicator hidden">
+              Preview Mode
+            </div>
+
             <select id="font-size" class="ui-control">
               <option value="14px">Small</option>
               <option value="16px" selected>Normal</option>
@@ -219,7 +223,9 @@
       <div class="modal-content" style="width: 600px; height: 400px">
         <h2>Graph View</h2>
         <canvas id="graph-canvas"></canvas>
-        <button id="close-graph">Close</button>
+        <div class="graph-footer">
+          <button id="close-graph">Close</button>
+        </div>
       </div>
     </div>
   </body>

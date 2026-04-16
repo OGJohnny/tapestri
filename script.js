@@ -11,6 +11,12 @@ let saveTimeout;
 let isFocusMode = false;
 let isPreviewMode = false;
 let exportMode = "project";
+let graphState = {
+  nodes: [],
+  edges: [],
+};
+let graphAnimating = false;
+let draggedNode = null;
 
 // ======================
 // ELEMENTS (DOM)
@@ -27,6 +33,9 @@ const projectSelect = document.getElementById("project-select");
 const newProjectBtn = document.getElementById("new-project-btn");
 const sections = document.querySelectorAll("details");
 const addButtons = document.querySelectorAll(".add-btn");
+const canvas = document.getElementById("graph-canvas");
+canvas.width = canvas.clientWidth;
+canvas.height = canvas.clientHeight;
 
 // =====================
 // STORAGE
@@ -250,8 +259,20 @@ function formatText(type) {
 function togglePreview() {
   isPreviewMode = !isPreviewMode;
 
+  const indicator = document.getElementById("mode-indicator");
+
+  if (isPreviewMode) {
+    indicator.classList.remove("hidden");
+  } else {
+    indicator.classList.add("hidden");
+  }
+
   applyPreviewMode();
   savePreviewMode();
+
+  if (!isPreviewMode) {
+    editorContent.focus();
+  }
 }
 
 function toggleFocusMode() {
@@ -263,7 +284,22 @@ function toggleFocusMode() {
 }
 
 function applyPreviewMode() {
-  document.body.classList.toggle("preview-mode", isPreviewMode);
+  const preview = document.getElementById("preview-pane");
+  const textarea = document.getElementById("editor-content");
+
+  if (isPreviewMode) {
+    preview.classList.remove("hidden");
+    textarea.classList.add("hidden");
+    document.body.classList.add("preview-mode");
+  } else {
+    preview.classList.add("hidden");
+    textarea.classList.remove("hidden");
+    document.body.classList.remove("preview-mode");
+  }
+
+  if (!isPreviewMode) {
+    editorContent.focus();
+  }
 }
 
 function updateWordCount() {
@@ -280,50 +316,173 @@ function setEditorFontSize(size) {
   editorContent.style.fontSize = size;
   localStorage.setItem("editorFontSize", size);
 }
+
 function getGraphData() {
-  const project = projects[currentProjectId];
-  if (!project) return { nodes: [], edges: [] };
+  const docs = getCurrentDocs();
+  if (!docs) return { nodes: [], edges: [] };
 
   const nodes = [];
   const edges = [];
 
-  // Characters
-  Object.values(project.character || {}).forEach((char) => {
-    nodes.push({ id: char.id, label: char.title, type: "character" });
-  });
-
-  // Chapters
-  Object.values(project.chapter || {}).forEach((chap) => {
-    nodes.push({ id: chap.id, label: chap.title, type: "chapter" });
-
-    (chap.relationships?.characters || []).forEach((charId) => {
-      edges.push({ from: chap.id, to: charId });
+  Object.values(docs).forEach((doc) => {
+    // Add node
+    nodes.push({
+      id: doc.id,
+      label: doc.title || "Untitled",
+      type: doc.type,
     });
+
+    // Relationships (chapters → characters)
+    if (doc.type === "chapter" && doc.relationships?.characters) {
+      doc.relationships.characters.forEach((charId) => {
+        edges.push({
+          from: doc.id,
+          to: charId,
+        });
+      });
+    }
   });
 
   return { nodes, edges };
 }
 
 function renderGraph() {
-  const canvas = document.getElementById("graph-canvas");
   const ctx = canvas.getContext("2d");
 
-  const { nodes, edges } = getGraphData();
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+
+  const data = getGraphData();
+
+  // Initialize positions once
+  if (graphState.nodes.length === 0) {
+    graphState.nodes = data.nodes.map((node) => ({
+      ...node,
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      vx: 0,
+      vy: 0,
+    }));
+    graphState.edges = data.edges;
+  }
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  nodes.forEach((node, i) => {
-    const x = 100 + i * 100;
-    const y = 200;
+  // Draw edges
+  graphState.edges.forEach((edge) => {
+    const from = graphState.nodes.find((n) => n.id === edge.from);
+    const to = graphState.nodes.find((n) => n.id === edge.to);
+
+    if (!from || !to) return;
 
     ctx.beginPath();
-    ctx.arc(x, y, 20, 0, Math.PI * 2);
-    ctx.fillStyle = node.type === "character" ? "blue" : "green";
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.strokeStyle = "#888";
+    ctx.stroke();
+  });
+
+  // Draw nodes
+  graphState.nodes.forEach((node) => {
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, 20, 0, Math.PI * 2);
+    ctx.fillStyle = node.type === "character" ? "#2980b9" : "#27ae60";
     ctx.fill();
 
-    ctx.fillStyle = "white";
-    ctx.fillText(node.label, x - 15, y + 5);
+    ctx.fillStyle = "#fff";
+    ctx.fillText(node.label, node.x, node.y + 35);
   });
+
+  console.log("Nodes:", graphState.nodes.length);
+  console.log(canvas.width, canvas.height);
+}
+
+function applyForces() {
+  const nodes = graphState.nodes;
+  const edges = graphState.edges;
+
+  if (!nodes.length) return;
+
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+
+  // REPULSION (push nodes apart)
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i];
+      const b = nodes[j];
+
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+      const force = 200 / (dist * dist);
+
+      const fx = (dx / dist) * force;
+      const fy = (dy / dist) * force;
+
+      a.vx -= fx;
+      a.vy -= fy;
+      b.vx += fx;
+      b.vy += fy;
+    }
+  }
+
+  // CENTER GRAVITY (keep nodes on screen)
+  nodes.forEach((node) => {
+    node.vx += (centerX - node.x) * 0.002;
+    node.vy += (centerY - node.y) * 0.002;
+  });
+
+  // EDGE ATTRACTION (connected nodes pull together)
+  edges.forEach((edge) => {
+    const a = nodes.find((n) => n.id === edge.from);
+    const b = nodes.find((n) => n.id === edge.to);
+
+    if (!a || !b) return;
+
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+
+    a.vx += dx * 0.002;
+    a.vy += dy * 0.002;
+    b.vx -= dx * 0.002;
+    b.vy -= dy * 0.002;
+  });
+
+  // APPLY VELOCITY + LIMITS
+  const padding = 40;
+
+  nodes.forEach((node) => {
+    node.x += node.vx;
+    node.y += node.vy;
+
+    // Damping
+    node.vx *= 0.95;
+    node.vy *= 0.95;
+
+    // Clamp to canvas
+    node.x = Math.max(padding, Math.min(canvas.width - padding, node.x));
+    node.y = Math.max(padding, Math.min(canvas.height - padding, node.y));
+
+    // Limit velocity
+    node.vx = Math.max(-4, Math.min(4, node.vx));
+    node.vy = Math.max(-4, Math.min(4, node.vy));
+  });
+  console.log(nodes[0].vx);
+}
+
+function animateGraph() {
+  try {
+    console.log("ANIMATING FRAME");
+
+    applyForces();
+    renderGraph();
+
+    requestAnimationFrame(animateGraph);
+  } catch (err) {
+    console.error("GRAPH ERROR:", err);
+  }
 }
 
 // ======================
@@ -1144,6 +1303,12 @@ function initEditorEvents() {
       return;
     }
 
+    if (e.ctrlKey && e.key.toLowerCase() === "g") {
+      e.preventDefault();
+      document.getElementById("graph-modal").classList.remove("hidden");
+      renderGraph();
+    }
+
     // TAB HANDLING
     if (e.key === "Tab") {
       e.preventDefault();
@@ -1215,9 +1380,83 @@ function initKeyboardShortcuts() {
   });
 }
 
+function initGraph() {
+  const canvas = document.getElementById("graph-canvas");
+  let draggedNode = null;
+
+  canvas.addEventListener("mousedown", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    draggedNode = graphState.nodes.find(
+      (node) => Math.hypot(node.x - x, node.y - y) < 20,
+    );
+  });
+
+  canvas.addEventListener("mousemove", (e) => {
+    if (!draggedNode) return;
+
+    const rect = canvas.getBoundingClientRect();
+    draggedNode.x = e.clientX - rect.left;
+    draggedNode.y = e.clientY - rect.top;
+
+    renderGraph();
+  });
+
+  canvas.addEventListener("mouseup", () => {
+    draggedNode = null;
+  });
+
+  canvas.addEventListener("mouseleave", () => {
+    draggedNode = null;
+  });
+
+  const btn = document.getElementById("open-graph");
+  console.log("GRAPH BTN:", btn);
+}
+
 function initEventListeners() {
   getItems().forEach((item) => {
     attachItemListeners(item);
+  });
+
+  const openGraphBtn = document.getElementById("open-graph");
+
+  if (openGraphBtn) {
+    openGraphBtn.addEventListener("click", () => {
+      console.log("OPEN GRAPH CLICKED");
+
+      document.getElementById("graph-modal").classList.remove("hidden");
+
+      graphState.nodes = [];
+      renderGraph();
+
+      if (!graphAnimating) {
+        graphAnimating = true;
+        console.log("STARTING ANIMATION");
+        animateGraph();
+      }
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    const graphBtn = e.target.closest("#open-graph");
+
+    if (graphBtn) {
+      console.log("OPEN GRAPH CLICKED");
+
+      document.getElementById("graph-modal").classList.remove("hidden");
+
+      graphState.nodes = [];
+      renderGraph();
+
+      if (!graphAnimating) {
+        graphAnimating = true;
+        console.log("STARTING ANIMATION");
+        animateGraph();
+      }
+    }
   });
 
   document.getElementById("new-project").addEventListener("click", () => {
@@ -1252,6 +1491,14 @@ function initEventListeners() {
     }
 
     if (e.key === "Escape") {
+      const graphModal = document.getElementById("graph-modal");
+
+      if (!graphModal.classList.contains("hidden")) {
+        graphModal.classList.add("hidden");
+        editorContent.focus();
+        return;
+      }
+
       if (document.body.classList.contains("focus-mode")) {
         toggleFocusMode();
       }
@@ -1270,13 +1517,10 @@ function initEventListeners() {
     togglePreviewBtn.addEventListener("click", togglePreview);
   }
 
-  document.getElementById("open-graph").addEventListener("click", () => {
-    document.getElementById("graph-modal").classList.remove("hidden");
-    renderGraph();
-  });
-
   document.getElementById("close-graph").addEventListener("click", () => {
     document.getElementById("graph-modal").classList.add("hidden");
+
+    editorContent.focus();
   });
 
   searchInput.addEventListener("input", () => {
@@ -1371,6 +1615,7 @@ function initEventListeners() {
   initEditorEvents();
   initSidebarEvents();
   initKeyboardShortcuts();
+  console.log("SCRIPT LOADED");
 }
 
 function attachItemListeners(item) {
@@ -1401,11 +1646,13 @@ function initApp() {
   renderProjectList();
   renderSidebar();
   selectFirstDocument();
+  initGraph();
   const savedSize = localStorage.getItem("editorFontSize");
   if (savedSize) {
     setEditorFontSize(savedSize);
     document.getElementById("font-size").value = savedSize;
   }
+  console.log("INIT APP RUNNING");
 }
 
 document.addEventListener("DOMContentLoaded", () => {
