@@ -4,108 +4,15 @@
 
 * {
   box-sizing: border-box;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
 }
 
 body,
 html {
   height: 100%;
   margin: 2px;
-}
-
-.app,
-.sidebar,
-.editor-top,
-.meta-row,
-.format-toolbar {
-  transition: all 0.25s ease;
-}
-
-/* Focus Mode Base */
-body.focus-mode {
-  background: inherit;
-}
-
-/* Hide UI Elements */
-body.focus-mode .sidebar {
-  display: none;
-}
-
-body.focus-mode .topbar {
-  display: none;
-}
-
-body.focus-mode .sidebar {
-  display: none;
-}
-
-body.focus-mode .meta-row {
-  display: none;
-}
-
-body.focus-mode .reverse-relationships {
-  display: none;
-}
-
-/* Expand Editor */
-body.focus-mode .editor-container {
-  width: 100%;
-  max-width: 100%;
-  margin: 0;
-  padding: 2rem;
-}
-
-/* Full height */
-body.focus-mode .main-content {
-  width: 100%;
-}
-
-body.focus-mode .toolbar {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-}
-
-body.focus-mode .editor-container {
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-body.focus-mode .editor-main {
-  display: block;
-  width: 100%;
-  margin: 0 auto;
-}
-
-body.preview-mode #preview-pane {
-  width: 100%;
-}
-
-body.preview-mode .editor-main {
-  display: block;
-}
-
-/* Smooth fade only (safe version) */
-#preview-pane,
-#editor-content {
-  transition: opacity 0.2s ease;
-}
-
-/* Default: preview hidden */
-body:not(.preview-mode) #preview-pane {
-  opacity: 0;
-  pointer-events: none;
-  display: none;
-}
-
-/* Preview mode ON */
-body.preview-mode #preview-pane {
-  display: block;
-  opacity: 1;
-}
-
-/* Hide editor in preview */
-body.preview-mode #editor-content {
-  display: none;
 }
 
 /* ======================
@@ -139,15 +46,40 @@ body.preview-mode #editor-content {
   overflow: hidden;
 }
 
-#empty-state {
-  text-align: center;
-  margin-top: 20px;
-  color: #888;
+.editor-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.app,
+.sidebar,
+.editor-top,
+.meta-row,
+.format-toolbar {
+  transition: all 0.25s ease;
 }
 
 /* ======================
-   HEADER / STRUCTURE
+   COMPONENTS
 ====================== */
+
+.menu-bar {
+  display: flex;
+  gap: 20px;
+  padding: 8px 16px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  font-size: 14px;
+}
+
+.format-toolbar {
+  display: flex;
+  gap: 5px;
+  padding: 5px 0;
+}
 
 .project-bar {
   display: flex;
@@ -156,25 +88,12 @@ body.preview-mode #editor-content {
   margin-bottom: 5px;
 }
 
-.editor-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+#project-select {
+  flex: 1;
+  height: 28px;
+  border: 1px solid #aaa;
+  border-radius: 6px;
 }
-
-.editor-footer {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.editor-actions {
-  display: flex;
-  gap: 5px;
-}
-
-/* ======================
-   META / TAG SYSTEM
-====================== */
 
 .meta-row {
   display: flex;
@@ -185,319 +104,6 @@ body.preview-mode #editor-content {
 .meta-block {
   flex: 1;
   min-width: 200px;
-}
-
-.tag-container {
-  margin-bottom: 10px;
-  max-height: 80px;
-  overflow-y: auto;
-}
-
-.relationships-container {
-  margin-top: 5px;
-  max-height: 120px;
-  overflow-y: auto;
-}
-
-.reverse-relationships {
-  display: none;
-}
-
-/* ======================
-   LISTS / SIDEBAR
-====================== */
-
-details {
-  margin-bottom: 10px;
-}
-
-summary {
-  font-weight: bold;
-  cursor: pointer;
-}
-
-ul {
-  padding-left: 20px;
-}
-
-li {
-  padding: 6px 8px;
-}
-
-/* ======================
-   TAGS / PILLS
-====================== */
-
-#tag-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 5px;
-}
-
-.tag {
-  background: #444;
-  color: white;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-#tag-input {
-  border: 1px solid #aaa;
-  border-radius: 6px;
-}
-
-#character-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  padding-left: 0;
-  margin: 5px 0;
-  align-items: flex-start;
-}
-
-#chapter-appearances {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  padding-left: 0;
-  margin-top: 5px;
-}
-
-/* ======================
-   INPUTS / EDITOR
-====================== */
-
-#editor-title {
-  width: 100%;
-  padding: 10px;
-  font-size: 18px;
-  border: none;
-  outline: none;
-  border-radius: 10px;
-  border: 2px solid black;
-  background: #edede7;
-}
-
-#editor-content {
-  flex: 1;
-  width: 100%;
-  border: none;
-  outline: none;
-  resize: none;
-  padding: 10px;
-  font-family: sans-serif;
-  border-radius: 10px;
-  border: 2px solid black;
-  background: #edede7;
-  overflow-y: auto;
-}
-
-textarea {
-  flex: 1;
-  width: 100%;
-  border: none;
-  outline: none;
-  resize: none;
-  padding: 10px;
-  font-family: sans-serif;
-  border-radius: 10px;
-  border: 2px solid black;
-  background: #edede7;
-  margin-top: 5px;
-}
-
-/* ======================
-   BUTTONS
-====================== */
-
-button {
-  height: 28px;
-  min-width: 28px;
-  padding: 0 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  border: 1px solid #aaa;
-  background: #f5f5f5;
-  cursor: pointer;
-}
-
-.add-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  font-size: 18px;
-  font-weight: 300;
-  color: rgb(47, 47, 47);
-  background: #dfdede;
-  border: 1px solid #a7a7a7;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.ui-control {
-  height: 36px;
-  padding: 0 10px;
-  font-size: 14px;
-  border-radius: 6px;
-}
-
-/* ======================
-   STATES
-====================== */
-
-.project-bar button {
-  padding: 4px 6px;
-  cursor: pointer;
-}
-
-#project-select {
-  flex: 1;
-  height: 28px;
-  border: 1px solid #aaa;
-  border-radius: 6px;
-}
-
-.editor-top {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.editor.fullscreen {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: white;
-  z-index: 1000;
-}
-
-.editor-main {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 0;
-}
-
-#editor-content,
-#preview-pane {
-  flex: 1;
-  height: 100%;
-}
-
-#preview-pane {
-  padding: 10px;
-  border: 2px solid black;
-  border-radius: 10px;
-  background: #f9f9f9;
-  overflow-y: auto;
-}
-
-body.focus-mode .format-toolbar {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  opacity: 0.2s;
-  transition: opacity 0.2s ease;
-}
-
-body.focus-mode .format-toolbar:hover {
-  opacity: 1;
-}
-
-body.focus-mode #editor-content {
-  font-size: 18px;
-  line-height: 1.7;
-  padding: 30px;
-  background: #edede7;
-}
-
-body.focus-mode .editor-footer {
-  opacity: 0.2;
-}
-
-body.focus-mode .editor-footer:hover {
-  opacity: 1;
-}
-
-/* ======================
-   COMPONENTS
-====================== */
-
-.format-toolbar {
-  display: flex;
-  gap: 5px;
-  padding: 5px 0;
-}
-
-.format-toolbar button {
-  padding: 4px 8px;
-  font-size: 14px;
-}
-
-.format-toolbar select {
-  height: 28px;
-  padding: 4px 6px;
-  border: 1px solid #aaa;
-}
-
-button:hover {
-  background: #ddd;
-}
-
-.project-bar button,
-.section-header button {
-  width: 28px;
-  padding: 0;
-}
-
-#word-count {
-  font-size: 12px;
-  margin-top: 5px;
-  color: #555;
-}
-
-.search-container {
-  margin-bottom: 10px;
-}
-
-#search-input {
-  width: 95%;
-  padding: 6px;
-  border-radius: 6px;
-  border: 1px solid #aaa;
-  font-size: 14px;
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-details ul {
-  margin-left: 10px;
-}
-
-details.active-section summary {
-  background: #333;
-}
-
-#tag-list,
-#character-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
 }
 
 .character-controls {
@@ -512,31 +118,20 @@ details.active-section summary {
   border-radius: 6px;
 }
 
-.relationships-container h4 {
+#tag-list,
+#character-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+#character-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-left: 0;
   margin: 5px 0;
-  font-size: 13px;
-}
-
-.reverse-relationships h4 {
-  font-size: 13px;
-}
-
-/* ======================
-   TYPOGRAPHY
-====================== */
-
-h3 {
-  font-size: 14px;
-  margin-top: 20px;
-}
-
-/* ======================
-   LIST ITEMS
-====================== */
-
-.new-item {
-  opacity: 0.6;
-  font-style: italic;
+  align-items: flex-start;
 }
 
 #character-list li {
@@ -553,8 +148,49 @@ h3 {
   cursor: pointer;
 }
 
-#character-list li:hover {
-  background: #3d566e;
+.tag-container {
+  margin-bottom: 10px;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+.tag {
+  background: #444;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+#tag-input {
+  border: 1px solid #aaa;
+  border-radius: 6px;
+}
+
+.relationships-container {
+  margin-top: 5px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.reverse-relationships {
+  display: none;
+}
+
+#chapter-appearances {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-left: 0;
+  margin-top: 5px;
 }
 
 #chapter-appearances li {
@@ -568,94 +204,6 @@ h3 {
   font-size: 12px;
   cursor: pointer;
 }
-
-#chapter-appearances li:hover {
-  background: #8577ff;
-}
-
-/* ======================
-   TAGS
-====================== */
-
-.tag:hover {
-  background: #666;
-}
-
-/* ======================
-   ELEMENTS
-====================== */
-
-#export-btn,
-#export-doc-btn {
-  margin: 5px;
-  padding: 5px 10px;
-  cursor: pointer;
-}
-
-/* ======================
-   INTERACTIONS
-====================== */
-
-li:hover {
-  background: #b3b3b3;
-  cursor: pointer;
-}
-
-li.active {
-  background: #ddd;
-  border-radius: 4px;
-}
-
-.add-btn:hover {
-  background: #ffffff;
-  color: black;
-  border-color: black;
-  transform: scale(0.95);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-.menu-bar {
-  display: flex;
-  gap: 20px;
-  padding: 8px 16px;
-  background: #f5f5f5;
-  border-bottom: 1px solid #ddd;
-  font-size: 14px;
-}
-
-.menu-item {
-  cursor: pointer;
-  position: relative;
-}
-
-.menu-item:hover {
-  color: #007acc;
-}
-
-/* Dropdowns */
-.menu-dropdown {
-  position: absolute;
-  top: 40px;
-  left: 10px;
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  padding: 6px 0;
-  display: none;
-  min-width: 180px;
-  z-index: 1000;
-}
-
-.menu-option {
-  padding: 8px 12px;
-  cursor: pointer;
-}
-
-.menu-option:hover {
-  background: #f0f0f0;
-}
-
-/* Modal System */
 
 .modal {
   position: fixed;
@@ -687,15 +235,228 @@ li.active {
   gap: 10px;
 }
 
-.modal-content input {
-  padding: 8px;
-  border-radius: 5px;
-  border: none;
-}
-
 .modal-content h2,
 .modal-content label {
   color: #ffffff;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: space-between;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+summary {
+  font-weight: bold;
+  cursor: pointer;
+}
+
+details {
+  margin-bottom: 10px;
+}
+
+details ul {
+  margin-left: 10px;
+}
+
+details.active-section summary {
+  background: #333;
+}
+
+ul {
+  padding-left: 20px;
+}
+
+li {
+  padding: 6px 8px;
+}
+
+/* =====================
+   Editor
+====================== */
+
+#empty-state {
+  text-align: center;
+  margin-top: 20px;
+  color: #888;
+}
+
+.editor-top {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+#editor-title {
+  width: 100%;
+  padding: 10px;
+  font-size: 18px;
+  border: none;
+  outline: none;
+  border-radius: 10px;
+  border: 2px solid black;
+  background: #edede7;
+}
+
+#editor-content {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 10px;
+  font-family: sans-serif;
+  border-radius: 10px;
+  border: 2px solid black;
+  background: #edede7;
+  line-height: 1.6;
+  letter-spacing: 0.3px;
+  overflow-y: auto;
+}
+
+textarea {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 10px;
+  font-family: sans-serif;
+  border-radius: 10px;
+  border: 2px solid black;
+  background: #edede7;
+  margin-top: 5px;
+}
+
+.editor-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.editor.fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: white;
+  z-index: 1000;
+}
+
+#word-count {
+  font-size: 12px;
+  margin-top: 5px;
+  color: #555;
+}
+
+.search-container {
+  margin-bottom: 10px;
+}
+
+#search-input {
+  width: 95%;
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid #aaa;
+  font-size: 14px;
+}
+
+#preview-pane {
+  padding: 10px;
+  border: 2px solid black;
+  border-radius: 10px;
+  background: #edede7;
+  overflow-y: auto;
+}
+
+#preview-pane,
+#editor-content {
+  flex: 1;
+  height: 100%;
+  transition: opacity 0.2s ease;
+}
+
+/* =====================
+   UI ELEMENTS
+====================== */
+
+.ui-control {
+  height: 36px;
+  padding: 0 10px;
+  font-size: 14px;
+  border-radius: 6px;
+}
+
+button {
+  height: 28px;
+  min-width: 28px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid #aaa;
+  background: #f5f5f5;
+  cursor: pointer;
+}
+
+.add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  font-weight: 300;
+  color: rgb(47, 47, 47);
+  background: #dfdede;
+  border: 1px solid #a7a7a7;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.new-item {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.project-bar button {
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.format-toolbar button {
+  padding: 4px 8px;
+  font-size: 14px;
+}
+
+.project-bar button,
+.section-header button {
+  width: 28px;
+  padding: 0;
+}
+
+.format-toolbar select {
+  height: 28px;
+  padding: 4px 6px;
+  border: 1px solid #aaa;
 }
 
 .modal-content select {
@@ -704,9 +465,185 @@ li.active {
   border: none;
 }
 
-.modal-actions {
+.modal-content input {
+  padding: 8px;
+  border-radius: 5px;
+  border: none;
+}
+
+/* ======================
+   FEATURES
+====================== */
+
+body.preview-mode #preview-pane {
+  width: 100%;
+}
+
+body.preview-mode .editor-main {
+  display: block;
+}
+
+/* Default: preview hidden */
+body:not(.preview-mode) #preview-pane {
+  opacity: 0;
+  pointer-events: none;
+  display: none;
+}
+
+/* Preview mode ON */
+body.preview-mode #preview-pane {
+  display: block;
+  opacity: 1;
+}
+
+/* Hide editor in preview */
+body.preview-mode #editor-content {
+  display: none;
+}
+
+body.focus-mode .format-toolbar {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
+  gap: 10px;
+  opacity: 0.2;
+  transition: opacity 0.2s ease;
+}
+
+body.focus-mode #editor-content {
+  font-size: 18px;
+  line-height: 1.7;
+  padding: 30px;
+  background: #edede7;
+}
+
+/* Focus Mode Base */
+body.focus-mode {
+  background: inherit;
+}
+
+body.focus-mode .editor-footer {
+  opacity: 0.2;
+}
+
+/* Hide UI Elements */
+body.focus-mode .sidebar {
+  display: none;
+}
+
+body.focus-mode .menu-bar {
+  display: none;
+}
+
+body.focus-mode .meta-row {
+  display: none;
+}
+
+body.focus-mode .reverse-relationships {
+  display: none;
+}
+
+/* Expand Editor */
+body.focus-mode .editor-container {
+  width: 100%;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+body.focus-mode .format-toolbar {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+body.focus-mode .editor-main {
+  display: block;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* ======================
+   INTERACTIONS
+====================== */
+
+body.focus-mode .format-toolbar:hover {
+  opacity: 1;
+}
+
+body.focus-mode .editor-footer:hover {
+  opacity: 1;
+}
+
+button:hover {
+  background: #ddd;
+}
+
+#character-list li:hover {
+  background: #3d566e;
+}
+
+#chapter-appearances li:hover {
+  background: #8577ff;
+}
+
+.tag:hover {
+  background: #666;
+}
+
+.add-btn:hover {
+  background: #ffffff;
+  color: black;
+  border-color: black;
+  transform: scale(0.95);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.menu-item:hover {
+  color: #007acc;
+}
+
+.menu-option:hover {
+  background: #f0f0f0;
+}
+
+li:hover {
+  background: #b3b3b3;
+  cursor: pointer;
+}
+
+li.active {
+  background: #ddd;
+  border-radius: 4px;
+}
+
+.menu-item {
+  cursor: pointer;
+  position: relative;
+}
+
+/* Dropdowns */
+.menu-dropdown {
+  position: absolute;
+  top: 40px;
+  left: 10px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 6px 0;
+  display: none;
+  min-width: 180px;
+  z-index: 1000;
+}
+
+.menu-option {
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+#export-btn,
+#export-doc-btn {
+  margin: 5px;
+  padding: 5px 10px;
+  cursor: pointer;
 }
 
 .export-options {
@@ -718,4 +655,22 @@ li.active {
 
 .export-options label {
   font-size: 14px;
+}
+
+/* ======================
+   TYPOGRAPHY
+====================== */
+
+h3 {
+  font-size: 14px;
+  margin-top: 20px;
+}
+
+.relationships-container h4 {
+  margin: 5px 0;
+  font-size: 13px;
+}
+
+.reverse-relationships h4 {
+  font-size: 13px;
 }

@@ -280,6 +280,51 @@ function setEditorFontSize(size) {
   editorContent.style.fontSize = size;
   localStorage.setItem("editorFontSize", size);
 }
+function getGraphData() {
+  const project = projects[currentProjectId];
+  if (!project) return { nodes: [], edges: [] };
+
+  const nodes = [];
+  const edges = [];
+
+  // Characters
+  Object.values(project.character || {}).forEach((char) => {
+    nodes.push({ id: char.id, label: char.title, type: "character" });
+  });
+
+  // Chapters
+  Object.values(project.chapter || {}).forEach((chap) => {
+    nodes.push({ id: chap.id, label: chap.title, type: "chapter" });
+
+    (chap.relationships?.characters || []).forEach((charId) => {
+      edges.push({ from: chap.id, to: charId });
+    });
+  });
+
+  return { nodes, edges };
+}
+
+function renderGraph() {
+  const canvas = document.getElementById("graph-canvas");
+  const ctx = canvas.getContext("2d");
+
+  const { nodes, edges } = getGraphData();
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  nodes.forEach((node, i) => {
+    const x = 100 + i * 100;
+    const y = 200;
+
+    ctx.beginPath();
+    ctx.arc(x, y, 20, 0, Math.PI * 2);
+    ctx.fillStyle = node.type === "character" ? "blue" : "green";
+    ctx.fill();
+
+    ctx.fillStyle = "white";
+    ctx.fillText(node.label, x - 15, y + 5);
+  });
+}
 
 // ======================
 // HISTORY SYSTEM
@@ -1224,6 +1269,15 @@ function initEventListeners() {
   if (togglePreviewBtn) {
     togglePreviewBtn.addEventListener("click", togglePreview);
   }
+
+  document.getElementById("open-graph").addEventListener("click", () => {
+    document.getElementById("graph-modal").classList.remove("hidden");
+    renderGraph();
+  });
+
+  document.getElementById("close-graph").addEventListener("click", () => {
+    document.getElementById("graph-modal").classList.add("hidden");
+  });
 
   searchInput.addEventListener("input", () => {
     const query = searchInput.value;

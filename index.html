@@ -122,6 +122,7 @@
             <button id="togglePreviewBtn" title="Toggle Preview">
               Preview
             </button>
+            <button id="open-graph">Graph View</button>
           </div>
 
           <div class="meta-row">
@@ -212,6 +213,13 @@
         <div class="modal-actions">
           <button id="close-help">Close</button>
         </div>
+      </div>
+    </div>
+    <div id="graph-modal" class="modal hidden">
+      <div class="modal-content" style="width: 600px; height: 400px">
+        <h2>Graph View</h2>
+        <canvas id="graph-canvas"></canvas>
+        <button id="close-graph">Close</button>
       </div>
     </div>
   </body>
