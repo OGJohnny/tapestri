@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="./style.css" />
     <script defer src="./script.js"></script>
   </head>
-  <body>
+  <body tabindex="0">
     <div class="menu-bar">
       <div class="menu-item" data-menu="file">File</div>
       <div class="menu-item" data-menu="edit">Edit</div>
@@ -29,8 +29,13 @@
     </div>
 
     <div class="menu-dropdown" id="view-menu">
-      <div class="menu-option" id="toggle-focus">Toggle Focus Mode</div>
-      <div class="menu-option" id="toggle-preview-menu">Toggle Preview</div>
+      <div class="menu-option" id="toggle-focus">
+        Toggle Focus Mode (Ctrl+Shift+F)
+      </div>
+      <div class="menu-option" id="toggle-preview-menu">
+        Toggle Preview (Ctrl+P)
+      </div>
+      <div class="menu-option" id="open-graph-menu">Graph View (Ctrl+G)</div>
     </div>
 
     <div class="menu-dropdown" id="help-menu">
@@ -126,7 +131,9 @@
             <button id="togglePreviewBtn" title="Toggle Preview">
               Preview
             </button>
-            <button id="open-graph">Graph View</button>
+            <button id="open-graph" title="Graph View (Ctrl+G)">
+              Graph View
+            </button>
           </div>
 
           <div class="meta-row">
@@ -220,9 +227,10 @@
       </div>
     </div>
     <div id="graph-modal" class="modal hidden">
-      <div class="modal-content" style="width: 600px; height: 400px">
+      <div class="modal-content">
         <h2>Graph View</h2>
         <canvas id="graph-canvas"></canvas>
+
         <div class="graph-footer">
           <button id="close-graph">Close</button>
         </div>

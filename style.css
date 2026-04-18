@@ -498,6 +498,9 @@ button {
   border-radius: 12px;
   opacity: 0.8;
   pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 9999;
 }
 
 #graph-modal button {
@@ -563,6 +566,10 @@ body.preview-mode .meta-row {
 }
 
 body.preview-mode .reverse-relationships {
+  display: none;
+}
+
+body.preview-mode #open-graph {
   display: none;
 }
 

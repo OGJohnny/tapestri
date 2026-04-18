@@ -142,6 +142,15 @@ function debounceSave() {
 // HELPERS
 // =====================
 
+function focusEditor() {
+  if (!editorContent) return;
+
+  editorContent.focus();
+
+  const length = editorContent.value.length;
+  editorContent.setSelectionRange(length, length);
+}
+
 function getCurrentDocs() {
   if (!projects || !currentProjectId || !projects[currentProjectId]) {
     return {};
@@ -265,20 +274,24 @@ function togglePreview() {
     indicator.classList.remove("hidden");
   } else {
     indicator.classList.add("hidden");
+
+    setTimeout(() => {
+      focusEditor();
+    }, 0);
   }
 
   applyPreviewMode();
   savePreviewMode();
-
-  if (!isPreviewMode) {
-    editorContent.focus();
-  }
 }
 
 function toggleFocusMode() {
   isFocusMode = !isFocusMode;
 
   document.body.classList.toggle("focus-mode", isFocusMode);
+
+  setTimeout(() => {
+    focusEditor();
+  }, 0);
 
   saveFocusMode();
 }
@@ -298,8 +311,9 @@ function applyPreviewMode() {
   }
 
   if (!isPreviewMode) {
-    editorContent.focus();
+    focusEditor();
   }
+  document.body.classList.toggle("preview-mode", isPreviewMode);
 }
 
 function updateWordCount() {
@@ -392,9 +406,6 @@ function renderGraph() {
     ctx.fillStyle = "#fff";
     ctx.fillText(node.label, node.x, node.y + 35);
   });
-
-  console.log("Nodes:", graphState.nodes.length);
-  console.log(canvas.width, canvas.height);
 }
 
 function applyForces() {
@@ -469,20 +480,36 @@ function applyForces() {
     node.vx = Math.max(-4, Math.min(4, node.vx));
     node.vy = Math.max(-4, Math.min(4, node.vy));
   });
-  console.log(nodes[0].vx);
 }
 
-function animateGraph() {
-  try {
-    console.log("ANIMATING FRAME");
+function openGraph() {
+  const modal = document.getElementById("graph-modal");
+  modal.classList.remove("hidden");
 
-    applyForces();
+  setTimeout(() => {
+    graphState.nodes = [];
     renderGraph();
 
-    requestAnimationFrame(animateGraph);
-  } catch (err) {
-    console.error("GRAPH ERROR:", err);
+    if (!graphAnimating) {
+      graphAnimating = true;
+      animateGraph();
+    }
+  }, 50);
+}
+
+let graphAnimationFrame = null;
+
+function animateGraph() {
+  if (!graphAnimating) {
+    cancelAnimationFrame(graphAnimationFrame);
+    graphAnimationFrame = null;
+    return;
   }
+
+  applyForces();
+  renderGraph();
+
+  graphAnimationFrame = requestAnimationFrame(animateGraph);
 }
 
 // ======================
@@ -720,7 +747,7 @@ function loadDocument(id) {
   history = [editorContent.value];
   historyIndex = 0;
 
-  editorContent.focus();
+  focusEditor();
   updateWordCount();
   updatePreview();
 }
@@ -963,29 +990,54 @@ function openExportModal() {
   modal.classList.remove("hidden");
 
   const input = document.getElementById("export-filename");
-
-  if (exportMode === "document") {
-    input.value = "document.md";
-  } else {
-    input.value = "project.md";
-  }
-
+  input.value = exportMode === "document" ? "document.md" : "project.md";
   input.focus();
 
   const options = modal.querySelector(".export-options");
+  options.innerHTML = "";
+
+  const project = projects[currentProjectId];
+  if (!project) return;
 
   if (exportMode === "document") {
-    options.style.display = "none";
-  } else {
-    options.style.display = "block";
+    const docs = getCurrentDocs();
 
-    const checkboxes = modal.querySelectorAll("input[type='checkbox']");
-    checkboxes.forEach((cb) => (cb.checked = true));
+    options.innerHTML = Object.values(docs)
+      .map(
+        (doc) => `
+        <label>
+          <input type="checkbox" value="${doc.id}" checked />
+          ${doc.title || "Untitled"}
+        </label>
+      `,
+      )
+      .join("");
+  } else {
+    const sections = [
+      { key: "chapter", label: "Manuscript" },
+      { key: "character", label: "Characters" },
+      { key: "world", label: "Worldbuilding" },
+      { key: "timeline", label: "Timeline" },
+      { key: "notes", label: "Notes" },
+      { key: "ideas", label: "Ideas" },
+    ];
+
+    options.innerHTML = sections
+      .map(
+        (section) => `
+        <label>
+          <input type="checkbox" value="${section.key}" checked />
+          ${section.label}
+        </label>
+      `,
+      )
+      .join("");
   }
 }
 
 function closeExportModal() {
   document.getElementById("export-modal").classList.add("hidden");
+  focusEditor();
 }
 
 function handleExportConfirm() {
@@ -995,32 +1047,40 @@ function handleExportConfirm() {
   let content = "";
 
   if (exportMode === "document") {
-    content = exportCurrentDocument();
-  } else {
-    const checkboxes = document.querySelectorAll(
-      "#export-modal input[type='checkbox']:checked",
-    );
+    const selectedDocs = Array.from(
+      document.querySelectorAll("#export-modal input[type='checkbox']:checked"),
+    ).map((cb) => cb.value);
 
-    const selectedSections = Array.from(checkboxes).map((cb) => cb.value);
+    const docs = getCurrentDocs();
+
+    content = selectedDocs
+      .map((id) => docs[id])
+      .filter(Boolean)
+      .map((doc) => documentToMarkdown(doc))
+      .join("\n\n");
+  } else {
+    const selectedSections = Array.from(
+      document.querySelectorAll("#export-modal input[type='checkbox']:checked"),
+    ).map((cb) => cb.value);
 
     content = buildExportContent(selectedSections);
   }
 
   const formatSelect = document.getElementById("export-format");
-  const format = formatSelect.options[formatSelect.selectedIndex].value;
+  const format = formatSelect.value;
 
-  let finalFilename = filename;
+  let finalFilename = filename.replace(/\.(md|txt)$/i, "");
+
   let finalContent = content;
 
   if (format === "txt") {
-    finalFilename = filename.replace(/\.(md|txt)$/i, "") + ".txt";
+    finalFilename += ".txt";
     finalContent = convertToPlainText(content);
   } else {
-    finalFilename = filename.replace(/\.\w+$/, "") + ".md";
+    finalFilename += ".md";
   }
 
   downloadFile(finalFilename, finalContent);
-
   closeExportModal();
 }
 
@@ -1200,41 +1260,57 @@ function initMenuSystem() {
   });
 
   document.addEventListener("click", (e) => {
-    const isMenuItem = e.target.closest(".menu-item");
-    const isDropdown = e.target.closest(".menu-dropdown");
+    const clickedMenuItem = e.target.closest(".menu-item");
+    const clickedDropdown = e.target.closest(".menu-dropdown");
 
-    if (!isMenuItem && !isDropdown) {
-      Object.values(menus).forEach((m) => (m.style.display = "none"));
+    // If clicking ANYWHERE outside menus → close everything
+    if (!clickedMenuItem && !clickedDropdown) {
+      Object.values(menus).forEach((menu) => {
+        menu.style.display = "none";
+      });
       activeMenu = null;
-      menuMode = false;
     }
   });
 
-  document.getElementById("export-project").addEventListener("click", () => {
-    openExportModal();
-  });
+  const exportProject = document.getElementById("export-project");
 
-  document.getElementById("export-project").addEventListener("click", () => {
-    exportMode = "project";
-    openExportModal();
-  });
+  if (exportProject) {
+    exportProject.addEventListener("click", () => {
+      exportMode = "project";
+      openExportModal();
+    });
+  }
 
-  document.getElementById("export-doc").addEventListener("click", () => {
-    exportMode = "document";
-    openExportModal();
-  });
+  const exportDoc = document.getElementById("export-doc");
 
-  document.getElementById("help-about").addEventListener("click", () => {
-    openHelpModal("About Tapestri", getAboutContent());
-  });
+  if (exportDoc) {
+    exportDoc.addEventListener("click", () => {
+      exportMode = "document";
+      openExportModal();
+    });
+  }
 
-  document.getElementById("help-shortcuts").addEventListener("click", () => {
-    openHelpModal("Keyboard Shortcuts", getShortcutsContent());
-  });
+  const helpAbout = document.getElementById("help-about");
 
-  document
-    .getElementById("close-help")
-    .addEventListener("click", closeHelpModal);
+  if (helpAbout) {
+    helpAbout.addEventListener("click", () => {
+      openHelpModal("About Tapestri", getAboutContent());
+    });
+  }
+
+  const helpShortcuts = document.getElementById("help-shortcuts");
+
+  if (helpShortcuts) {
+    helpShortcuts.addEventListener("click", () => {
+      openHelpModal("Keyboard Shortcuts", getShortcutsContent());
+    });
+  }
+
+  const closeHelp = document.getElementById("close-help");
+
+  if (closeHelp) {
+    closeHelp.addEventListener("click", closeHelpModal);
+  }
 
   document.addEventListener("keydown", (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -1243,6 +1319,15 @@ function initMenuSystem() {
       Object.values(menus).forEach((m) => (m.style.display = "none"));
       activeMenu = null;
       menuMode = false;
+    }
+  });
+
+  document.addEventListener("mousedown", (e) => {
+    const isEditor = e.target.closest("#editor-content");
+    const isInput = e.target.closest("input, textarea, select");
+
+    if (!isEditor && !isInput) {
+      window.getSelection()?.removeAllRanges();
     }
   });
 }
@@ -1280,15 +1365,19 @@ function initEditorEvents() {
     debounceSave();
   });
 
-  document.getElementById("font-size").addEventListener("change", (e) => {
-    const start = editorContent.selectionStart;
-    const end = editorContent.selectionEnd;
+  const fontSize = document.getElementById("font-size");
 
-    setEditorFontSize(e.target.value);
+  if (fontSize) {
+    fontSize.addEventListener("change", (e) => {
+      const start = editorContent.selectionStart;
+      const end = editorContent.selectionEnd;
 
-    editorContent.focus();
-    editorContent.setSelectionRange(start, end);
-  });
+      setEditorFontSize(e.target.value);
+
+      focusEditor();
+      editorContent.setSelectionRange(start, end);
+    });
+  }
 
   editorContent.addEventListener("keydown", (e) => {
     // UNDO / REDO
@@ -1305,8 +1394,7 @@ function initEditorEvents() {
 
     if (e.ctrlKey && e.key.toLowerCase() === "g") {
       e.preventDefault();
-      document.getElementById("graph-modal").classList.remove("hidden");
-      renderGraph();
+      openGraph();
     }
 
     // TAB HANDLING
@@ -1345,6 +1433,11 @@ function initEditorEvents() {
     }
   });
 
+  editorContent.addEventListener("mouseup", () => {
+    const pos = editorContent.selectionStart;
+    editorContent.setSelectionRange(pos, pos);
+  });
+
   editorTitle.addEventListener("input", saveDocument);
 }
 
@@ -1376,6 +1469,46 @@ function initKeyboardShortcuts() {
         e.preventDefault();
         formatText("underline");
         break;
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    // PREVIEW
+    if (e.ctrlKey && e.key.toLowerCase() === "p") {
+      e.preventDefault();
+      togglePreview();
+      return;
+    }
+
+    // FOCUS MODE
+    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      toggleFocusMode();
+      return;
+    }
+
+    // ESCAPE
+    if (e.key === "Escape") {
+      const graphModal = document.getElementById("graph-modal");
+      const helpModal = document.getElementById("help-modal");
+
+      if (graphModal && !graphModal.classList.contains("hidden")) {
+        graphModal.classList.add("hidden");
+        graphAnimating = false;
+        setTimeout(() => focusEditor(), 0);
+        return;
+      }
+
+      if (helpModal && !helpModal.classList.contains("hidden")) {
+        helpModal.classList.add("hidden");
+        setTimeout(() => focusEditor(), 0);
+        return;
+      }
+
+      if (document.body.classList.contains("focus-mode")) {
+        toggleFocusMode();
+        return;
+      }
     }
   });
 }
@@ -1412,8 +1545,13 @@ function initGraph() {
     draggedNode = null;
   });
 
+  const openGraphBtn = document.getElementById("open-graph");
+
+  if (openGraphBtn) {
+    openGraphBtn.addEventListener("click", openGraph);
+  }
+
   const btn = document.getElementById("open-graph");
-  console.log("GRAPH BTN:", btn);
 }
 
 function initEventListeners() {
@@ -1421,51 +1559,29 @@ function initEventListeners() {
     attachItemListeners(item);
   });
 
-  const openGraphBtn = document.getElementById("open-graph");
+  const graphMenu = document.getElementById("open-graph-menu");
 
-  if (openGraphBtn) {
-    openGraphBtn.addEventListener("click", () => {
-      console.log("OPEN GRAPH CLICKED");
+  if (graphMenu) {
+    graphMenu.addEventListener("click", openGraph);
+  }
 
-      document.getElementById("graph-modal").classList.remove("hidden");
+  const closeGraphBtn = document.getElementById("close-graph");
 
-      graphState.nodes = [];
-      renderGraph();
-
-      if (!graphAnimating) {
-        graphAnimating = true;
-        console.log("STARTING ANIMATION");
-        animateGraph();
-      }
+  if (closeGraphBtn) {
+    closeGraphBtn.addEventListener("click", () => {
+      document.getElementById("graph-modal").classList.add("hidden");
+      graphAnimating = false;
+      focusEditor();
     });
   }
 
-  document.addEventListener("click", (e) => {
-    const graphBtn = e.target.closest("#open-graph");
+  const newProject = document.getElementById("new-project");
 
-    if (graphBtn) {
-      console.log("OPEN GRAPH CLICKED");
-
-      document.getElementById("graph-modal").classList.remove("hidden");
-
-      graphState.nodes = [];
-      renderGraph();
-
-      if (!graphAnimating) {
-        graphAnimating = true;
-        console.log("STARTING ANIMATION");
-        animateGraph();
-      }
-    }
-  });
-
-  document.getElementById("new-project").addEventListener("click", () => {
-    document.getElementById("new-project-btn").click();
-  });
-
-  document.getElementById("export-doc").addEventListener("click", () => {
-    exportCurrentDocument();
-  });
+  if (newProject) {
+    newProject.addEventListener("click", () => {
+      document.getElementById("new-project-btn").click();
+    });
+  }
 
   document.querySelectorAll("#edit-menu [data-format]").forEach((item) => {
     item.addEventListener("click", () => {
@@ -1473,55 +1589,35 @@ function initEventListeners() {
     });
   });
 
-  document.getElementById("toggle-focus").addEventListener("click", () => {
-    toggleFocusMode();
-  });
+  const toggleFocus = document.getElementById("toggle-focus");
 
-  document
-    .getElementById("toggle-preview-menu")
-    .addEventListener("click", () => {
+  if (toggleFocus) {
+    toggleFocus.addEventListener("click", () => {
+      toggleFocusMode();
+    });
+  }
+
+  const togglePreviewMenu = document.getElementById("toggle-preview-menu");
+
+  if (togglePreviewMenu) {
+    togglePreviewMenu.addEventListener("click", () => {
       togglePreview();
     });
+  }
 
-  document.addEventListener("keydown", (e) => {
-    // Ctrl + P → Toggle Preview
-    if (e.ctrlKey && e.key.toLowerCase() === "p") {
-      e.preventDefault();
+  const indicator = document.getElementById("mode-indicator");
+
+  if (indicator) {
+    indicator.addEventListener("click", () => {
       togglePreview();
-    }
-
-    if (e.key === "Escape") {
-      const graphModal = document.getElementById("graph-modal");
-
-      if (!graphModal.classList.contains("hidden")) {
-        graphModal.classList.add("hidden");
-        editorContent.focus();
-        return;
-      }
-
-      if (document.body.classList.contains("focus-mode")) {
-        toggleFocusMode();
-      }
-    }
-  });
-
-  document.getElementById("togglePreviewBtn").addEventListener("click", () => {
-    document
-      .getElementById("togglePreviewBtn")
-      .addEventListener("click", togglePreview);
-  });
+    });
+  }
 
   const togglePreviewBtn = document.getElementById("togglePreviewBtn");
 
   if (togglePreviewBtn) {
     togglePreviewBtn.addEventListener("click", togglePreview);
   }
-
-  document.getElementById("close-graph").addEventListener("click", () => {
-    document.getElementById("graph-modal").classList.add("hidden");
-
-    editorContent.focus();
-  });
 
   searchInput.addEventListener("input", () => {
     const query = searchInput.value;
@@ -1547,18 +1643,8 @@ function initEventListeners() {
   });
 
   getItems().forEach((item) => {
-    item.addEventListener("click", () => {
-      handleItemClick(item);
-    });
-  });
-
-  getItems().forEach((item) => {
-    item.addEventListener("dblclick", () => {
-      renameItem(item);
-    });
-  });
-
-  getItems().forEach((item) => {
+    item.addEventListener("click", () => handleItemClick(item));
+    item.addEventListener("dblclick", () => renameItem(item));
     item.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       deleteItem(item);
@@ -1579,43 +1665,40 @@ function initEventListeners() {
     selectFirstDocument();
   });
 
-  document
-    .getElementById("rename-project-btn")
-    .addEventListener("click", renameProject);
+  const renameProjectBtn = document.getElementById("rename-project-btn");
 
-  document
-    .getElementById("delete-project-btn")
-    .addEventListener("click", deleteProject);
+  if (renameProjectBtn) {
+    renameProjectBtn.addEventListener("click", renameProject);
+  }
 
-  document.addEventListener("keydown", (e) => {
-    // Ctrl + Shift + F → Toggle Focus Mode
-    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "f") {
-      e.preventDefault();
-      toggleFocusMode();
-    }
-  });
+  const deleteProjectBtn = document.getElementById("delete-project-btn");
 
-  document.querySelectorAll(".format-toolbar button").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const type = btn.dataset.format;
+  if (deleteProjectBtn) {
+    deleteProjectBtn.addEventListener("click", deleteProject);
+  }
+
+  document.querySelectorAll(".format-toolbar button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const type = button.dataset.format;
+
+      if (!type) return;
+      if (button.id === "open-graph") return;
+
       formatText(type);
     });
   });
 
-  document
-    .getElementById("confirm-export")
-    .addEventListener("click", handleExportConfirm);
+  const confirmExport = document.getElementById("confirm-export");
 
-  document
-    .getElementById("cancel-export")
-    .addEventListener("click", closeExportModal);
+  if (confirmExport) {
+    confirmExport.addEventListener("click", handleExportConfirm);
+  }
 
-  saveHistory();
-  initMenuSystem();
-  initEditorEvents();
-  initSidebarEvents();
-  initKeyboardShortcuts();
-  console.log("SCRIPT LOADED");
+  const cancelExport = document.getElementById("cancel-export");
+
+  if (cancelExport) {
+    cancelExport.addEventListener("click", closeExportModal);
+  }
 }
 
 function attachItemListeners(item) {
@@ -1639,23 +1722,32 @@ function attachItemListeners(item) {
 
 function initApp() {
   loadFromLocalStorage();
+
+  initMenuSystem();
+  initEditorEvents();
+  initSidebarEvents();
+  initKeyboardShortcuts();
+  initGraph();
+  initEventListeners();
+
+  renderProjectList();
+  renderSidebar();
+  selectFirstDocument();
+
   updatePreview();
   loadPreviewMode();
   applyPreviewMode();
   loadFocusMode();
-  renderProjectList();
-  renderSidebar();
-  selectFirstDocument();
-  initGraph();
+
+  saveHistory();
+
   const savedSize = localStorage.getItem("editorFontSize");
   if (savedSize) {
     setEditorFontSize(savedSize);
     document.getElementById("font-size").value = savedSize;
   }
-  console.log("INIT APP RUNNING");
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   initApp();
-  initEventListeners();
 });
