@@ -377,6 +377,12 @@ textarea {
   font-size: 14px;
 }
 
+mark {
+  background: #ffe066;
+  color: #000;
+  padding: 0 2px;
+}
+
 #preview-pane {
   padding: 10px;
   border: 2px solid black;
@@ -384,7 +390,7 @@ textarea {
   background: #edede7;
   overflow-y: auto;
   user-select: text;
-  cursor: default;
+  cursor: text;
 }
 
 #preview-pane,
@@ -404,8 +410,30 @@ textarea {
   height: 90%;
 }
 
+#graph-modal:not(.hidden) ~ #mode-indicator,
+#graph-modal:not(.hidden) #mode-indicator {
+  display: none !important;
+}
+
+body.graph-open #mode-indicator {
+  display: none !important;
+}
+
+.menu-option.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 .graph-footer {
   text-align: right;
+}
+
+#mode-indicator {
+  z-index: 10;
+}
+
+.modal {
+  z-index: 1000;
 }
 
 /* =====================

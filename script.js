@@ -8,15 +8,32 @@ let historyIndex = -1;
 let savedSelection = { start: 0, end: 0 };
 let currentDocumentId = null;
 let saveTimeout;
+let currentSearchQuery = "";
 let isFocusMode = false;
 let isPreviewMode = false;
 let exportMode = "project";
+let isModalOpen = false;
 let graphState = {
   nodes: [],
   edges: [],
 };
 let graphAnimating = false;
 let draggedNode = null;
+let menuLocked = false;
+let menuJustClosed = false;
+let activeMenu = null;
+
+const menus = {
+  file: null,
+  edit: null,
+  view: null,
+  help: null,
+};
+
+function logMenuState(source) {
+  console.log(`[MENU STATE] from: ${source}`);
+  console.log("activeMenu:", activeMenu);
+}
 
 // ======================
 // ELEMENTS (DOM)
@@ -142,6 +159,33 @@ function debounceSave() {
 // HELPERS
 // =====================
 
+function openMenu(name) {
+  const menus = {
+    file: document.getElementById("file-menu"),
+    edit: document.getElementById("edit-menu"),
+    view: document.getElementById("view-menu"),
+    help: document.getElementById("help-menu"),
+  };
+
+  Object.values(menus).forEach((m) => (m.style.display = "none"));
+
+  if (menus[name]) {
+    menus[name].style.display = "block";
+  }
+}
+
+function closeAllMenus() {
+  console.log("CLOSING ALL MENUS");
+
+  Object.values(menus).forEach((menu) => {
+    if (menu) menu.style.display = "none";
+  });
+
+  activeMenu = null;
+
+  logMenuState("AFTER CLOSE");
+}
+
 function focusEditor() {
   if (!editorContent) return;
 
@@ -171,16 +215,32 @@ function getChaptersSorted() {
     .sort((a, b) => a.title.localeCompare(b.title));
 }
 
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function renderMarkdown(text) {
   if (!text) return "";
 
-  return text
+  let html = text
     .replace(/^## (.*$)/gim, "<h2>$1</h2>")
     .replace(/^# (.*$)/gim, "<h1>$1</h1>")
     .replace(/\*\*(.*?)\*\*/gim, "<b>$1</b>")
+    .replace(/\*(.*?)\*/gim, "<i>$1</i>")
     .replace(/__(.*?)__/gim, "<u>$1</u>")
-    .replace(/(^|[^*])\*(?!\*)(.*?)\*(?!\*)/gim, "$1<i>$2</i>")
     .replace(/\n/gim, "<br>");
+
+  if (currentSearchQuery && currentSearchQuery.length > 0) {
+    try {
+      const safeQuery = escapeRegExp(currentSearchQuery);
+      const regex = new RegExp(`(${safeQuery})`, "gi");
+      html = html.replace(regex, `<mark>$1</mark>`);
+    } catch (err) {
+      console.error("Search highlight error:", err);
+    }
+  }
+
+  return html;
 }
 
 function getWordCount(text) {
@@ -217,8 +277,12 @@ function selectFirstDocument() {
 }
 
 function updatePreview() {
+  const doc = getCurrentDocs()[currentDocumentId];
+  if (!doc) return;
+
   const preview = document.getElementById("preview-pane");
-  preview.innerHTML = renderMarkdown(editorContent.value);
+
+  preview.innerHTML = renderMarkdown(doc.content || "");
 }
 
 function formatText(type) {
@@ -226,6 +290,11 @@ function formatText(type) {
 
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
+
+  const doc = getCurrentDocs()[currentDocumentId];
+  if (doc) {
+    doc.content = editorContent.value;
+  }
 
   const selectedText = textarea.value.substring(start, end);
   if (!selectedText) return;
@@ -261,6 +330,8 @@ function formatText(type) {
   history.push(newValue);
   historyIndex = history.length - 1;
 
+  doc.content = editorContent.value;
+  saveHistory();
   updatePreview();
   updateWordCount();
 }
@@ -282,6 +353,7 @@ function togglePreview() {
 
   applyPreviewMode();
   savePreviewMode();
+  updateModeIndicator();
 }
 
 function toggleFocusMode() {
@@ -310,9 +382,12 @@ function applyPreviewMode() {
     document.body.classList.remove("preview-mode");
   }
 
-  if (!isPreviewMode) {
-    focusEditor();
+  const graphMenu = document.getElementById("open-graph-menu");
+
+  if (graphMenu) {
+    graphMenu.classList.toggle("disabled", isPreviewMode);
   }
+
   document.body.classList.toggle("preview-mode", isPreviewMode);
 }
 
@@ -483,8 +558,14 @@ function applyForces() {
 }
 
 function openGraph() {
+  if (isPreviewMode) return;
+
+  isModalOpen = true;
+
   const modal = document.getElementById("graph-modal");
   modal.classList.remove("hidden");
+
+  updateModeIndicator();
 
   setTimeout(() => {
     graphState.nodes = [];
@@ -747,7 +828,6 @@ function loadDocument(id) {
   history = [editorContent.value];
   historyIndex = 0;
 
-  focusEditor();
   updateWordCount();
   updatePreview();
 }
@@ -987,7 +1067,14 @@ function searchDocuments(query) {
 
 function openExportModal() {
   const modal = document.getElementById("export-modal");
+
+  isModalOpen = true;
+
   modal.classList.remove("hidden");
+
+  updateModeIndicator();
+
+  document.getElementById("mode-indicator")?.classList.add("hidden");
 
   const input = document.getElementById("export-filename");
   input.value = exportMode === "document" ? "document.md" : "project.md";
@@ -1033,6 +1120,7 @@ function openExportModal() {
       )
       .join("");
   }
+  closeAllMenus();
 }
 
 function closeExportModal() {
@@ -1175,13 +1263,25 @@ function convertToPlainText(markdown) {
 }
 
 function openHelpModal(title, content) {
+  const modal = document.getElementById("help-modal");
+
+  isModalOpen = true;
+
+  modal.classList.remove("hidden");
+
   document.getElementById("help-title").textContent = title;
   document.getElementById("help-body").innerHTML = content;
-  document.getElementById("help-modal").classList.remove("hidden");
+
+  updateModeIndicator();
 }
 
 function closeHelpModal() {
   document.getElementById("help-modal").classList.add("hidden");
+
+  isModalOpen = false;
+
+  updateModeIndicator();
+  focusEditor();
 }
 
 function getAboutContent() {
@@ -1211,15 +1311,10 @@ function getShortcutsContent() {
 // =====================
 
 function initMenuSystem() {
-  const menus = {
-    file: document.getElementById("file-menu"),
-    edit: document.getElementById("edit-menu"),
-    view: document.getElementById("view-menu"),
-    help: document.getElementById("help-menu"),
-  };
-
-  let activeMenu = null;
-  let menuMode = false;
+  menus.file = document.getElementById("file-menu");
+  menus.edit = document.getElementById("edit-menu");
+  menus.view = document.getElementById("view-menu");
+  menus.help = document.getElementById("help-menu");
 
   document.querySelectorAll(".menu-item").forEach((item) => {
     item.addEventListener("mousedown", (e) => {
@@ -1228,28 +1323,35 @@ function initMenuSystem() {
       const menuName = item.dataset.menu;
       const menu = menus[menuName];
 
-      // Toggle off if same menu clicked
+      console.log("MOUSEDOWN MENU:", menuName);
+
       if (activeMenu === menuName) {
-        menu.style.display = "none";
-        activeMenu = null;
-        menuMode = false;
+        closeAllMenus();
         return;
       }
-
-      menuMode = true;
 
       Object.values(menus).forEach((m) => (m.style.display = "none"));
 
       menu.style.display = "block";
       activeMenu = menuName;
+
+      logMenuState("OPEN MENU");
     });
   });
 
   document.querySelectorAll(".menu-item").forEach((item) => {
     item.addEventListener("mouseenter", () => {
-      if (!menuMode) return;
+      console.log("HOVER MENU:", item.dataset.menu);
+
+      if (!activeMenu) return;
 
       const menuName = item.dataset.menu;
+      if (menuName === activeMenu) {
+        logMenuState("HOVER SWITCH");
+
+        return;
+      }
+
       const menu = menus[menuName];
 
       Object.values(menus).forEach((m) => (m.style.display = "none"));
@@ -1259,17 +1361,14 @@ function initMenuSystem() {
     });
   });
 
-  document.addEventListener("click", (e) => {
-    const clickedMenuItem = e.target.closest(".menu-item");
-    const clickedDropdown = e.target.closest(".menu-dropdown");
+  document.addEventListener("mousedown", (e) => {
+    const isMenuItem = e.target.closest(".menu-item");
+    const isDropdown = e.target.closest(".menu-dropdown");
 
-    // If clicking ANYWHERE outside menus → close everything
-    if (!clickedMenuItem && !clickedDropdown) {
-      Object.values(menus).forEach((menu) => {
-        menu.style.display = "none";
-      });
-      activeMenu = null;
-    }
+    if (isMenuItem || isDropdown) return;
+
+    console.log("OUTSIDE CLICK");
+    closeAllMenus();
   });
 
   const exportProject = document.getElementById("export-project");
@@ -1314,21 +1413,6 @@ function initMenuSystem() {
 
   document.addEventListener("keydown", (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-
-    if (menuMode) {
-      Object.values(menus).forEach((m) => (m.style.display = "none"));
-      activeMenu = null;
-      menuMode = false;
-    }
-  });
-
-  document.addEventListener("mousedown", (e) => {
-    const isEditor = e.target.closest("#editor-content");
-    const isInput = e.target.closest("input, textarea, select");
-
-    if (!isEditor && !isInput) {
-      window.getSelection()?.removeAllRanges();
-    }
   });
 }
 
@@ -1356,10 +1440,9 @@ function initEditorEvents() {
       }
     }
 
-    saveHistory();
-
     doc.content = editorContent.value;
 
+    saveHistory();
     updatePreview();
     updateWordCount();
     debounceSave();
@@ -1433,12 +1516,21 @@ function initEditorEvents() {
     }
   });
 
-  editorContent.addEventListener("mouseup", () => {
-    const pos = editorContent.selectionStart;
-    editorContent.setSelectionRange(pos, pos);
+  editorTitle.addEventListener("input", () => {
+    const doc = getCurrentDocs()[currentDocumentId];
+    if (!doc) return;
+
+    doc.title = editorTitle.value;
+    debounceSave();
+    renderSidebar();
   });
 
-  editorTitle.addEventListener("input", saveDocument);
+  editorTitle.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      focusEditor();
+    }
+  });
 }
 
 function initSidebarEvents() {
@@ -1456,6 +1548,17 @@ function initKeyboardShortcuts() {
   editorContent.addEventListener("keydown", (e) => {
     if (!e.ctrlKey) return;
 
+    document.addEventListener("keydown", (e) => {
+      if (e.altKey) {
+        const key = e.key.toLowerCase();
+
+        if (key === "f") openMenu("file");
+        if (key === "e") openMenu("edit");
+        if (key === "v") openMenu("view");
+        if (key === "h") openMenu("help");
+      }
+    });
+
     switch (e.key.toLowerCase()) {
       case "b":
         e.preventDefault();
@@ -1470,6 +1573,7 @@ function initKeyboardShortcuts() {
         formatText("underline");
         break;
     }
+    closeAllMenus();
   });
 
   document.addEventListener("keydown", (e) => {
@@ -1487,6 +1591,16 @@ function initKeyboardShortcuts() {
       return;
     }
 
+    // Ignore modifier-only presses
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    // If user is typing (real character keys)
+    if (e.key.length === 1 || e.key === "Backspace" || e.key === "Enter") {
+      if (activeMenu) {
+        closeAllMenus();
+      }
+    }
+
     // ESCAPE
     if (e.key === "Escape") {
       const graphModal = document.getElementById("graph-modal");
@@ -1495,6 +1609,11 @@ function initKeyboardShortcuts() {
       if (graphModal && !graphModal.classList.contains("hidden")) {
         graphModal.classList.add("hidden");
         graphAnimating = false;
+
+        if (isPreviewMode) {
+          document.getElementById("mode-indicator")?.classList.remove("hidden");
+        }
+
         setTimeout(() => focusEditor(), 0);
         return;
       }
@@ -1508,6 +1627,16 @@ function initKeyboardShortcuts() {
       if (document.body.classList.contains("focus-mode")) {
         toggleFocusMode();
         return;
+      }
+
+      if (e.key === "Escape") {
+        Object.values(menus).forEach((menu) => {
+          menu.style.display = "none";
+        });
+        activeMenu = null;
+        Object.values(menus).forEach((menu) => {
+          menu.style.display = "none";
+        });
       }
     }
   });
@@ -1546,12 +1675,9 @@ function initGraph() {
   });
 
   const openGraphBtn = document.getElementById("open-graph");
-
   if (openGraphBtn) {
     openGraphBtn.addEventListener("click", openGraph);
   }
-
-  const btn = document.getElementById("open-graph");
 }
 
 function initEventListeners() {
@@ -1559,11 +1685,13 @@ function initEventListeners() {
     attachItemListeners(item);
   });
 
-  const graphMenu = document.getElementById("open-graph-menu");
-
-  if (graphMenu) {
-    graphMenu.addEventListener("click", openGraph);
-  }
+  document.addEventListener("mousedown", (e) => {
+    const isEditor = e.target.closest("#editor-content");
+    const isPreview = e.target.closest("#preview-pane");
+    const isUI = e.target.closest(
+      "button, input, select, .menu-item, .menu-dropdown",
+    );
+  });
 
   const closeGraphBtn = document.getElementById("close-graph");
 
@@ -1571,8 +1699,14 @@ function initEventListeners() {
     closeGraphBtn.addEventListener("click", () => {
       document.getElementById("graph-modal").classList.add("hidden");
       graphAnimating = false;
+
+      if (isPreviewMode) {
+        document.getElementById("mode-indicator")?.classList.remove("hidden");
+      }
+
       focusEditor();
     });
+    document.body.classList.remove("graph-open");
   }
 
   const newProject = document.getElementById("new-project");
@@ -1586,6 +1720,7 @@ function initEventListeners() {
   document.querySelectorAll("#edit-menu [data-format]").forEach((item) => {
     item.addEventListener("click", () => {
       formatText(item.dataset.format);
+      closeAllMenus();
     });
   });
 
@@ -1594,6 +1729,7 @@ function initEventListeners() {
   if (toggleFocus) {
     toggleFocus.addEventListener("click", () => {
       toggleFocusMode();
+      closeAllMenus();
     });
   }
 
@@ -1602,6 +1738,7 @@ function initEventListeners() {
   if (togglePreviewMenu) {
     togglePreviewMenu.addEventListener("click", () => {
       togglePreview();
+      closeAllMenus();
     });
   }
 
@@ -1619,14 +1756,25 @@ function initEventListeners() {
     togglePreviewBtn.addEventListener("click", togglePreview);
   }
 
+  let currentSearchQuery = "";
+
   searchInput.addEventListener("input", () => {
-    const query = searchInput.value;
+    const query = searchInput.value.trim();
+    currentSearchQuery = query;
 
     if (query === "") {
       renderSidebar();
     } else {
       searchDocuments(query);
     }
+
+    // scroll to first match (preview only)
+    setTimeout(() => {
+      const first = document.querySelector("#preview-pane mark");
+      if (first) {
+        first.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 0);
   });
 
   tagInput.addEventListener("keypress", (e) => {
