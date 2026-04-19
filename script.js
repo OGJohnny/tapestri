@@ -17,6 +17,7 @@ let graphState = {
   nodes: [],
   edges: [],
 };
+let graphAnimationFrame = null;
 let graphAnimating = false;
 let draggedNode = null;
 let menuLocked = false;
@@ -29,11 +30,6 @@ const menus = {
   view: null,
   help: null,
 };
-
-function logMenuState(source) {
-  console.log(`[MENU STATE] from: ${source}`);
-  console.log("activeMenu:", activeMenu);
-}
 
 // ======================
 // ELEMENTS (DOM)
@@ -175,15 +171,11 @@ function openMenu(name) {
 }
 
 function closeAllMenus() {
-  console.log("CLOSING ALL MENUS");
-
   Object.values(menus).forEach((menu) => {
     if (menu) menu.style.display = "none";
   });
 
   activeMenu = null;
-
-  logMenuState("AFTER CLOSE");
 }
 
 function focusEditor() {
@@ -343,6 +335,12 @@ function togglePreview() {
 
   if (isPreviewMode) {
     indicator.classList.remove("hidden");
+
+    graphAnimating = false;
+    if (graphAnimationFrame) {
+      cancelAnimationFrame(graphAnimationFrame);
+      graphAnimationFrame = null;
+    }
   } else {
     indicator.classList.add("hidden");
 
@@ -353,7 +351,6 @@ function togglePreview() {
 
   applyPreviewMode();
   savePreviewMode();
-  updateModeIndicator();
 }
 
 function toggleFocusMode() {
@@ -385,7 +382,11 @@ function applyPreviewMode() {
   const graphMenu = document.getElementById("open-graph-menu");
 
   if (graphMenu) {
-    graphMenu.classList.toggle("disabled", isPreviewMode);
+    graphMenu.addEventListener("click", (e) => {
+      e.stopPropagation(); // prevent menu weirdness
+      openGraph();
+      closeAllMenus();
+    });
   }
 
   document.body.classList.toggle("preview-mode", isPreviewMode);
@@ -560,32 +561,24 @@ function applyForces() {
 function openGraph() {
   if (isPreviewMode) return;
 
-  isModalOpen = true;
-
   const modal = document.getElementById("graph-modal");
   modal.classList.remove("hidden");
-
-  updateModeIndicator();
 
   setTimeout(() => {
     graphState.nodes = [];
     renderGraph();
 
-    if (!graphAnimating) {
-      graphAnimating = true;
-      animateGraph();
+    if (graphAnimationFrame) {
+      cancelAnimationFrame(graphAnimationFrame);
     }
+
+    graphAnimating = true;
+    animateGraph();
   }, 50);
 }
 
-let graphAnimationFrame = null;
-
 function animateGraph() {
-  if (!graphAnimating) {
-    cancelAnimationFrame(graphAnimationFrame);
-    graphAnimationFrame = null;
-    return;
-  }
+  if (!graphAnimating) return;
 
   applyForces();
   renderGraph();
@@ -1310,6 +1303,13 @@ function getShortcutsContent() {
 // MENU SYSTEM
 // =====================
 
+function handleMenuAction(action) {
+  activeMenu = null;
+  closeAllMenus();
+
+  setTimeout(action, 0);
+}
+
 function initMenuSystem() {
   menus.file = document.getElementById("file-menu");
   menus.edit = document.getElementById("edit-menu");
@@ -1323,8 +1323,6 @@ function initMenuSystem() {
       const menuName = item.dataset.menu;
       const menu = menus[menuName];
 
-      console.log("MOUSEDOWN MENU:", menuName);
-
       if (activeMenu === menuName) {
         closeAllMenus();
         return;
@@ -1334,28 +1332,20 @@ function initMenuSystem() {
 
       menu.style.display = "block";
       activeMenu = menuName;
-
-      logMenuState("OPEN MENU");
     });
   });
 
   document.querySelectorAll(".menu-item").forEach((item) => {
     item.addEventListener("mouseenter", () => {
-      console.log("HOVER MENU:", item.dataset.menu);
-
-      if (!activeMenu) return;
+      if (menuLocked) return;
 
       const menuName = item.dataset.menu;
-      if (menuName === activeMenu) {
-        logMenuState("HOVER SWITCH");
 
-        return;
-      }
+      if (menuName === activeMenu) return;
 
       const menu = menus[menuName];
 
       Object.values(menus).forEach((m) => (m.style.display = "none"));
-
       menu.style.display = "block";
       activeMenu = menuName;
     });
@@ -1367,7 +1357,6 @@ function initMenuSystem() {
 
     if (isMenuItem || isDropdown) return;
 
-    console.log("OUTSIDE CLICK");
     closeAllMenus();
   });
 
@@ -1698,7 +1687,13 @@ function initEventListeners() {
   if (closeGraphBtn) {
     closeGraphBtn.addEventListener("click", () => {
       document.getElementById("graph-modal").classList.add("hidden");
+
       graphAnimating = false;
+
+      if (graphAnimationFrame) {
+        cancelAnimationFrame(graphAnimationFrame);
+        graphAnimationFrame = null;
+      }
 
       if (isPreviewMode) {
         document.getElementById("mode-indicator")?.classList.remove("hidden");
@@ -1706,7 +1701,6 @@ function initEventListeners() {
 
       focusEditor();
     });
-    document.body.classList.remove("graph-open");
   }
 
   const newProject = document.getElementById("new-project");
@@ -1737,8 +1731,7 @@ function initEventListeners() {
 
   if (togglePreviewMenu) {
     togglePreviewMenu.addEventListener("click", () => {
-      togglePreview();
-      closeAllMenus();
+      handleMenuAction(togglePreview);
     });
   }
 
