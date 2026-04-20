@@ -54,14 +54,6 @@ html {
   min-height: 0;
 }
 
-.app,
-.sidebar,
-.editor-top,
-.meta-row,
-.format-toolbar {
-  transition: all 0.25s ease;
-}
-
 /* ======================
    COMPONENTS
 ====================== */
@@ -525,7 +517,6 @@ button {
 
 .mode-indicator {
   display: none;
-  display: none;
   font-size: 14px;
   font-weight: 500;
   background: #dcdcdc;
@@ -533,7 +524,6 @@ button {
   padding: 4px 10px;
   border-radius: 12px;
   opacity: 0.8;
-  pointer-events: none;
   pointer-events: auto;
   cursor: pointer;
   z-index: 9999;

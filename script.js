@@ -9,6 +9,7 @@ let savedSelection = { start: 0, end: 0 };
 let currentDocumentId = null;
 let saveTimeout;
 let currentSearchQuery = "";
+let searchQuery = "";
 let isFocusMode = false;
 let isPreviewMode = false;
 let exportMode = "project";
@@ -17,12 +18,14 @@ let graphState = {
   nodes: [],
   edges: [],
 };
+graphState.temperature = 1;
 let graphAnimationFrame = null;
 let graphAnimating = false;
 let draggedNode = null;
 let menuLocked = false;
 let menuJustClosed = false;
 let activeMenu = null;
+let menuOpen = false;
 
 const menus = {
   file: null,
@@ -30,6 +33,11 @@ const menus = {
   view: null,
   help: null,
 };
+
+const regex = new RegExp(`(${escapeRegex(searchQuery)})`, "gi");
+
+const data = getGraphData();
+console.log("GRAPH DATA:", data);
 
 // ======================
 // ELEMENTS (DOM)
@@ -80,6 +88,14 @@ function loadFocusMode() {
 function saveToLocalStorage() {
   localStorage.setItem("tapestriProjects", JSON.stringify(projects));
   localStorage.setItem("tapestriCurrentProject", currentProjectId);
+}
+
+function debounceSave() {
+  clearTimeout(saveTimeout);
+
+  saveTimeout = setTimeout(() => {
+    saveToLocalStorage();
+  }, 300);
 }
 
 function loadFromLocalStorage() {
@@ -143,17 +159,16 @@ function loadFromLocalStorage() {
   }
 }
 
-function debounceSave() {
-  clearTimeout(saveTimeout);
-
-  saveTimeout = setTimeout(() => {
-    saveToLocalStorage();
-  }, 300);
-}
-
 // =====================
 // HELPERS
 // =====================
+
+function getDocumentById(id) {
+  const docs = getCurrentDocs();
+  if (!docs) return null;
+
+  return Object.values(docs).find((doc) => doc.id === id);
+}
 
 function openMenu(name) {
   const menus = {
@@ -171,11 +186,9 @@ function openMenu(name) {
 }
 
 function closeAllMenus() {
-  Object.values(menus).forEach((menu) => {
-    if (menu) menu.style.display = "none";
-  });
-
+  Object.values(menus).forEach((m) => (m.style.display = "none"));
   activeMenu = null;
+  menuOpen = false;
 }
 
 function focusEditor() {
@@ -244,6 +257,13 @@ function getWordCount(text) {
     .filter((word) => word.length > 0).length;
 }
 
+function scrollToFirstMatch() {
+  const match = document.querySelector("#preview-pane mark");
+  if (match) {
+    match.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+}
+
 // ====================
 // CORE EDITOR FEATURES
 // ====================
@@ -274,7 +294,21 @@ function updatePreview() {
 
   const preview = document.getElementById("preview-pane");
 
-  preview.innerHTML = renderMarkdown(doc.content || "");
+  // 1. Render markdown FIRST
+  let html = renderMarkdown(doc.content || "");
+
+  // 2. Apply highlight ON TOP of rendered HTML
+  if (searchQuery) {
+    const regex = new RegExp(`(${searchQuery})`, "gi");
+    html = html.replace(regex, "<mark>$1</mark>");
+  }
+
+  // 3. Render once
+  preview.innerHTML = html;
+}
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function formatText(type) {
@@ -349,6 +383,7 @@ function togglePreview() {
     }, 0);
   }
 
+  updateMenuState();
   applyPreviewMode();
   savePreviewMode();
 }
@@ -383,13 +418,28 @@ function applyPreviewMode() {
 
   if (graphMenu) {
     graphMenu.addEventListener("click", (e) => {
-      e.stopPropagation(); // prevent menu weirdness
+      e.stopPropagation();
+
+      if (isPreviewMode) return;
+
       openGraph();
       closeAllMenus();
     });
   }
 
   document.body.classList.toggle("preview-mode", isPreviewMode);
+}
+
+function updateModeIndicator() {
+  const indicator = document.getElementById("mode-indicator");
+
+  if (!indicator) return;
+
+  if (isPreviewMode && !isModalOpen) {
+    indicator.classList.remove("hidden");
+  } else {
+    indicator.classList.add("hidden");
+  }
 }
 
 function updateWordCount() {
@@ -439,30 +489,12 @@ function getGraphData() {
 function renderGraph() {
   const ctx = canvas.getContext("2d");
 
-  canvas.width = canvas.offsetWidth;
-  canvas.height = canvas.offsetHeight;
-
-  const data = getGraphData();
-
-  // Initialize positions once
-  if (graphState.nodes.length === 0) {
-    graphState.nodes = data.nodes.map((node) => ({
-      ...node,
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height,
-      vx: 0,
-      vy: 0,
-    }));
-    graphState.edges = data.edges;
-  }
-
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   // Draw edges
   graphState.edges.forEach((edge) => {
     const from = graphState.nodes.find((n) => n.id === edge.from);
     const to = graphState.nodes.find((n) => n.id === edge.to);
-
     if (!from || !to) return;
 
     ctx.beginPath();
@@ -480,6 +512,7 @@ function renderGraph() {
     ctx.fill();
 
     ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
     ctx.fillText(node.label, node.x, node.y + 35);
   });
 }
@@ -487,6 +520,8 @@ function renderGraph() {
 function applyForces() {
   const nodes = graphState.nodes;
   const edges = graphState.edges;
+
+  graphState.temperature *= 0.98;
 
   if (!nodes.length) return;
 
@@ -503,7 +538,7 @@ function applyForces() {
       const dy = b.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
 
-      const force = 200 / (dist * dist);
+      const force = (6000 / (dist * dist)) * graphState.temperature;
 
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
@@ -512,13 +547,26 @@ function applyForces() {
       a.vy -= fy;
       b.vx += fx;
       b.vy += fy;
+
+      const minDist = 80;
+
+      if (dist < minDist) {
+        const push = (minDist - dist) * 0.01;
+        const fx = (dx / dist) * push;
+        const fy = (dy / dist) * push;
+
+        a.vx -= fx;
+        a.vy -= fy;
+        b.vx += fx;
+        b.vy += fy;
+      }
     }
   }
 
   // CENTER GRAVITY (keep nodes on screen)
   nodes.forEach((node) => {
-    node.vx += (centerX - node.x) * 0.002;
-    node.vy += (centerY - node.y) * 0.002;
+    node.vx += (centerX - node.x) * 0.0005;
+    node.vy += (centerY - node.y) * 0.0005;
   });
 
   // EDGE ATTRACTION (connected nodes pull together)
@@ -531,10 +579,10 @@ function applyForces() {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
 
-    a.vx += dx * 0.002;
-    a.vy += dy * 0.002;
-    b.vx -= dx * 0.002;
-    b.vy -= dy * 0.002;
+    a.vx += dx * 0.002 * graphState.temperature;
+    a.vy += dy * 0.002 * graphState.temperature;
+    b.vx -= dx * 0.002 * graphState.temperature;
+    b.vy -= dy * 0.002 * graphState.temperature;
   });
 
   // APPLY VELOCITY + LIMITS
@@ -545,8 +593,8 @@ function applyForces() {
     node.y += node.vy;
 
     // Damping
-    node.vx *= 0.95;
-    node.vy *= 0.95;
+    node.vx *= 0.9;
+    node.vy *= 0.9;
 
     // Clamp to canvas
     node.x = Math.max(padding, Math.min(canvas.width - padding, node.x));
@@ -558,32 +606,71 @@ function applyForces() {
   });
 }
 
+function animateGraph() {
+  if (!graphAnimating) return;
+
+  if (graphState.temperature < 0.01) {
+    graphAnimating = false;
+    return;
+  }
+
+  graphState.nodes.forEach((node) => {
+    node.x += Math.random() * 2 - 1;
+    node.y += Math.random() * 2 - 1;
+  });
+
+  applyForces();
+  renderGraph();
+
+  graphAnimationFrame = requestAnimationFrame(animateGraph);
+  console.log("ANIMATING FRAME");
+  console.log(graphState.nodes[0]);
+}
+
 function openGraph() {
   if (isPreviewMode) return;
 
   const modal = document.getElementById("graph-modal");
   modal.classList.remove("hidden");
 
-  setTimeout(() => {
-    graphState.nodes = [];
-    renderGraph();
+  // HARD RESET
+  graphAnimating = false;
 
-    if (graphAnimationFrame) {
-      cancelAnimationFrame(graphAnimationFrame);
-    }
+  if (graphAnimationFrame) {
+    cancelAnimationFrame(graphAnimationFrame);
+    graphAnimationFrame = null;
+  }
 
-    graphAnimating = true;
-    animateGraph();
-  }, 50);
-}
+  // RESET STATE
+  graphState.nodes = [];
+  graphState.edges = [];
+  graphState.temperature = 1;
 
-function animateGraph() {
-  if (!graphAnimating) return;
+  // Canvas sizing
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
 
-  applyForces();
-  renderGraph();
+  // Build graph
+  const data = getGraphData();
 
-  graphAnimationFrame = requestAnimationFrame(animateGraph);
+  graphState.nodes = data.nodes.map((node) => ({
+    ...node,
+    x: Math.random() * canvas.width,
+    y: Math.random() * canvas.height,
+    vx: (Math.random() - 0.5) * 2,
+    vy: (Math.random() - 0.5) * 2,
+  }));
+
+  if (graphState.temperature < 0.01) {
+    graphAnimating = false;
+    return;
+  }
+
+  graphState.edges = data.edges;
+
+  // RESTART LOOP
+  graphAnimating = true;
+  animateGraph();
 }
 
 // ======================
@@ -931,6 +1018,40 @@ function handleItemClick(item) {
 // PROJECT SYSTEM
 // ===========================
 
+function renderSidebar() {
+  const lists = document.querySelectorAll("ul");
+  lists.forEach((list) => {
+    list.innerHTML = "";
+  });
+
+  const docs = projects[currentProjectId]?.documents || {};
+
+  for (const id in docs) {
+    const doc = docs[id];
+
+    const matchesSearch =
+      !searchQuery ||
+      (doc.title || "").toLowerCase().includes(searchQuery) ||
+      (doc.content || "").toLowerCase().includes(searchQuery) ||
+      (doc.tags || []).some((tag) => tag.toLowerCase().includes(searchQuery)) ||
+      (doc.type === "character" &&
+        doc.title.toLowerCase().includes(searchQuery));
+
+    if (!matchesSearch) continue;
+
+    const li = document.createElement("li");
+    li.textContent = doc.title;
+    li.dataset.id = doc.id;
+    li.dataset.type = doc.type;
+
+    const list = document.querySelector(`ul[data-type="${doc.type}"]`);
+    if (list) {
+      list.appendChild(li);
+      attachItemListeners(li);
+    }
+  }
+}
+
 function createNewProject() {
   const name = prompt("Project name?");
   if (!name) return;
@@ -996,32 +1117,6 @@ function renderProjectList() {
     }
 
     projectSelect.appendChild(option);
-  }
-}
-
-function renderSidebar() {
-  const lists = document.querySelectorAll("ul");
-
-  lists.forEach((list) => {
-    list.innerHTML = "";
-  });
-
-  const docs = projects[currentProjectId]?.documents || {};
-
-  for (const id in docs) {
-    const doc = projects[currentProjectId].documents[id];
-
-    const li = document.createElement("li");
-    li.textContent = doc.title;
-    li.dataset.id = doc.id;
-    li.dataset.type = doc.type;
-
-    const list = document.querySelector(`ul[data-type="${doc.type}"]`);
-
-    if (list) {
-      list.appendChild(li);
-      attachItemListeners(li);
-    }
   }
 }
 
@@ -1310,6 +1405,17 @@ function handleMenuAction(action) {
   setTimeout(action, 0);
 }
 
+function updateMenuState() {
+  const graphItem = document.getElementById("open-graph-menu");
+  if (!graphItem) return;
+
+  if (isPreviewMode) {
+    graphItem.classList.add("disabled");
+  } else {
+    graphItem.classList.remove("disabled");
+  }
+}
+
 function initMenuSystem() {
   menus.file = document.getElementById("file-menu");
   menus.edit = document.getElementById("edit-menu");
@@ -1317,38 +1423,44 @@ function initMenuSystem() {
   menus.help = document.getElementById("help-menu");
 
   document.querySelectorAll(".menu-item").forEach((item) => {
-    item.addEventListener("mousedown", (e) => {
-      e.preventDefault();
+    item.addEventListener("click", (e) => {
+      if (menuLocked) return;
+
+      e.stopPropagation();
 
       const menuName = item.dataset.menu;
       const menu = menus[menuName];
 
       if (activeMenu === menuName) {
         closeAllMenus();
+        menuOpen = false;
         return;
       }
 
       Object.values(menus).forEach((m) => (m.style.display = "none"));
-
       menu.style.display = "block";
+
+      activeMenu = menuName;
+      menuOpen = true;
+    });
+
+    item.addEventListener("mouseenter", () => {
+      if (!menuOpen) return;
+
+      const menuName = item.dataset.menu;
+      const menu = menus[menuName];
+
+      if (menuName === activeMenu) return;
+
+      Object.values(menus).forEach((m) => (m.style.display = "none"));
+      menu.style.display = "block";
+
       activeMenu = menuName;
     });
   });
 
-  document.querySelectorAll(".menu-item").forEach((item) => {
-    item.addEventListener("mouseenter", () => {
-      if (menuLocked) return;
-
-      const menuName = item.dataset.menu;
-
-      if (menuName === activeMenu) return;
-
-      const menu = menus[menuName];
-
-      Object.values(menus).forEach((m) => (m.style.display = "none"));
-      menu.style.display = "block";
-      activeMenu = menuName;
-    });
+  document.addEventListener("click", () => {
+    closeAllMenus();
   });
 
   document.addEventListener("mousedown", (e) => {
@@ -1517,6 +1629,7 @@ function initEditorEvents() {
   editorTitle.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
+      loadDocument(currentDocumentId);
       focusEditor();
     }
   });
@@ -1733,6 +1846,7 @@ function initEventListeners() {
     togglePreviewMenu.addEventListener("click", () => {
       handleMenuAction(togglePreview);
     });
+    updateMenuState();
   }
 
   const indicator = document.getElementById("mode-indicator");
@@ -1751,23 +1865,20 @@ function initEventListeners() {
 
   let currentSearchQuery = "";
 
-  searchInput.addEventListener("input", () => {
-    const query = searchInput.value.trim();
-    currentSearchQuery = query;
+  searchInput.addEventListener("input", (e) => {
+    searchQuery = e.target.value.toLowerCase();
 
-    if (query === "") {
-      renderSidebar();
-    } else {
-      searchDocuments(query);
+    renderSidebar();
+    updatePreview();
+  });
+
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+
+      editorContent.focus();
+      scrollToFirstMatch();
     }
-
-    // scroll to first match (preview only)
-    setTimeout(() => {
-      const first = document.querySelector("#preview-pane mark");
-      if (first) {
-        first.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }, 0);
   });
 
   tagInput.addEventListener("keypress", (e) => {
