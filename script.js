@@ -411,6 +411,243 @@ function fitGraphToScreen() {
   renderGraph();
 }
 
+function initGraphFilters() {
+  document.querySelectorAll("#graph-filters input").forEach((checkbox) => {
+    checkbox.addEventListener("change", (e) => {
+      const type = e.target.dataset.type;
+      graphState.filters[type] = e.target.checked;
+
+      renderGraph();
+    });
+  });
+}
+
+// ======================
+// GRAPH SYSTEM FUNCTIONS
+// ======================
+
+function onGraphMouseUp(e) {
+  isDraggingGraph = false;
+  draggedNode = null;
+}
+
+function onGraphMouseDown(e) {
+  const rect = canvas.getBoundingClientRect();
+
+  const x = (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
+  const y = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
+
+  hasDragged = false;
+
+  //  Check if clicking a node
+  draggedNode = null;
+
+  const visibleNodes = graphState.nodes.filter(
+    (node) => graphState.filters[node.type],
+  );
+
+  for (const node of visibleNodes) {
+    // Convert node to SCREEN space
+    const screenX = node.x * graphState.scale + graphState.offsetX;
+    const screenY = node.y * graphState.scale + graphState.offsetY;
+    const dx = screenX - (e.clientX - rect.left);
+    const dy = screenY - (e.clientY - rect.top);
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const scaledRadius = NODE_RADIUS * graphState.scale;
+
+    if (distance <= scaledRadius) {
+      draggedNode = node;
+
+      // offset still in WORLD space
+      const worldX =
+        (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
+      const worldY =
+        (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
+
+      nodeOffsetX = worldX - node.x;
+      nodeOffsetY = worldY - node.y;
+
+      break;
+    }
+  }
+
+  if (draggedNode) {
+    // Node dragging
+    return;
+  }
+
+  // Graph dragging
+  isDraggingGraph = true;
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+}
+
+function onGraphMouseMove(e) {
+  const rect = canvas.getBoundingClientRect();
+
+  //  NODE DRAG
+  if (draggedNode) {
+    hasDragged = true;
+
+    draggedNode.x =
+      (e.clientX - rect.left - graphState.offsetX) / graphState.scale -
+      nodeOffsetX;
+
+    draggedNode.y =
+      (e.clientY - rect.top - graphState.offsetY) / graphState.scale -
+      nodeOffsetY;
+
+    renderGraph();
+    return;
+  }
+
+  //  GRAPH DRAG
+  if (!isDraggingGraph) return;
+
+  hasDragged = true;
+
+  const dx = e.clientX - dragStartX;
+  const dy = e.clientY - dragStartY;
+
+  graphState.offsetX += dx;
+  graphState.offsetY += dy;
+
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+
+  renderGraph();
+}
+
+function onGraphMouseLeave(e) {
+  isDraggingGraph = false;
+  draggedNode = null;
+}
+
+function onGraphWheel(e) {
+  e.preventDefault();
+
+  const rect = canvas.getBoundingClientRect();
+
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+
+  const scaleAmount = 0.1;
+  const direction = e.deltaY > 0 ? -1 : 1;
+
+  const newScale = Math.max(
+    MIN_SCALE,
+    Math.min(MAX_SCALE, graphState.scale + direction * scaleAmount),
+  );
+
+  // Zoom toward cursor
+  const scaleRatio = newScale / graphState.scale;
+
+  graphState.offsetX = mouseX - (mouseX - graphState.offsetX) * scaleRatio;
+  graphState.offsetY = mouseY - (mouseY - graphState.offsetY) * scaleRatio;
+  graphState.scale = newScale;
+
+  renderGraph();
+}
+
+function onGraphClick(e) {
+  const rect = canvas.getBoundingClientRect();
+
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+
+  handleGraphClick(
+    (mouseX - graphState.offsetX) / graphState.scale,
+    (mouseY - graphState.offsetY) / graphState.scale,
+  );
+}
+
+function onGraphDoubleClick(e) {
+  const rect = canvas.getBoundingClientRect();
+
+  const x = (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
+
+  const y = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
+
+  let closestNode = null;
+  let closestDistance = Infinity;
+
+  const visibleNodes = graphState.nodes.filter(
+    (node) => graphState.filters[node.type],
+  );
+
+  for (const node of visibleNodes) {
+    const dx = node.x - x;
+    const dy = node.y - y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestNode = node;
+    }
+  }
+
+  if (closestNode && closestDistance <= NODE_RADIUS) {
+    openDocumentFromGraph(closestNode.id);
+  }
+}
+
+function initGraphCanvasEvent() {
+  const canvas = document.getElementById("graph-canvas");
+
+  canvas.addEventListener("mouseup", onGraphMouseUp);
+  canvas.addEventListener("mousedown", onGraphMouseDown);
+  canvas.addEventListener("mousemove", onGraphMouseMove);
+  canvas.addEventListener("mouseleave", onGraphMouseLeave);
+  canvas.addEventListener("wheel", onGraphWheel);
+  canvas.addEventListener("click", onGraphClick);
+  canvas.addEventListener("dblclick", onGraphDoubleClick);
+}
+
+function initGraphToolbarEvents() {
+  // Graph open
+  const openGraphBtn = document.getElementById("open-graph");
+  if (openGraphBtn) {
+    openGraphBtn.addEventListener("click", openGraph);
+  }
+
+  // Graph close
+  const closeGraphBtn = document.getElementById("close-graph");
+  if (closeGraphBtn) {
+    closeGraphBtn.addEventListener("click", closeGraph);
+  }
+
+  const focusToggle = document.getElementById("focus-mode-toggle");
+
+  if (focusToggle) {
+    focusToggle.addEventListener("change", (e) => {
+      graphState.focusMode = e.target.checked;
+      renderGraph();
+    });
+  }
+
+  const centerBtn = document.getElementById("center-node-btn");
+
+  if (centerBtn) {
+    centerBtn.addEventListener("click", () => {
+      if (graphState.selectedNodeId) {
+        centerOnNode(graphState.selectedNodeId);
+      }
+    });
+  }
+
+  const resetBtn = document.getElementById("reset-view-btn");
+
+  if (resetBtn) {
+    resetBtn.addEventListener("click", resetGraphView);
+  }
+
+  const fitBtn = document.getElementById("fit-graph-btn");
+
+  if (fitBtn) {
+    fitBtn.addEventListener("click", fitGraphToScreen);
+  }
+}
+
 // ====================
 // CORE EDITOR FEATURES
 // ====================
@@ -2001,224 +2238,9 @@ function initKeyboardShortcuts() {
 }
 
 function initGraphEvents() {
-  const canvas = document.getElementById("graph-canvas");
-
-  canvas.addEventListener("mousedown", (e) => {
-    const rect = canvas.getBoundingClientRect();
-
-    const x = (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
-    const y = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
-
-    hasDragged = false;
-
-    //  Check if clicking a node
-    draggedNode = null;
-
-    const visibleNodes = graphState.nodes.filter(
-      (node) => graphState.filters[node.type],
-    );
-
-    for (const node of visibleNodes) {
-      // Convert node to SCREEN space
-      const screenX = node.x * graphState.scale + graphState.offsetX;
-      const screenY = node.y * graphState.scale + graphState.offsetY;
-      const dx = screenX - (e.clientX - rect.left);
-      const dy = screenY - (e.clientY - rect.top);
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      const scaledRadius = NODE_RADIUS * graphState.scale;
-
-      if (distance <= scaledRadius) {
-        draggedNode = node;
-
-        // offset still in WORLD space
-        const worldX =
-          (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
-        const worldY =
-          (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
-
-        nodeOffsetX = worldX - node.x;
-        nodeOffsetY = worldY - node.y;
-
-        break;
-      }
-    }
-
-    if (draggedNode) {
-      // Node dragging
-      return;
-    }
-
-    // Graph dragging
-    isDraggingGraph = true;
-    dragStartX = e.clientX;
-    dragStartY = e.clientY;
-  });
-
-  canvas.addEventListener("mousemove", (e) => {
-    const rect = canvas.getBoundingClientRect();
-
-    //  NODE DRAG
-    if (draggedNode) {
-      hasDragged = true;
-
-      draggedNode.x =
-        (e.clientX - rect.left - graphState.offsetX) / graphState.scale -
-        nodeOffsetX;
-
-      draggedNode.y =
-        (e.clientY - rect.top - graphState.offsetY) / graphState.scale -
-        nodeOffsetY;
-
-      renderGraph();
-      return;
-    }
-
-    //  GRAPH DRAG
-    if (!isDraggingGraph) return;
-
-    hasDragged = true;
-
-    const dx = e.clientX - dragStartX;
-    const dy = e.clientY - dragStartY;
-
-    graphState.offsetX += dx;
-    graphState.offsetY += dy;
-
-    dragStartX = e.clientX;
-    dragStartY = e.clientY;
-
-    renderGraph();
-  });
-
-  canvas.addEventListener("mouseup", () => {
-    isDraggingGraph = false;
-    draggedNode = null;
-  });
-
-  canvas.addEventListener("mouseleave", () => {
-    isDraggingGraph = false;
-    draggedNode = null;
-  });
-
-  canvas.addEventListener("click", (e) => {
-    const rect = canvas.getBoundingClientRect();
-
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    handleGraphClick(
-      (mouseX - graphState.offsetX) / graphState.scale,
-      (mouseY - graphState.offsetY) / graphState.scale,
-    );
-  });
-
-  canvas.addEventListener("dblclick", (e) => {
-    const rect = canvas.getBoundingClientRect();
-
-    const x = (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
-
-    const y = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
-
-    let closestNode = null;
-    let closestDistance = Infinity;
-
-    const visibleNodes = graphState.nodes.filter(
-      (node) => graphState.filters[node.type],
-    );
-
-    for (const node of visibleNodes) {
-      const dx = node.x - x;
-      const dy = node.y - y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closestNode = node;
-      }
-    }
-
-    if (closestNode && closestDistance <= NODE_RADIUS) {
-      openDocumentFromGraph(closestNode.id);
-    }
-  });
-
-  canvas.addEventListener("wheel", (e) => {
-    e.preventDefault();
-
-    const rect = canvas.getBoundingClientRect();
-
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    const scaleAmount = 0.1;
-    const direction = e.deltaY > 0 ? -1 : 1;
-
-    const newScale = Math.max(
-      MIN_SCALE,
-      Math.min(MAX_SCALE, graphState.scale + direction * scaleAmount),
-    );
-
-    // Zoom toward cursor
-    const scaleRatio = newScale / graphState.scale;
-
-    graphState.offsetX = mouseX - (mouseX - graphState.offsetX) * scaleRatio;
-    graphState.offsetY = mouseY - (mouseY - graphState.offsetY) * scaleRatio;
-    graphState.scale = newScale;
-
-    renderGraph();
-  });
-
-  // Graph open
-  const openGraphBtn = document.getElementById("open-graph");
-  if (openGraphBtn) {
-    openGraphBtn.addEventListener("click", openGraph);
-  }
-
-  // Graph close
-  const closeGraphBtn = document.getElementById("close-graph");
-  if (closeGraphBtn) {
-    closeGraphBtn.addEventListener("click", closeGraph);
-  }
-
-  document.querySelectorAll("#graph-filters input").forEach((checkbox) => {
-    checkbox.addEventListener("change", (e) => {
-      const type = e.target.dataset.type;
-      graphState.filters[type] = e.target.checked;
-
-      renderGraph();
-    });
-  });
-
-  const focusToggle = document.getElementById("focus-mode-toggle");
-
-  if (focusToggle) {
-    focusToggle.addEventListener("change", (e) => {
-      graphState.focusMode = e.target.checked;
-      renderGraph();
-    });
-  }
-
-  const centerBtn = document.getElementById("center-node-btn");
-
-  if (centerBtn) {
-    centerBtn.addEventListener("click", () => {
-      if (graphState.selectedNodeId) {
-        centerOnNode(graphState.selectedNodeId);
-      }
-    });
-  }
-
-  const resetBtn = document.getElementById("reset-view-btn");
-
-  if (resetBtn) {
-    resetBtn.addEventListener("click", resetGraphView);
-  }
-
-  const fitBtn = document.getElementById("fit-graph-btn");
-
-  if (fitBtn) {
-    fitBtn.addEventListener("click", fitGraphToScreen);
-  }
+  initGraphCanvasEvent();
+  initGraphToolbarEvents();
+  initGraphFilters();
 }
 
 function initEventListeners() {
