@@ -228,6 +228,23 @@
     </div>
     <div id="graph-modal" class="modal hidden">
       <div class="modal-content">
+        <div id="graph-filters">
+          <label
+            ><input type="checkbox" data-type="chapter" checked />
+            Chapters</label
+          >
+          <label
+            ><input type="checkbox" data-type="character" checked />
+            Characters</label
+          >
+          <label>
+            <input type="checkbox" id="focus-mode-toggle" checked />
+            Focus Mode
+          </label>
+          <button id="center-node-btn">Center Node</button>
+          <button id="reset-view-btn">Reset View</button>
+          <button id="fit-graph-btn">Fit to Screen</button>
+        </div>
         <h2>Graph View</h2>
         <canvas id="graph-canvas"></canvas>
 

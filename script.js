@@ -43,11 +43,17 @@ const MAX_SCALE = 2.5;
 let graphTransitioning = false;
 
 let graphState = {
+  filters: {
+    chapter: true,
+    character: true,
+    tag: true,
+  },
   nodes: [],
   edges: [],
   temperature: 1,
   selectedNodeId: null,
   scale: 1,
+  focusMode: true,
 };
 
 graphState.offsetX = 0;
@@ -288,7 +294,11 @@ function handleGraphClick(x, y) {
   let closestDistance = Infinity;
   if (hasDragged) return;
 
-  for (const node of graphState.nodes) {
+  const visibleNodes = graphState.nodes.filter(
+    (node) => graphState.filters[node.type],
+  );
+
+  for (const node of visibleNodes) {
     const dx = node.x - x;
     const dy = node.y - y;
     const distance = Math.sqrt(dx * dx + dy * dy);
@@ -331,6 +341,72 @@ function resetGraphView() {
   graphState.offsetX = 0;
   graphState.offsetY = 0;
   graphState.scale = 1;
+
+  renderGraph();
+}
+
+function getConnectedNodeIds(nodeId) {
+  const connected = new Set();
+
+  graphState.edges.forEach((edge) => {
+    if (edge.from === nodeId) connected.add(edge.to);
+    if (edge.to === nodeId) connected.add(edge.from);
+  });
+
+  return connected;
+}
+
+function centerOnNode(nodeId) {
+  const node = graphState.nodes.find((n) => n.id === nodeId);
+  if (!node) return;
+
+  const canvas = document.getElementById("graph-canvas");
+
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+
+  graphState.offsetX = centerX - node.x * graphState.scale;
+  graphState.offsetY = centerY - node.y * graphState.scale;
+
+  renderGraph();
+}
+
+function fitGraphToScreen() {
+  const nodes = graphState.nodes;
+  if (!nodes.length) return;
+
+  const canvas = document.getElementById("graph-canvas");
+
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity;
+
+  nodes.forEach((node) => {
+    minX = Math.min(minX, node.x);
+    maxX = Math.max(maxX, node.x);
+    minY = Math.min(minY, node.y);
+    maxY = Math.max(maxY, node.y);
+  });
+
+  const graphWidth = maxX - minX;
+  const graphHeight = maxY - minY;
+
+  const padding = 100;
+
+  const scaleX = (canvas.width - padding) / graphWidth;
+  const scaleY = (canvas.height - padding) / graphHeight;
+
+  graphState.scale = Math.min(scaleX, scaleY, 2); // cap zoom
+
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+
+  const graphCenterX = (minX + maxX) / 2;
+  const graphCenterY = (minY + maxY) / 2;
+
+  graphState.offsetX = centerX - graphCenterX * graphState.scale;
+  graphState.offsetY = centerY - graphCenterY * graphState.scale;
 
   renderGraph();
 }
@@ -558,6 +634,10 @@ function getGraphData() {
 }
 
 function renderGraph() {
+  const visibleNodes = graphState.nodes.filter(
+    (node) => graphState.filters[node.type],
+  );
+
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -566,8 +646,8 @@ function renderGraph() {
 
   // Draw edges
   graphState.edges.forEach((edge) => {
-    const from = graphState.nodes.find((n) => n.id === edge.from);
-    const to = graphState.nodes.find((n) => n.id === edge.to);
+    const from = visibleNodes.find((n) => n.id === edge.from);
+    const to = visibleNodes.find((n) => n.id === edge.to);
     if (!from || !to) return;
 
     const isConnected = edge.from === selectedId || edge.to === selectedId;
@@ -583,14 +663,14 @@ function renderGraph() {
       to.y * graphState.scale + graphState.offsetY,
     );
 
-    if (!selectedId) {
+    if (!selectedId || !graphState.focusMode) {
       ctx.strokeStyle = "#888";
       ctx.lineWidth = 1;
     } else if (isConnected) {
       ctx.strokeStyle = "#f39c12";
       ctx.lineWidth = 2;
     } else {
-      ctx.strokeStyle = "#444";
+      ctx.strokeStyle = "#222";
       ctx.lineWidth = 1;
     }
 
@@ -598,7 +678,7 @@ function renderGraph() {
   });
 
   // Draw nodes
-  graphState.nodes.forEach((node) => {
+  visibleNodes.forEach((node) => {
     const isSelected = node.id === selectedId;
     const isConnected = connectedIds.has(node.id);
 
@@ -618,14 +698,15 @@ function renderGraph() {
       ctx.shadowBlur = 0;
     }
 
-    if (!selectedId) {
+    if (!selectedId || !graphState.focusMode) {
+      // default
       ctx.fillStyle = node.type === "character" ? "#2980b9" : "#27ae60";
     } else if (isSelected) {
-      ctx.fillStyle = "#f39c12";
+      ctx.fillStyle = "#f39c12"; // selected
     } else if (isConnected) {
-      ctx.fillStyle = "#3498db";
+      ctx.fillStyle = "#3498db"; // connected
     } else {
-      ctx.fillStyle = "#555";
+      ctx.fillStyle = "#333"; // faded (stronger fade)
     }
 
     ctx.fill();
@@ -753,6 +834,28 @@ function animateGraph() {
 
 function openGraph() {
   if (isPreviewMode) return;
+
+  graphState.filters = {
+    chapter: true,
+    character: true,
+    tag: true,
+  };
+
+  graphState.focusMode = true;
+
+  document
+    .querySelectorAll("#graph-filters input[type='checkbox']")
+    .forEach((checkbox) => {
+      const type = checkbox.dataset.type;
+
+      if (type) {
+        checkbox.checked = graphState.filters[type];
+      }
+
+      if (checkbox.id === "focus-mode-toggle") {
+        checkbox.checked = graphState.focusMode;
+      }
+    });
 
   const modal = document.getElementById("graph-modal");
   modal.classList.remove("hidden");
@@ -1911,7 +2014,11 @@ function initGraphEvents() {
     //  Check if clicking a node
     draggedNode = null;
 
-    for (const node of graphState.nodes) {
+    const visibleNodes = graphState.nodes.filter(
+      (node) => graphState.filters[node.type],
+    );
+
+    for (const node of visibleNodes) {
       // Convert node to SCREEN space
       const screenX = node.x * graphState.scale + graphState.offsetX;
       const screenY = node.y * graphState.scale + graphState.offsetY;
@@ -2015,7 +2122,11 @@ function initGraphEvents() {
     let closestNode = null;
     let closestDistance = Infinity;
 
-    for (const node of graphState.nodes) {
+    const visibleNodes = graphState.nodes.filter(
+      (node) => graphState.filters[node.type],
+    );
+
+    for (const node of visibleNodes) {
       const dx = node.x - x;
       const dy = node.y - y;
       const distance = Math.sqrt(dx * dx + dy * dy);
@@ -2067,6 +2178,46 @@ function initGraphEvents() {
   const closeGraphBtn = document.getElementById("close-graph");
   if (closeGraphBtn) {
     closeGraphBtn.addEventListener("click", closeGraph);
+  }
+
+  document.querySelectorAll("#graph-filters input").forEach((checkbox) => {
+    checkbox.addEventListener("change", (e) => {
+      const type = e.target.dataset.type;
+      graphState.filters[type] = e.target.checked;
+
+      renderGraph();
+    });
+  });
+
+  const focusToggle = document.getElementById("focus-mode-toggle");
+
+  if (focusToggle) {
+    focusToggle.addEventListener("change", (e) => {
+      graphState.focusMode = e.target.checked;
+      renderGraph();
+    });
+  }
+
+  const centerBtn = document.getElementById("center-node-btn");
+
+  if (centerBtn) {
+    centerBtn.addEventListener("click", () => {
+      if (graphState.selectedNodeId) {
+        centerOnNode(graphState.selectedNodeId);
+      }
+    });
+  }
+
+  const resetBtn = document.getElementById("reset-view-btn");
+
+  if (resetBtn) {
+    resetBtn.addEventListener("click", resetGraphView);
+  }
+
+  const fitBtn = document.getElementById("fit-graph-btn");
+
+  if (fitBtn) {
+    fitBtn.addEventListener("click", fitGraphToScreen);
   }
 }
 
