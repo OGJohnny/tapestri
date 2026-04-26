@@ -1,11 +1,3 @@
-const originalSetSelectionRange =
-  HTMLTextAreaElement.prototype.setSelectionRange;
-
-HTMLTextAreaElement.prototype.setSelectionRange = function (start, end) {
-  console.trace("setSelectionRange CALLED:", start, end);
-  return originalSetSelectionRange.call(this, start, end);
-};
-
 // =====================
 // GLOBAL STATE
 // =====================
@@ -24,7 +16,11 @@ const editorState = {
     end: 0,
   },
 
+  lastSelectionStart: 0,
+  lastSelectionEnd: 0,
+
   isRestoring: false,
+  isProgrammaticEdit: false,
 };
 
 const graphState = {
@@ -88,6 +84,7 @@ let exportMode = "project";
 let isModalOpen = false;
 let eventsInitialized = false;
 let isRestoringHistory = false;
+let isProgrammaticEdit = false;
 
 // ====================
 // DOM REFERENCES
@@ -634,6 +631,7 @@ function fitGraphToScreen() {
 function initGraphEvents() {
   initGraphCanvasEvent();
   initGraphUIEvents();
+  initGraphKeyboardControls();
 }
 
 // ====================
@@ -706,9 +704,34 @@ function initGraphUIEvents() {
   });
 }
 
+function initGraphKeyboardControls() {
+  document.addEventListener("keydown", (e) => {
+    // Only run when graph is open
+    if (!graphState.isOpen) return;
+
+    // Prevent editor conflicts
+    if (document.activeElement === editorContent) return;
+
+    if (e.key.toLowerCase() === "c") {
+      e.preventDefault();
+      centerGraph();
+    }
+  });
+  console.log("Graph open?", graphState.isOpen);
+}
+
 // ====================
 // GRAPH HANDLERS
 // ====================
+
+function centerGraph() {
+  graphState.offsetX = 0;
+  graphState.offsetY = 0;
+  graphState.scale = 1;
+
+  // Trigger re-render if needed
+  renderGraph();
+}
 
 function onGraphMouseUp(e) {
   const drag = graphState.dragging;
@@ -905,7 +928,7 @@ function initEditorInputEvents() {
 function onEditorInput(e) {
   let doc = getCurrentDocs()[appState.currentDocumentId];
   if (!doc) return;
-  if (editorState.isRestoring) return;
+  if (editorState.isRestoring || editorState.isProgrammaticEdit) return;
 
   doc.content = editorContent.value;
 
@@ -921,6 +944,11 @@ function onEditorInput(e) {
 
 function initEditorKeyboardEvents() {
   editorContent.addEventListener("keydown", handleEditorKeyDown);
+
+  editorContent.addEventListener("blur", () => {
+    editorState.lastSelectionStart = editorContent.selectionStart;
+    editorState.lastSelectionEnd = editorContent.selectionEnd;
+  });
 }
 
 function handleEditorKeyDown(e) {
@@ -1126,6 +1154,9 @@ function restoreEditorState() {
   const textarea = editorContent;
   if (!textarea) return;
 
+  const start = editorState.lastSelectionStart ?? 0;
+  const end = editorState.lastSelectionEnd ?? start;
+
   editorState.isRestoring = true;
 
   requestAnimationFrame(() => {
@@ -1134,15 +1165,11 @@ function restoreEditorState() {
     requestAnimationFrame(() => {
       textarea.setSelectionRange(start, end);
 
-      console.log("RESTORE FINAL:", { start, end });
-
-      // CRITICAL: release AFTER everything settles
       setTimeout(() => {
         editorState.isRestoring = false;
       }, 0);
     });
   });
-  console.trace("RESTORE CALLED");
 }
 
 // ==============================================
@@ -1236,15 +1263,31 @@ function initMenuSwitchEvents() {
 // ACTIONS
 // ====================
 function initMenuActionEvents() {
-  // formatting
+  // Edit Menu
   document.querySelectorAll("#edit-menu [data-format]").forEach((item) => {
     item.addEventListener("mousedown", (e) => {
       e.preventDefault();
 
-      editorContent.focus();
+      const action = item.dataset.format;
 
+      editorContent.focus();
       restoreEditorState();
-      formatText(item.dataset.format);
+
+      // Handle undo/redo separately
+      if (action === "undo") {
+        undo();
+        closeAllMenus();
+        return;
+      }
+
+      if (action === "redo") {
+        redo();
+        closeAllMenus();
+        return;
+      }
+
+      // Everything else = formatting
+      formatText(action);
 
       closeAllMenus();
     });
@@ -1440,10 +1483,6 @@ function formatText(type) {
   const start = editorContent.selectionStart;
   const end = editorContent.selectionEnd;
 
-  // ✅ SAVE BEFORE changing anything
-  saveHistory();
-
-  // --- apply formatting ---
   const text = editorContent.value;
   const selected = text.slice(start, end);
 
@@ -1453,13 +1492,26 @@ function formatText(type) {
   if (type === "italic") formatted = `*${selected}*`;
   if (type === "underline") formatted = `__${selected}__`;
 
-  editorContent.value = text.slice(0, start) + formatted + text.slice(end);
+  // ✅ STEP 1: Save PRE-FORMAT state (this is what undo needs)
+  saveHistory();
 
-  // restore correct selection
-  requestAnimationFrame(() => {
-    editorContent.focus();
-    editorContent.setSelectionRange(start, start + formatted.length);
-  });
+  const newValue = text.slice(0, start) + formatted + text.slice(end);
+
+  const newStart = start;
+  const newEnd = start + formatted.length;
+
+  // 🚨 Prevent input-triggered history
+  editorState.isProgrammaticEdit = true;
+
+  editorContent.value = newValue;
+
+  editorContent.focus();
+  editorContent.setSelectionRange(newStart, newEnd);
+
+  // ✅ STEP 2: Save POST-FORMAT state (redo target)
+  saveHistory();
+
+  editorState.isProgrammaticEdit = false;
 }
 
 function togglePreview() {
@@ -1575,6 +1627,8 @@ function getGraphData() {
 function openGraph() {
   if (isPreviewMode) return;
 
+  graphState.isOpen = true;
+
   graphState.filters = {
     chapter: true,
     character: true,
@@ -1647,6 +1701,8 @@ function closeGraph() {
   const modal = document.getElementById("graph-modal");
   if (!modal) return;
 
+  graphState.isOpen = false;
+
   modal.classList.add("hidden");
 
   graphAnimating = false;
@@ -1693,7 +1749,15 @@ function saveHistory() {
   const content = editorContent.value;
 
   // 🚨 Prevent duplicate spam entries
-  if (content === lastSavedContent) return;
+  if (
+    content === lastSavedContent &&
+    editorContent.selectionStart === editorState.lastSelectionStart &&
+    editorContent.selectionEnd === editorState.lastSelectionEnd
+  )
+    return;
+
+  editorState.lastSelectionStart = editorContent.selectionStart;
+  editorState.lastSelectionEnd = editorContent.selectionEnd;
 
   lastSavedContent = content;
 
@@ -1732,8 +1796,6 @@ function undo() {
 
     editorState.isRestoring = false;
   });
-
-  console.log("UNDO RESTORE:", entry);
 }
 
 function redo() {
@@ -1756,8 +1818,6 @@ function redo() {
 
     editorState.isRestoring = false;
   });
-
-  console.log("REDO RESTORE:", entry);
 }
 
 // ======================
