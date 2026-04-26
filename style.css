@@ -383,6 +383,7 @@ mark {
   overflow-y: auto;
   user-select: text;
   cursor: text;
+  white-space: pre-wrap;
 }
 
 #preview-pane,

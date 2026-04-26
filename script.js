@@ -1,26 +1,64 @@
-// ======================
-// DATA (APP STATE)
-// ======================
-let projects = {};
-let currentProjectId = null;
-let history = [];
-let historyIndex = -1;
-let savedSelection = { start: 0, end: 0 };
-let currentDocumentId = null;
-let saveTimeout;
-let currentSearchQuery = "";
-let searchQuery = "";
-let isFocusMode = false;
-let isPreviewMode = false;
-let exportMode = "project";
-let isModalOpen = false;
-let graphAnimationFrame = null;
-let graphAnimating = false;
-let draggedNode = null;
-let menuLocked = false;
-let menuJustClosed = false;
-let activeMenu = null;
-let menuOpen = false;
+const originalSetSelectionRange =
+  HTMLTextAreaElement.prototype.setSelectionRange;
+
+HTMLTextAreaElement.prototype.setSelectionRange = function (start, end) {
+  console.trace("setSelectionRange CALLED:", start, end);
+  return originalSetSelectionRange.call(this, start, end);
+};
+
+// =====================
+// GLOBAL STATE
+// =====================
+
+const appState = {
+  currentProjectId: null,
+  currentDocumentId: null,
+};
+
+const editorState = {
+  history: [],
+  historyIndex: -1,
+
+  savedSelection: {
+    start: 0,
+    end: 0,
+  },
+
+  isRestoring: false,
+};
+
+const graphState = {
+  nodes: [],
+  edges: [],
+  selectedNodeId: null,
+
+  scale: 1,
+  offsetX: 0,
+  offsetY: 0,
+
+  filters: {
+    chapter: true,
+    character: true,
+    tag: true,
+  },
+
+  focusMode: true,
+
+  dragging: {
+    isDraggingGraph: false,
+    hasDragged: false,
+    draggedNode: null,
+    startX: 0,
+    startY: 0,
+    nodeOffsetX: 0,
+    nodeOffsetY: 0,
+  },
+};
+
+const menuState = {
+  activeMenu: null,
+  isLocked: false,
+};
 
 const menus = {
   file: null,
@@ -29,44 +67,32 @@ const menus = {
   help: null,
 };
 
-const regex = new RegExp(`(${escapeRegex(searchQuery)})`, "gi");
-
-// =============
-// GRAPH SYSTEM
-// =============
-
 const NODE_RADIUS = 20;
 const CLICK_RADIUS = 25;
 const MIN_SCALE = 0.4;
 const MAX_SCALE = 2.5;
 
+let graphAnimating = false;
+let graphAnimationFrame = null;
 let graphTransitioning = false;
+let menuJustClosed = false;
+let menuOpen = false;
+let projects = {};
+let saveTimeout;
+let currentSearchQuery = "";
+let searchQuery = "";
+let isFocusMode = false;
+let isPreviewMode = false;
+let isTogglingPreview = false;
+let exportMode = "project";
+let isModalOpen = false;
+let eventsInitialized = false;
+let isRestoringHistory = false;
 
-let graphState = {
-  filters: {
-    chapter: true,
-    character: true,
-    tag: true,
-  },
-  nodes: [],
-  edges: [],
-  temperature: 1,
-  selectedNodeId: null,
-  scale: 1,
-  focusMode: true,
-};
+// ====================
+// DOM REFERENCES
+// ====================
 
-graphState.offsetX = 0;
-graphState.offsetY = 0;
-
-let isDraggingGraph = false;
-let hasDragged = false;
-let dragStartX = 0;
-let dragStartY = 0;
-
-// ======================
-// ELEMENTS (DOM)
-// ======================
 const editorTitle = document.getElementById("editor-title");
 const editorContent = document.getElementById("editor-content");
 const tagInput = document.getElementById("tag-input");
@@ -83,166 +109,27 @@ const canvas = document.getElementById("graph-canvas");
 canvas.width = canvas.clientWidth;
 canvas.height = canvas.clientHeight;
 
-// =====================
-// STORAGE
-// =====================
+// ====================
+// GLOBAL HELPERS
+// ====================
 
-function savePreviewMode() {
-  localStorage.setItem("tapestri_preview_mode", JSON.stringify(isPreviewMode));
-}
-
-function loadPreviewMode() {
-  const saved = localStorage.getItem("tapestri_preview_mode");
-  if (saved !== null) {
-    isPreviewMode = JSON.parse(saved);
+function getCurrentDocs() {
+  if (
+    !projects ||
+    !appState.currentProjectId ||
+    !projects[appState.currentProjectId]
+  ) {
+    return {};
   }
+
+  return projects[appState.currentProjectId].documents;
 }
-
-function saveFocusMode() {
-  localStorage.setItem("tapestri_focus_mode", JSON.stringify(isFocusMode));
-}
-
-function loadFocusMode() {
-  const saved = localStorage.getItem("tapestri_focus_mode");
-  if (saved !== null) {
-    isFocusMode = JSON.parse(saved);
-    document.body.classList.toggle("focus-mode", isFocusMode);
-  }
-}
-
-function saveToLocalStorage() {
-  localStorage.setItem("tapestriProjects", JSON.stringify(projects));
-  localStorage.setItem("tapestriCurrentProject", currentProjectId);
-}
-
-function debounceSave() {
-  clearTimeout(saveTimeout);
-
-  saveTimeout = setTimeout(() => {
-    saveToLocalStorage();
-  }, 300);
-}
-
-function loadFromLocalStorage() {
-  const data = localStorage.getItem("tapestriProjects");
-  const savedProjectId = localStorage.getItem("tapestriCurrentProject");
-
-  if (data) {
-    projects = JSON.parse(data);
-
-    for (const pid in projects) {
-      const docs = projects[pid].documents;
-
-      for (const id in docs) {
-        const doc = docs[id];
-
-        if (!doc.tags) doc.tags = [];
-
-        if (!doc.relationships) {
-          doc.relationships = { characters: [] };
-        }
-
-        if (!doc.relationships.characters) {
-          doc.relationships.characters = [];
-        }
-      }
-    }
-
-    const projectIds = Object.keys(projects);
-
-    if (savedProjectId && projects[savedProjectId]) {
-      currentProjectId = savedProjectId;
-    } else {
-      currentProjectId = projectIds[0];
-    }
-
-    if (!currentProjectId) {
-      currentProjectId = Object.keys(projects)[0];
-    }
-  } else {
-    const defaultProjectId = "project1";
-
-    projects = {
-      [defaultProjectId]: {
-        name: "My First Project",
-        documents: {
-          chapter1: {
-            id: "chapter1",
-            title: "Chapter 1",
-            content: "",
-            type: "chapter",
-            tags: [],
-            relationships: { characters: [] },
-          },
-        },
-      },
-    };
-
-    currentProjectId = defaultProjectId;
-
-    debounceSave();
-  }
-}
-
-// =====================
-// HELPERS
-// =====================
 
 function getDocumentById(id) {
   const docs = getCurrentDocs();
   if (!docs) return null;
 
   return Object.values(docs).find((doc) => doc.id === id);
-}
-
-function openMenu(name) {
-  const menus = {
-    file: document.getElementById("file-menu"),
-    edit: document.getElementById("edit-menu"),
-    view: document.getElementById("view-menu"),
-    help: document.getElementById("help-menu"),
-  };
-
-  Object.values(menus).forEach((m) => (m.style.display = "none"));
-
-  if (menus[name]) {
-    menus[name].style.display = "block";
-  }
-}
-
-function closeAllMenus() {
-  Object.values(menus).forEach((m) => (m.style.display = "none"));
-  activeMenu = null;
-  menuOpen = false;
-}
-
-function focusEditor() {
-  if (!editorContent) return;
-
-  editorContent.focus();
-
-  const length = editorContent.value.length;
-  editorContent.setSelectionRange(length, length);
-}
-
-function getCurrentDocs() {
-  if (!projects || !currentProjectId || !projects[currentProjectId]) {
-    return {};
-  }
-
-  return projects[currentProjectId].documents;
-}
-
-function getItems() {
-  return document.querySelectorAll("li[data-id]");
-}
-
-function getChaptersSorted() {
-  const docs = getCurrentDocs();
-
-  return Object.values(docs)
-    .filter((doc) => doc.type === "chapter")
-    .sort((a, b) => a.title.localeCompare(b.title));
 }
 
 function escapeRegExp(str) {
@@ -273,6 +160,115 @@ function renderMarkdown(text) {
   return html;
 }
 
+function savePreviewMode() {
+  localStorage.setItem("tapestri_preview_mode", JSON.stringify(isPreviewMode));
+}
+
+function loadPreviewMode() {
+  const saved = localStorage.getItem("tapestri_preview_mode");
+  if (saved !== null) {
+    isPreviewMode = JSON.parse(saved);
+  }
+}
+
+function saveFocusMode() {
+  localStorage.setItem("tapestri_focus_mode", JSON.stringify(isFocusMode));
+}
+
+function loadFocusMode() {
+  const saved = localStorage.getItem("tapestri_focus_mode");
+  if (saved !== null) {
+    isFocusMode = JSON.parse(saved);
+    document.body.classList.toggle("focus-mode", isFocusMode);
+  }
+}
+
+function saveToLocalStorage() {
+  localStorage.setItem("tapestriProjects", JSON.stringify(projects));
+  localStorage.setItem("tapestriCurrentProject", appState.currentProjectId);
+}
+
+function loadFromLocalStorage() {
+  const data = localStorage.getItem("tapestriProjects");
+  const savedProjectId = localStorage.getItem("tapestriCurrentProject");
+
+  if (data) {
+    projects = JSON.parse(data);
+
+    for (const pid in projects) {
+      const docs = projects[pid].documents;
+
+      for (const id in docs) {
+        const doc = docs[id];
+
+        if (!doc.tags) doc.tags = [];
+
+        if (!doc.relationships) {
+          doc.relationships = { characters: [] };
+        }
+
+        if (!doc.relationships.characters) {
+          doc.relationships.characters = [];
+        }
+      }
+    }
+
+    const projectIds = Object.keys(projects);
+
+    if (savedProjectId && projects[savedProjectId]) {
+      appState.currentProjectId = savedProjectId;
+    } else {
+      appState.currentProjectId = projectIds[0];
+    }
+
+    if (!appState.currentProjectId) {
+      appState.currentProjectId = Object.keys(projects)[0];
+    }
+  } else {
+    const defaultProjectId = "project1";
+
+    projects = {
+      [defaultProjectId]: {
+        name: "My First Project",
+        documents: {
+          chapter1: {
+            id: "chapter1",
+            title: "Chapter 1",
+            content: "",
+            type: "chapter",
+            tags: [],
+            relationships: { characters: [] },
+          },
+        },
+      },
+    };
+
+    appState.currentProjectId = defaultProjectId;
+
+    debounceSave();
+  }
+}
+
+function debounceSave() {
+  clearTimeout(saveTimeout);
+
+  saveTimeout = setTimeout(() => {
+    saveToLocalStorage();
+  }, 300);
+}
+
+function getItems() {
+  return document.querySelectorAll("li[data-id]");
+}
+
+function getChaptersSorted() {
+  const docs = getCurrentDocs();
+
+  return Object.values(docs)
+    .filter((doc) => doc.type === "chapter")
+    .sort((a, b) => a.title.localeCompare(b.title));
+}
+
 function getWordCount(text) {
   if (!text) return 0;
 
@@ -289,41 +285,15 @@ function scrollToFirstMatch() {
   }
 }
 
-function handleGraphClick(x, y) {
-  let closestNode = null;
-  let closestDistance = Infinity;
-  if (hasDragged) return;
+function getConnectedNodeIds(nodeId) {
+  const connected = new Set();
 
-  const visibleNodes = graphState.nodes.filter(
-    (node) => graphState.filters[node.type],
-  );
+  graphState.edges.forEach((edge) => {
+    if (edge.from === nodeId) connected.add(edge.to);
+    if (edge.to === nodeId) connected.add(edge.from);
+  });
 
-  for (const node of visibleNodes) {
-    const dx = node.x - x;
-    const dy = node.y - y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-
-    if (distance < closestDistance) {
-      closestDistance = distance;
-      closestNode = node;
-    }
-  }
-
-  if (closestNode && closestDistance <= CLICK_RADIUS) {
-    if (graphTransitioning) return;
-
-    graphTransitioning = true;
-
-    graphState.selectedNodeId = closestNode.id;
-    renderGraph();
-
-    setTimeout(() => {
-      graphTransitioning = false;
-    }, 180);
-  } else {
-    graphState.selectedNodeId = null;
-    renderGraph();
-  }
+  return connected;
 }
 
 function getConnectedNodeIds(nodeId) {
@@ -337,538 +307,12 @@ function getConnectedNodeIds(nodeId) {
   return connected;
 }
 
-function resetGraphView() {
-  graphState.offsetX = 0;
-  graphState.offsetY = 0;
-  graphState.scale = 1;
-
-  renderGraph();
-}
-
-function getConnectedNodeIds(nodeId) {
-  const connected = new Set();
-
-  graphState.edges.forEach((edge) => {
-    if (edge.from === nodeId) connected.add(edge.to);
-    if (edge.to === nodeId) connected.add(edge.from);
-  });
-
-  return connected;
-}
-
-function centerOnNode(nodeId) {
-  const node = graphState.nodes.find((n) => n.id === nodeId);
-  if (!node) return;
-
-  const canvas = document.getElementById("graph-canvas");
-
-  const centerX = canvas.width / 2;
-  const centerY = canvas.height / 2;
-
-  graphState.offsetX = centerX - node.x * graphState.scale;
-  graphState.offsetY = centerY - node.y * graphState.scale;
-
-  renderGraph();
-}
-
-function fitGraphToScreen() {
-  const nodes = graphState.nodes;
-  if (!nodes.length) return;
-
-  const canvas = document.getElementById("graph-canvas");
-
-  let minX = Infinity,
-    maxX = -Infinity,
-    minY = Infinity,
-    maxY = -Infinity;
-
-  nodes.forEach((node) => {
-    minX = Math.min(minX, node.x);
-    maxX = Math.max(maxX, node.x);
-    minY = Math.min(minY, node.y);
-    maxY = Math.max(maxY, node.y);
-  });
-
-  const graphWidth = maxX - minX;
-  const graphHeight = maxY - minY;
-
-  const padding = 100;
-
-  const scaleX = (canvas.width - padding) / graphWidth;
-  const scaleY = (canvas.height - padding) / graphHeight;
-
-  graphState.scale = Math.min(scaleX, scaleY, 2); // cap zoom
-
-  const centerX = canvas.width / 2;
-  const centerY = canvas.height / 2;
-
-  const graphCenterX = (minX + maxX) / 2;
-  const graphCenterY = (minY + maxY) / 2;
-
-  graphState.offsetX = centerX - graphCenterX * graphState.scale;
-  graphState.offsetY = centerY - graphCenterY * graphState.scale;
-
-  renderGraph();
-}
-
-function initGraphFilters() {
-  document.querySelectorAll("#graph-filters input").forEach((checkbox) => {
-    checkbox.addEventListener("change", (e) => {
-      const type = e.target.dataset.type;
-      graphState.filters[type] = e.target.checked;
-
-      renderGraph();
-    });
-  });
-}
-
-// ======================
-// GRAPH SYSTEM FUNCTIONS
-// ======================
-
-function onGraphMouseUp(e) {
-  isDraggingGraph = false;
-  draggedNode = null;
-}
-
-function onGraphMouseDown(e) {
-  const rect = canvas.getBoundingClientRect();
-
-  const x = (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
-  const y = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
-
-  hasDragged = false;
-
-  //  Check if clicking a node
-  draggedNode = null;
-
-  const visibleNodes = graphState.nodes.filter(
-    (node) => graphState.filters[node.type],
-  );
-
-  for (const node of visibleNodes) {
-    // Convert node to SCREEN space
-    const screenX = node.x * graphState.scale + graphState.offsetX;
-    const screenY = node.y * graphState.scale + graphState.offsetY;
-    const dx = screenX - (e.clientX - rect.left);
-    const dy = screenY - (e.clientY - rect.top);
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    const scaledRadius = NODE_RADIUS * graphState.scale;
-
-    if (distance <= scaledRadius) {
-      draggedNode = node;
-
-      // offset still in WORLD space
-      const worldX =
-        (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
-      const worldY =
-        (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
-
-      nodeOffsetX = worldX - node.x;
-      nodeOffsetY = worldY - node.y;
-
-      break;
-    }
-  }
-
-  if (draggedNode) {
-    // Node dragging
-    return;
-  }
-
-  // Graph dragging
-  isDraggingGraph = true;
-  dragStartX = e.clientX;
-  dragStartY = e.clientY;
-}
-
-function onGraphMouseMove(e) {
-  const rect = canvas.getBoundingClientRect();
-
-  //  NODE DRAG
-  if (draggedNode) {
-    hasDragged = true;
-
-    draggedNode.x =
-      (e.clientX - rect.left - graphState.offsetX) / graphState.scale -
-      nodeOffsetX;
-
-    draggedNode.y =
-      (e.clientY - rect.top - graphState.offsetY) / graphState.scale -
-      nodeOffsetY;
-
-    renderGraph();
-    return;
-  }
-
-  //  GRAPH DRAG
-  if (!isDraggingGraph) return;
-
-  hasDragged = true;
-
-  const dx = e.clientX - dragStartX;
-  const dy = e.clientY - dragStartY;
-
-  graphState.offsetX += dx;
-  graphState.offsetY += dy;
-
-  dragStartX = e.clientX;
-  dragStartY = e.clientY;
-
-  renderGraph();
-}
-
-function onGraphMouseLeave(e) {
-  isDraggingGraph = false;
-  draggedNode = null;
-}
-
-function onGraphWheel(e) {
-  e.preventDefault();
-
-  const rect = canvas.getBoundingClientRect();
-
-  const mouseX = e.clientX - rect.left;
-  const mouseY = e.clientY - rect.top;
-
-  const scaleAmount = 0.1;
-  const direction = e.deltaY > 0 ? -1 : 1;
-
-  const newScale = Math.max(
-    MIN_SCALE,
-    Math.min(MAX_SCALE, graphState.scale + direction * scaleAmount),
-  );
-
-  // Zoom toward cursor
-  const scaleRatio = newScale / graphState.scale;
-
-  graphState.offsetX = mouseX - (mouseX - graphState.offsetX) * scaleRatio;
-  graphState.offsetY = mouseY - (mouseY - graphState.offsetY) * scaleRatio;
-  graphState.scale = newScale;
-
-  renderGraph();
-}
-
-function onGraphClick(e) {
-  const rect = canvas.getBoundingClientRect();
-
-  const mouseX = e.clientX - rect.left;
-  const mouseY = e.clientY - rect.top;
-
-  handleGraphClick(
-    (mouseX - graphState.offsetX) / graphState.scale,
-    (mouseY - graphState.offsetY) / graphState.scale,
-  );
-}
-
-function onGraphDoubleClick(e) {
-  const rect = canvas.getBoundingClientRect();
-
-  const x = (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
-
-  const y = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
-
-  let closestNode = null;
-  let closestDistance = Infinity;
-
-  const visibleNodes = graphState.nodes.filter(
-    (node) => graphState.filters[node.type],
-  );
-
-  for (const node of visibleNodes) {
-    const dx = node.x - x;
-    const dy = node.y - y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-
-    if (distance < closestDistance) {
-      closestDistance = distance;
-      closestNode = node;
-    }
-  }
-
-  if (closestNode && closestDistance <= NODE_RADIUS) {
-    openDocumentFromGraph(closestNode.id);
-  }
-}
-
-function initGraphCanvasEvent() {
-  const canvas = document.getElementById("graph-canvas");
-
-  canvas.addEventListener("mouseup", onGraphMouseUp);
-  canvas.addEventListener("mousedown", onGraphMouseDown);
-  canvas.addEventListener("mousemove", onGraphMouseMove);
-  canvas.addEventListener("mouseleave", onGraphMouseLeave);
-  canvas.addEventListener("wheel", onGraphWheel);
-  canvas.addEventListener("click", onGraphClick);
-  canvas.addEventListener("dblclick", onGraphDoubleClick);
-}
-
-function initGraphToolbarEvents() {
-  // Graph open
-  const openGraphBtn = document.getElementById("open-graph");
-  if (openGraphBtn) {
-    openGraphBtn.addEventListener("click", openGraph);
-  }
-
-  // Graph close
-  const closeGraphBtn = document.getElementById("close-graph");
-  if (closeGraphBtn) {
-    closeGraphBtn.addEventListener("click", closeGraph);
-  }
-
-  const focusToggle = document.getElementById("focus-mode-toggle");
-
-  if (focusToggle) {
-    focusToggle.addEventListener("change", (e) => {
-      graphState.focusMode = e.target.checked;
-      renderGraph();
-    });
-  }
-
-  const centerBtn = document.getElementById("center-node-btn");
-
-  if (centerBtn) {
-    centerBtn.addEventListener("click", () => {
-      if (graphState.selectedNodeId) {
-        centerOnNode(graphState.selectedNodeId);
-      }
-    });
-  }
-
-  const resetBtn = document.getElementById("reset-view-btn");
-
-  if (resetBtn) {
-    resetBtn.addEventListener("click", resetGraphView);
-  }
-
-  const fitBtn = document.getElementById("fit-graph-btn");
-
-  if (fitBtn) {
-    fitBtn.addEventListener("click", fitGraphToScreen);
-  }
-}
-
+// ==============================================
+//                GRAPH SYSTEM
+// ==============================================
 // ====================
-// CORE EDITOR FEATURES
+// GRAPH RENDERING
 // ====================
-
-function saveDocument() {
-  if (!currentDocumentId) return;
-
-  projects[currentProjectId].documents[currentDocumentId].title =
-    editorTitle.value;
-  projects[currentProjectId].documents[currentDocumentId].content =
-    editorContent.value;
-
-  debounceSave();
-}
-
-function selectFirstDocument() {
-  const docs = projects[currentProjectId]?.documents || {};
-  const firstId = Object.keys(docs)[0];
-
-  if (firstId) {
-    loadDocument(firstId);
-  }
-}
-
-function updatePreview() {
-  const doc = getCurrentDocs()[currentDocumentId];
-  if (!doc) return;
-
-  const preview = document.getElementById("preview-pane");
-
-  // 1. Render markdown FIRST
-  let html = renderMarkdown(doc.content || "");
-
-  // 2. Apply highlight ON TOP of rendered HTML
-  if (searchQuery) {
-    const regex = new RegExp(`(${searchQuery})`, "gi");
-    html = html.replace(regex, "<mark>$1</mark>");
-  }
-
-  // 3. Render once
-  preview.innerHTML = html;
-}
-
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function formatText(type) {
-  const textarea = editorContent;
-
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-
-  const doc = getCurrentDocs()[currentDocumentId];
-  if (doc) {
-    doc.content = editorContent.value;
-  }
-
-  const selectedText = textarea.value.substring(start, end);
-  if (!selectedText) return;
-
-  saveHistory();
-
-  let formatted = "";
-
-  switch (type) {
-    case "bold":
-      formatted = `**${selectedText}**`;
-      break;
-    case "italic":
-      formatted = `*${selectedText}*`;
-      break;
-    case "underline":
-      formatted = `__${selectedText}__`;
-      break;
-  }
-
-  const before = textarea.value.substring(0, start);
-  const after = textarea.value.substring(end);
-
-  const newValue = before + formatted + after;
-
-  textarea.value = newValue;
-
-  textarea.focus();
-  textarea.selectionStart = start;
-  textarea.selectionEnd = start + formatted.length;
-
-  history = history.slice(0, historyIndex + 1);
-  history.push(newValue);
-  historyIndex = history.length - 1;
-
-  doc.content = editorContent.value;
-  saveHistory();
-  updatePreview();
-  updateWordCount();
-}
-
-function togglePreview() {
-  isPreviewMode = !isPreviewMode;
-
-  const indicator = document.getElementById("mode-indicator");
-
-  if (isPreviewMode) {
-    indicator.classList.remove("hidden");
-
-    graphAnimating = false;
-    if (graphAnimationFrame) {
-      cancelAnimationFrame(graphAnimationFrame);
-      graphAnimationFrame = null;
-    }
-  } else {
-    indicator.classList.add("hidden");
-
-    setTimeout(() => {
-      focusEditor();
-    }, 0);
-  }
-
-  updateMenuState();
-  applyPreviewMode();
-  savePreviewMode();
-}
-
-function toggleFocusMode() {
-  isFocusMode = !isFocusMode;
-
-  document.body.classList.toggle("focus-mode", isFocusMode);
-
-  setTimeout(() => {
-    focusEditor();
-  }, 0);
-
-  saveFocusMode();
-}
-
-function applyPreviewMode() {
-  const preview = document.getElementById("preview-pane");
-  const textarea = document.getElementById("editor-content");
-
-  if (isPreviewMode) {
-    preview.classList.remove("hidden");
-    textarea.classList.add("hidden");
-    document.body.classList.add("preview-mode");
-  } else {
-    preview.classList.add("hidden");
-    textarea.classList.remove("hidden");
-    document.body.classList.remove("preview-mode");
-  }
-
-  const graphMenu = document.getElementById("open-graph-menu");
-
-  if (graphMenu) {
-    graphMenu.addEventListener("click", (e) => {
-      e.stopPropagation();
-
-      if (isPreviewMode) return;
-
-      openGraph();
-      closeAllMenus();
-    });
-  }
-
-  document.body.classList.toggle("preview-mode", isPreviewMode);
-}
-
-function updateModeIndicator() {
-  const indicator = document.getElementById("mode-indicator");
-
-  if (!indicator) return;
-
-  if (isPreviewMode && !isModalOpen) {
-    indicator.classList.remove("hidden");
-  } else {
-    indicator.classList.add("hidden");
-  }
-}
-
-function updateWordCount() {
-  const text = editorContent.value;
-
-  const words = getWordCount(text);
-  const chars = text.length;
-
-  document.getElementById("word-count").textContent =
-    `Words: ${words} | Characters: ${chars}`;
-}
-
-function setEditorFontSize(size) {
-  editorContent.style.fontSize = size;
-  localStorage.setItem("editorFontSize", size);
-}
-
-function getGraphData() {
-  const docs = getCurrentDocs();
-  if (!docs) return { nodes: [], edges: [] };
-
-  const nodes = [];
-  const edges = [];
-
-  Object.values(docs).forEach((doc) => {
-    // Add node
-    nodes.push({
-      id: String(doc.id),
-      label: doc.title || "Untitled",
-      type: doc.type,
-    });
-
-    // Relationships (chapters → characters)
-    if (doc.type === "chapter" && doc.relationships?.characters) {
-      doc.relationships.characters.forEach((charId) => {
-        edges.push({
-          from: String(doc.id),
-          to: String(charId),
-        });
-      });
-    }
-  });
-
-  return { nodes, edges };
-}
 
 function renderGraph() {
   const visibleNodes = graphState.nodes.filter(
@@ -960,6 +404,10 @@ function renderGraph() {
     );
   });
 }
+
+// ====================
+// GRAPH PHYSICS
+// ====================
 
 function applyForces() {
   const nodes = graphState.nodes;
@@ -1069,6 +517,1061 @@ function animateGraph() {
   graphAnimationFrame = requestAnimationFrame(animateGraph);
 }
 
+// ====================
+// GRAPH INTERACTION
+// ====================
+
+function handleGraphClick(x, y) {
+  const drag = graphState.dragging;
+  let closestNode = null;
+  let closestDistance = Infinity;
+
+  if (drag.hasDragged) return;
+
+  const visibleNodes = graphState.nodes.filter(
+    (node) => graphState.filters[node.type],
+  );
+
+  for (const node of visibleNodes) {
+    const dx = node.x - x;
+    const dy = node.y - y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestNode = node;
+    }
+  }
+
+  if (closestNode && closestDistance <= CLICK_RADIUS) {
+    if (graphTransitioning) return;
+
+    graphTransitioning = true;
+
+    graphState.selectedNodeId = closestNode.id;
+    renderGraph();
+
+    setTimeout(() => {
+      graphTransitioning = false;
+    }, 180);
+  } else {
+    graphState.selectedNodeId = null;
+    renderGraph();
+  }
+}
+
+// ====================
+// GRAPH CONTROLS
+// ====================
+
+function centerOnNode(nodeId) {
+  const node = graphState.nodes.find((n) => n.id === nodeId);
+  if (!node) return;
+
+  const canvas = document.getElementById("graph-canvas");
+
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+
+  graphState.offsetX = centerX - node.x * graphState.scale;
+  graphState.offsetY = centerY - node.y * graphState.scale;
+
+  renderGraph();
+}
+
+function resetGraphView() {
+  graphState.offsetX = 0;
+  graphState.offsetY = 0;
+  graphState.scale = 1;
+
+  renderGraph();
+}
+
+function fitGraphToScreen() {
+  const nodes = graphState.nodes;
+  if (!nodes.length) return;
+
+  const canvas = document.getElementById("graph-canvas");
+
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity;
+
+  nodes.forEach((node) => {
+    minX = Math.min(minX, node.x);
+    maxX = Math.max(maxX, node.x);
+    minY = Math.min(minY, node.y);
+    maxY = Math.max(maxY, node.y);
+  });
+
+  const graphWidth = maxX - minX;
+  const graphHeight = maxY - minY;
+
+  const padding = 100;
+
+  const scaleX = (canvas.width - padding) / graphWidth;
+  const scaleY = (canvas.height - padding) / graphHeight;
+
+  graphState.scale = Math.min(scaleX, scaleY, 2); // cap zoom
+
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+
+  const graphCenterX = (minX + maxX) / 2;
+  const graphCenterY = (minY + maxY) / 2;
+
+  graphState.offsetX = centerX - graphCenterX * graphState.scale;
+  graphState.offsetY = centerY - graphCenterY * graphState.scale;
+
+  renderGraph();
+}
+
+// ====================
+// GRAPH EVENTS
+// ====================
+
+function initGraphEvents() {
+  initGraphCanvasEvent();
+  initGraphUIEvents();
+}
+
+// ====================
+// CANVAS EVENTS
+// ====================
+
+function initGraphCanvasEvent() {
+  const canvas = document.getElementById("graph-canvas");
+
+  canvas.addEventListener("mouseup", onGraphMouseUp);
+  canvas.addEventListener("mousedown", onGraphMouseDown);
+  canvas.addEventListener("mousemove", onGraphMouseMove);
+  canvas.addEventListener("mouseleave", onGraphMouseLeave);
+  canvas.addEventListener("wheel", onGraphWheel);
+  canvas.addEventListener("click", onGraphClick);
+  canvas.addEventListener("dblclick", onGraphDoubleClick);
+}
+
+function initGraphUIEvents() {
+  // Graph open
+  const openGraphBtn = document.getElementById("open-graph");
+  if (openGraphBtn) {
+    openGraphBtn.addEventListener("click", openGraph);
+  }
+
+  // Graph close
+  const closeGraphBtn = document.getElementById("close-graph");
+  if (closeGraphBtn) {
+    closeGraphBtn.addEventListener("click", closeGraph);
+  }
+
+  const focusToggle = document.getElementById("focus-mode-toggle");
+
+  if (focusToggle) {
+    focusToggle.addEventListener("change", (e) => {
+      graphState.focusMode = e.target.checked;
+      renderGraph();
+    });
+  }
+
+  const centerBtn = document.getElementById("center-node-btn");
+
+  if (centerBtn) {
+    centerBtn.addEventListener("click", () => {
+      if (graphState.selectedNodeId) {
+        centerOnNode(graphState.selectedNodeId);
+      }
+    });
+  }
+
+  const resetBtn = document.getElementById("reset-view-btn");
+
+  if (resetBtn) {
+    resetBtn.addEventListener("click", resetGraphView);
+  }
+
+  const fitBtn = document.getElementById("fit-graph-btn");
+
+  if (fitBtn) {
+    fitBtn.addEventListener("click", fitGraphToScreen);
+  }
+
+  document.querySelectorAll("#graph-filters input").forEach((checkbox) => {
+    checkbox.addEventListener("change", (e) => {
+      const type = e.target.dataset.type;
+      graphState.filters[type] = e.target.checked;
+
+      renderGraph();
+    });
+  });
+}
+
+// ====================
+// GRAPH HANDLERS
+// ====================
+
+function onGraphMouseUp(e) {
+  const drag = graphState.dragging;
+  drag.isDraggingGraph = false;
+  drag.draggedNode = null;
+}
+
+function onGraphMouseDown(e) {
+  const rect = canvas.getBoundingClientRect();
+  const drag = graphState.dragging;
+
+  const x = (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
+  const y = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
+
+  drag.hasDragged = false;
+
+  //  Check if clicking a node
+  drag.draggedNode = null;
+
+  const visibleNodes = graphState.nodes.filter(
+    (node) => graphState.filters[node.type],
+  );
+
+  for (const node of visibleNodes) {
+    // Convert node to SCREEN space
+    const screenX = node.x * graphState.scale + graphState.offsetX;
+    const screenY = node.y * graphState.scale + graphState.offsetY;
+    const dx = screenX - (e.clientX - rect.left);
+    const dy = screenY - (e.clientY - rect.top);
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const scaledRadius = NODE_RADIUS * graphState.scale;
+
+    if (distance <= scaledRadius) {
+      drag.draggedNode = node;
+
+      // offset still in WORLD space
+      const worldX =
+        (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
+      const worldY =
+        (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
+
+      nodeOffsetX = worldX - node.x;
+      nodeOffsetY = worldY - node.y;
+
+      break;
+    }
+  }
+
+  if (drag.draggedNode) {
+    // Node dragging
+    return;
+  }
+
+  // Graph dragging
+  drag.isDraggingGraph = true;
+  drag.startX = e.clientX;
+  drag.startY = e.clientY;
+}
+
+function onGraphMouseMove(e) {
+  const rect = canvas.getBoundingClientRect();
+  const drag = graphState.dragging;
+
+  //  NODE DRAG
+  if (drag.draggedNode) {
+    drag.hasDragged = true;
+
+    drag.draggedNode.x =
+      (e.clientX - rect.left - graphState.offsetX) / graphState.scale -
+      nodeOffsetX;
+
+    drag.draggedNode.y =
+      (e.clientY - rect.top - graphState.offsetY) / graphState.scale -
+      nodeOffsetY;
+
+    renderGraph();
+    return;
+  }
+
+  //  GRAPH DRAG
+  if (!drag.isDraggingGraph) return;
+
+  drag.hasDragged = true;
+
+  const dx = e.clientX - drag.startX;
+  const dy = e.clientY - drag.startY;
+
+  graphState.offsetX += dx;
+  graphState.offsetY += dy;
+
+  drag.startX = e.clientX;
+  drag.startY = e.clientY;
+
+  renderGraph();
+}
+
+function onGraphMouseLeave(e) {
+  const drag = graphState.dragging;
+  drag.isDraggingGraph = false;
+  drag.draggedNode = null;
+}
+
+function onGraphWheel(e) {
+  e.preventDefault();
+
+  const rect = canvas.getBoundingClientRect();
+
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+
+  const scaleAmount = 0.1;
+  const direction = e.deltaY > 0 ? -1 : 1;
+
+  const newScale = Math.max(
+    MIN_SCALE,
+    Math.min(MAX_SCALE, graphState.scale + direction * scaleAmount),
+  );
+
+  // Zoom toward cursor
+  const scaleRatio = newScale / graphState.scale;
+
+  graphState.offsetX = mouseX - (mouseX - graphState.offsetX) * scaleRatio;
+  graphState.offsetY = mouseY - (mouseY - graphState.offsetY) * scaleRatio;
+  graphState.scale = newScale;
+
+  renderGraph();
+}
+
+function onGraphClick(e) {
+  const rect = canvas.getBoundingClientRect();
+
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+
+  handleGraphClick(
+    (mouseX - graphState.offsetX) / graphState.scale,
+    (mouseY - graphState.offsetY) / graphState.scale,
+  );
+}
+
+function onGraphDoubleClick(e) {
+  const rect = canvas.getBoundingClientRect();
+
+  const x = (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
+
+  const y = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
+
+  let closestNode = null;
+  let closestDistance = Infinity;
+
+  const visibleNodes = graphState.nodes.filter(
+    (node) => graphState.filters[node.type],
+  );
+
+  for (const node of visibleNodes) {
+    const dx = node.x - x;
+    const dy = node.y - y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestNode = node;
+    }
+  }
+
+  if (closestNode && closestDistance <= NODE_RADIUS) {
+    openDocumentFromGraph(closestNode.id);
+  }
+}
+
+// ==============================================
+//                EDITOR SYSTEM
+// ==============================================
+// ====================
+// EDITOR EVENTS
+// ====================
+
+function initEditorEvents() {
+  initEditorInputEvents();
+  initEditorKeyboardEvents();
+  initEditorToolbarEvents();
+  initEditorTitleEvents();
+  initEditorUIEvents();
+}
+
+// ====================
+// INPUT
+// ====================
+
+function initEditorInputEvents() {
+  editorContent.addEventListener("input", onEditorInput);
+}
+
+function onEditorInput(e) {
+  let doc = getCurrentDocs()[appState.currentDocumentId];
+  if (!doc) return;
+  if (editorState.isRestoring) return;
+
+  doc.content = editorContent.value;
+
+  saveHistory();
+  updatePreview();
+  updateWordCount();
+  debounceSave();
+}
+
+// ====================
+// KEYBOARD
+// ====================
+
+function initEditorKeyboardEvents() {
+  editorContent.addEventListener("keydown", handleEditorKeyDown);
+}
+
+function handleEditorKeyDown(e) {
+  // --- UNDO / REDO ---
+  if (e.ctrlKey && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    if (e.shiftKey) {
+      redo();
+    } else {
+      undo();
+    }
+    return;
+  }
+
+  // --- FORMATTING ---
+  if (e.ctrlKey) {
+    switch (e.key.toLowerCase()) {
+      case "b":
+        e.preventDefault();
+        formatText("bold");
+        return;
+      case "i":
+        e.preventDefault();
+        formatText("italic");
+        return;
+      case "u":
+        e.preventDefault();
+        formatText("underline");
+        return;
+    }
+  }
+
+  // --- TAB INDENT ---
+  if (handleTabIndent(e)) return;
+}
+
+function handleEditorShortcuts(e) {
+  if (!e.ctrlKey) return;
+
+  switch (e.key.toLowerCase()) {
+    case "b":
+      e.preventDefault();
+      formatText("bold");
+      break;
+    case "i":
+      e.preventDefault();
+      formatText("italic");
+      break;
+    case "u":
+      e.preventDefault();
+      formatText("underline");
+      break;
+  }
+  closeAllMenus();
+
+  if (e.ctrlKey && e.key.toLowerCase() === "g") {
+    e.preventDefault();
+    saveEditorState();
+    openGraph();
+    return true;
+  }
+  return false;
+}
+
+function handleTabIndent(e) {
+  if (e.key !== "Tab") return false;
+
+  e.preventDefault();
+
+  const textarea = editorContent;
+
+  const start = textarea.selectionStart ?? 0;
+  const end = textarea.selectionEnd ?? start;
+
+  const value = textarea.value;
+  const before = value.substring(0, start);
+  const selection = value.substring(start, end);
+  const after = value.substring(end);
+
+  const tab = "  ";
+
+  let newValue, newStart, newEnd;
+
+  if (selection.includes("\n")) {
+    const indented = selection
+      .split("\n")
+      .map((line) => tab + line)
+      .join("\n");
+
+    newValue = before + indented + after;
+    newStart = start;
+    newEnd = start + indented.length;
+  } else {
+    newValue = before + tab + selection + after;
+    newStart = start + tab.length;
+    newEnd = newStart + selection.length;
+  }
+
+  textarea.value = newValue;
+
+  saveHistory();
+  updatePreview();
+  updateWordCount();
+  saveDocument();
+
+  requestAnimationFrame(() => {
+    editorState.isRestoring = true;
+    textarea.setSelectionRange(newStart, newEnd);
+    editorState.isRestoring = false;
+  });
+
+  return true;
+}
+
+// ====================
+// TOOLBAR
+// ====================
+
+function initEditorToolbarEvents() {
+  document.querySelectorAll(".format-toolbar button").forEach((button) => {
+    button.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      editorContent.focus();
+    });
+
+    button.addEventListener("click", (e) => {
+      const type = e.currentTarget.dataset.format;
+      if (!type) return;
+
+      formatText(type);
+    });
+  });
+
+  document.querySelectorAll(".menu-dropdown").forEach((menu) => {
+    menu.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+    });
+  });
+}
+
+// ====================
+// TITLE
+// ====================
+
+function initEditorTitleEvents() {
+  editorTitle.addEventListener("input", onTitleChange);
+  editorTitle.addEventListener("keydown", onTitleKeyDown);
+}
+
+function onTitleChange() {
+  const docs = getCurrentDocs();
+  const doc = docs[appState.currentDocumentId];
+  if (!doc) return;
+
+  doc.title = editorTitle.value;
+
+  renderSidebar();
+  renderCharacterRelationships(appState.currentDocumentId);
+}
+
+function onTitleKeyDown(e) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+
+    restoreEditorState();
+  }
+}
+
+// ====================
+// UI
+// ====================
+
+function initEditorUIEvents() {
+  const fontSize = document.getElementById("font-size");
+
+  if (!fontSize) return;
+
+  fontSize.addEventListener("change", (e) => {
+    const start = editorContent.selectionStart;
+    const end = editorContent.selectionEnd;
+
+    setEditorFontSize(e.target.value);
+
+    restoreEditorState();
+    editorContent.setSelectionRange(start, end);
+  });
+}
+
+// ====================
+// HELPERS
+// ====================
+
+function restoreSelection() {
+  editorContent.focus();
+}
+
+function saveEditorState() {
+  if (!editorContent) return;
+  if (editorState.isRestoring) return;
+}
+
+function restoreEditorState() {
+  const textarea = editorContent;
+  if (!textarea) return;
+
+  editorState.isRestoring = true;
+
+  requestAnimationFrame(() => {
+    textarea.focus();
+
+    requestAnimationFrame(() => {
+      textarea.setSelectionRange(start, end);
+
+      console.log("RESTORE FINAL:", { start, end });
+
+      // CRITICAL: release AFTER everything settles
+      setTimeout(() => {
+        editorState.isRestoring = false;
+      }, 0);
+    });
+  });
+  console.trace("RESTORE CALLED");
+}
+
+// ==============================================
+//                MENU SYSTEM
+// ==============================================
+// ====================
+// MENU EVENTS
+// ====================
+
+function initMenuSystem() {
+  initMenuCoreEvents();
+  initMenuSwitchEvents();
+  initMenuActionEvents();
+}
+
+// ====================
+// CORE
+// ====================
+function initMenuCoreEvents() {
+  menus.file = document.getElementById("file-menu");
+  menus.edit = document.getElementById("edit-menu");
+  menus.view = document.getElementById("view-menu");
+  menus.help = document.getElementById("help-menu");
+
+  document.addEventListener("click", (e) => {
+    const isMenu = e.target.closest(".menu-item, .menu-dropdown");
+    if (!isMenu) closeAllMenus();
+  });
+
+  document.addEventListener("mousedown", (e) => {
+    const isMenuItem = e.target.closest(".menu-item");
+    const isDropdown = e.target.closest(".menu-dropdown");
+
+    if (isMenuItem || isDropdown) return;
+
+    closeAllMenus();
+  });
+
+  document.addEventListener("click", () => {
+    closeAllMenus();
+  });
+}
+
+// ====================
+// HOVER
+// ====================
+function initMenuSwitchEvents() {
+  document.querySelectorAll(".menu-item").forEach((item) => {
+    item.addEventListener("click", (e) => {
+      if (menuState.isLocked) return;
+
+      e.stopPropagation();
+
+      const menuName = item.dataset.menu;
+      const menu = menus[menuName];
+
+      if (menuState.activeMenu === menuName) {
+        closeAllMenus();
+        menuOpen = false;
+        return;
+      }
+
+      Object.values(menus).forEach((m) => (m.style.display = "none"));
+      menu.style.display = "block";
+
+      menuState.activeMenu = menuName;
+      menuOpen = true;
+    });
+
+    item.addEventListener("mouseenter", () => {
+      if (!menuOpen) return;
+
+      const menuName = item.dataset.menu;
+      const menu = menus[menuName];
+
+      if (menuName === menuState.activeMenu) return;
+
+      Object.values(menus).forEach((m) => (m.style.display = "none"));
+      menu.style.display = "block";
+
+      menuState.activeMenu = menuName;
+    });
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+  });
+}
+
+// ====================
+// ACTIONS
+// ====================
+function initMenuActionEvents() {
+  // formatting
+  document.querySelectorAll("#edit-menu [data-format]").forEach((item) => {
+    item.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+
+      editorContent.focus();
+
+      restoreEditorState();
+      formatText(item.dataset.format);
+
+      closeAllMenus();
+    });
+  });
+
+  // graph
+  document.getElementById("open-graph-menu")?.addEventListener("click", () => {
+    saveEditorState();
+    openGraph();
+    closeAllMenus();
+  });
+
+  // Export Project
+  const exportProject = document.getElementById("export-project");
+  if (exportProject) {
+    exportProject.addEventListener("click", () => {
+      exportMode = "project";
+      openExportModal();
+    });
+  }
+
+  // Export Document
+  const exportDoc = document.getElementById("export-doc");
+  if (exportDoc) {
+    exportDoc.addEventListener("click", () => {
+      exportMode = "document";
+      openExportModal();
+    });
+  }
+
+  const helpAbout = document.getElementById("help-about");
+
+  if (helpAbout) {
+    helpAbout.addEventListener("click", () => {
+      openHelpModal("About Tapestri", getAboutContent());
+    });
+  }
+
+  const helpShortcuts = document.getElementById("help-shortcuts");
+
+  if (helpShortcuts) {
+    helpShortcuts.addEventListener("click", () => {
+      openHelpModal("Keyboard Shortcuts", getShortcutsContent());
+    });
+  }
+}
+
+// ====================
+// HELPERS
+// ====================
+
+function openMenu(name) {
+  const menus = {
+    file: document.getElementById("file-menu"),
+    edit: document.getElementById("edit-menu"),
+    view: document.getElementById("view-menu"),
+    help: document.getElementById("help-menu"),
+  };
+
+  Object.values(menus).forEach((m) => (m.style.display = "none"));
+
+  if (menus[name]) {
+    menus[name].style.display = "block";
+  }
+}
+
+function closeAllMenus() {
+  Object.values(menus).forEach((m) => (m.style.display = "none"));
+  menuState.activeMenu = null;
+  menuOpen = false;
+}
+
+// ==============================================
+//                SIDEBAR SYSTEM
+// ==============================================
+// ====================
+// SIDEBAR EVENTS
+// ====================
+
+function initSidebarEvents() {
+  initSidebarSearch();
+
+  addButtons.forEach((button) => {
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const section = button.closest("details");
+      addNewItem(section);
+    });
+  });
+}
+
+function initSidebarSearch() {
+  searchInput.addEventListener("input", (e) => {
+    searchQuery = e.target.value.toLowerCase();
+
+    renderSidebar();
+    updatePreview();
+  });
+
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+
+      editorContent.focus();
+      scrollToFirstMatch();
+    }
+  });
+}
+
+function renderSidebar() {
+  const lists = document.querySelectorAll("ul");
+  lists.forEach((list) => {
+    list.innerHTML = "";
+  });
+
+  const docs = projects[appState.currentProjectId]?.documents || {};
+
+  for (const id in docs) {
+    const doc = docs[id];
+
+    const matchesSearch =
+      !searchQuery ||
+      (doc.title || "").toLowerCase().includes(searchQuery) ||
+      (doc.content || "").toLowerCase().includes(searchQuery) ||
+      (doc.tags || []).some((tag) => tag.toLowerCase().includes(searchQuery)) ||
+      (doc.type === "character" &&
+        doc.title.toLowerCase().includes(searchQuery));
+
+    if (!matchesSearch) continue;
+
+    const li = document.createElement("li");
+    li.textContent = doc.title;
+    li.dataset.id = doc.id;
+    li.dataset.type = doc.type;
+
+    const list = document.querySelector(`ul[data-type="${doc.type}"]`);
+    if (list) {
+      list.appendChild(li);
+      attachItemListeners(li);
+    }
+  }
+}
+
+// ====================
+// CORE EDITOR FEATURES
+// ====================
+
+function saveDocument() {
+  if (!appState.currentDocumentId) return;
+
+  projects[appState.currentProjectId].documents[
+    appState.currentDocumentId
+  ].title = editorTitle.value;
+  projects[appState.currentProjectId].documents[
+    appState.currentDocumentId
+  ].content = editorContent.value;
+
+  debounceSave();
+}
+
+function selectFirstDocument() {
+  const docs = projects[appState.currentProjectId]?.documents || {};
+  const firstId = Object.keys(docs)[0];
+
+  if (firstId) {
+    loadDocument(firstId);
+  }
+}
+
+function updatePreview() {
+  const doc = getCurrentDocs()[appState.currentDocumentId];
+  if (!doc) return;
+
+  doc.content = editorContent.value;
+
+  let html = renderMarkdown(doc.content || "");
+
+  if (searchQuery) {
+    const regex = new RegExp(`(${escapeRegex(searchQuery)})`, "gi");
+    html = html.replace(regex, "<mark>$1</mark>");
+  }
+
+  const preview = document.getElementById("preview-pane");
+  preview.innerHTML = html;
+}
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function formatText(type) {
+  const start = editorContent.selectionStart;
+  const end = editorContent.selectionEnd;
+
+  // ✅ SAVE BEFORE changing anything
+  saveHistory();
+
+  // --- apply formatting ---
+  const text = editorContent.value;
+  const selected = text.slice(start, end);
+
+  let formatted = selected;
+
+  if (type === "bold") formatted = `**${selected}**`;
+  if (type === "italic") formatted = `*${selected}*`;
+  if (type === "underline") formatted = `__${selected}__`;
+
+  editorContent.value = text.slice(0, start) + formatted + text.slice(end);
+
+  // restore correct selection
+  requestAnimationFrame(() => {
+    editorContent.focus();
+    editorContent.setSelectionRange(start, start + formatted.length);
+  });
+}
+
+function togglePreview() {
+  if (isTogglingPreview) return;
+  isTogglingPreview = true;
+
+  if (!isPreviewMode) {
+    saveEditorState();
+  }
+
+  isPreviewMode = !isPreviewMode;
+
+  updatePreview();
+  applyPreviewMode();
+  updateMenuState();
+  savePreviewMode();
+
+  const indicator = document.getElementById("mode-indicator");
+
+  if (isPreviewMode) {
+    indicator.classList.remove("hidden");
+  } else {
+    indicator.classList.add("hidden");
+
+    requestAnimationFrame(() => {
+      restoreEditorState();
+    });
+  }
+
+  setTimeout(() => {
+    isTogglingPreview = false;
+  }, 0);
+}
+
+function toggleFocusMode() {
+  isFocusMode = !isFocusMode;
+
+  document.body.classList.toggle("focus-mode", isFocusMode);
+  saveFocusMode();
+}
+
+function applyPreviewMode() {
+  const preview = document.getElementById("preview-pane");
+  const textarea = document.getElementById("editor-content");
+
+  if (isPreviewMode) {
+    preview.classList.remove("hidden");
+    textarea.classList.add("hidden");
+  } else {
+    preview.classList.add("hidden");
+    textarea.classList.remove("hidden");
+  }
+
+  document.body.classList.toggle("preview-mode", isPreviewMode);
+}
+
+function updateModeIndicator() {
+  const indicator = document.getElementById("mode-indicator");
+
+  if (!indicator) return;
+
+  if (isPreviewMode && !isModalOpen) {
+    indicator.classList.remove("hidden");
+  } else {
+    indicator.classList.add("hidden");
+  }
+}
+
+function updateWordCount() {
+  const text = editorContent.value;
+
+  const words = getWordCount(text);
+  const chars = text.length;
+
+  document.getElementById("word-count").textContent =
+    `Words: ${words} | Characters: ${chars}`;
+}
+
+function setEditorFontSize(size) {
+  editorContent.style.fontSize = size;
+  localStorage.setItem("editorFontSize", size);
+}
+
+function getGraphData() {
+  const docs = getCurrentDocs();
+  if (!docs) return { nodes: [], edges: [] };
+
+  const nodes = [];
+  const edges = [];
+
+  Object.values(docs).forEach((doc) => {
+    // Add node
+    nodes.push({
+      id: String(doc.id),
+      label: doc.title || "Untitled",
+      type: doc.type,
+    });
+
+    // Relationships (chapters → characters)
+    if (doc.type === "chapter" && doc.relationships?.characters) {
+      doc.relationships.characters.forEach((charId) => {
+        edges.push({
+          from: String(doc.id),
+          to: String(charId),
+        });
+      });
+    }
+  });
+
+  return { nodes, edges };
+}
+
 function openGraph() {
   if (isPreviewMode) return;
 
@@ -1115,8 +1618,7 @@ function openGraph() {
   graphState.selectedNodeId = null;
 
   // Canvas sizing
-  canvas.width = canvas.offsetWidth;
-  canvas.height = canvas.offsetHeight;
+  setupCanvasSize();
 
   // Build graph
   const data = getGraphData();
@@ -1143,6 +1645,8 @@ function openGraph() {
 
 function closeGraph() {
   const modal = document.getElementById("graph-modal");
+  if (!modal) return;
+
   modal.classList.add("hidden");
 
   graphAnimating = false;
@@ -1151,6 +1655,21 @@ function closeGraph() {
     cancelAnimationFrame(graphAnimationFrame);
     graphAnimationFrame = null;
   }
+
+  if (isPreviewMode) {
+    document.getElementById("mode-indicator")?.classList.remove("hidden");
+  }
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      restoreEditorState();
+    });
+  });
+}
+
+function setupCanvasSize() {
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
 }
 
 function openDocumentFromGraph(id) {
@@ -1166,36 +1685,79 @@ function openDocumentFromGraph(id) {
 // HISTORY SYSTEM
 // ======================
 
+let lastSavedContent = "";
+
 function saveHistory() {
-  const value = editorContent.value;
+  if (editorState.isRestoring) return;
 
-  if (historyIndex >= 0 && history[historyIndex] === value) return;
+  const content = editorContent.value;
 
-  history = history.slice(0, historyIndex + 1);
-  history.push(value);
-  historyIndex = history.length - 1;
+  // 🚨 Prevent duplicate spam entries
+  if (content === lastSavedContent) return;
+
+  lastSavedContent = content;
+
+  // Trim redo stack
+  editorState.history = editorState.history.slice(
+    0,
+    editorState.historyIndex + 1,
+  );
+
+  editorState.history.push({
+    content,
+    selectionStart: editorContent.selectionStart,
+    selectionEnd: editorContent.selectionEnd,
+  });
+
+  editorState.historyIndex++;
 }
 
 function undo() {
-  if (historyIndex > 0) {
-    historyIndex--;
-    editorContent.value = history[historyIndex];
+  if (editorState.historyIndex <= 0) return;
 
-    updatePreview();
-    updateWordCount();
-    saveDocument();
-  }
+  editorState.historyIndex--;
+
+  const entry = editorState.history[editorState.historyIndex];
+
+  editorState.isRestoring = true;
+
+  editorContent.value = entry.content;
+
+  requestAnimationFrame(() => {
+    editorContent.focus();
+    editorContent.setSelectionRange(
+      entry.selectionStart ?? 0,
+      entry.selectionEnd ?? entry.selectionStart ?? 0,
+    );
+
+    editorState.isRestoring = false;
+  });
+
+  console.log("UNDO RESTORE:", entry);
 }
 
 function redo() {
-  if (historyIndex < history.length - 1) {
-    historyIndex++;
-    editorContent.value = history[historyIndex];
+  if (editorState.historyIndex >= editorState.history.length - 1) return;
 
-    updatePreview();
-    updateWordCount();
-    saveDocument();
-  }
+  editorState.historyIndex++;
+
+  const entry = editorState.history[editorState.historyIndex];
+
+  editorState.isRestoring = true;
+
+  editorContent.value = entry.content;
+
+  requestAnimationFrame(() => {
+    editorContent.focus();
+    editorContent.setSelectionRange(
+      entry.selectionStart ?? 0,
+      entry.selectionEnd ?? entry.selectionStart ?? 0,
+    );
+
+    editorState.isRestoring = false;
+  });
+
+  console.log("REDO RESTORE:", entry);
 }
 
 // ======================
@@ -1221,9 +1783,10 @@ function renderTags(doc) {
 }
 
 function addTag(tag) {
-  if (!currentDocumentId) return;
+  if (!appState.currentDocumentId) return;
 
-  const doc = projects[currentProjectId].documents[currentDocumentId];
+  const doc =
+    projects[appState.currentProjectId].documents[appState.currentDocumentId];
 
   if (!doc.tags.includes(tag)) {
     doc.tags.push(tag);
@@ -1234,9 +1797,10 @@ function addTag(tag) {
 }
 
 function removeTag(tag) {
-  if (!currentDocumentId) return;
+  if (!appState.currentDocumentId) return;
 
-  const doc = projects[currentProjectId].documents[currentDocumentId];
+  const doc =
+    projects[appState.currentProjectId].documents[appState.currentDocumentId];
 
   doc.tags = doc.tags.filter((t) => t !== tag);
 
@@ -1251,10 +1815,10 @@ function removeTag(tag) {
 function populateCharacterSelect() {
   characterSelect.innerHTML = "";
 
-  const docs = projects[currentProjectId]?.documents || {};
+  const docs = projects[appState.currentProjectId]?.documents || {};
 
   for (const id in docs) {
-    const doc = projects[currentProjectId].documents[id];
+    const doc = projects[appState.currentProjectId].documents[id];
 
     if (doc.type === "character") {
       const option = document.createElement("option");
@@ -1291,9 +1855,10 @@ function renderCharacterRelationships(id) {
 }
 
 function addCharacterToChapter() {
-  if (!currentDocumentId) return;
+  if (!appState.currentDocumentId) return;
 
-  const doc = projects[currentProjectId].documents[currentDocumentId];
+  const doc =
+    projects[appState.currentProjectId].documents[appState.currentDocumentId];
 
   if (doc.type !== "chapter") return;
 
@@ -1304,28 +1869,29 @@ function addCharacterToChapter() {
     doc.relationships.characters.push(charId);
   }
 
-  renderCharacterRelationships(currentDocumentId);
+  renderCharacterRelationships(appState.currentDocumentId);
   debounceSave();
 }
 
 function removeCharacterFromChapter(charId) {
-  const doc = projects[currentProjectId].documents[currentDocumentId];
+  const doc =
+    projects[appState.currentProjectId].documents[appState.currentDocumentId];
 
   doc.relationships.characters = doc.relationships.characters.filter(
     (id) => id !== charId,
   );
 
-  renderCharacterRelationships(currentDocumentId);
+  renderCharacterRelationships(appState.currentDocumentId);
   debounceSave();
 }
 
 function getChaptersForCharacter(characterId) {
   const chapters = [];
 
-  const docs = projects[currentProjectId]?.documents || {};
+  const docs = projects[appState.currentProjectId]?.documents || {};
 
   for (const id in docs) {
-    const doc = projects[currentProjectId].documents[id];
+    const doc = projects[appState.currentProjectId].documents[id];
 
     if (doc.type === "chapter") {
       if (
@@ -1367,7 +1933,7 @@ function loadDocument(id) {
 
   if (!doc) return;
 
-  currentDocumentId = id;
+  appState.currentDocumentId = id;
 
   editorTitle.value = doc.title || "";
   editorContent.value = doc.content || "";
@@ -1394,11 +1960,18 @@ function loadDocument(id) {
   const activeItem = document.querySelector(`[data-id="${id}"]`);
   if (activeItem) activeItem.classList.add("active");
 
-  history = [editorContent.value];
-  historyIndex = 0;
+  editorState.history = [
+    {
+      content: editorContent.value || "",
+      selectionStart: 0,
+      selectionEnd: 0,
+    },
+  ];
+  editorState.historyIndex = 0;
 
   updateWordCount();
   updatePreview();
+  saveHistory();
 }
 
 function clearEditor() {
@@ -1433,7 +2006,7 @@ function addNewItem(section) {
 
   ul.appendChild(newLi);
 
-  projects[currentProjectId].documents[id] = {
+  projects[appState.currentProjectId].documents[id] = {
     id: id,
     title: newLi.textContent,
     content: "",
@@ -1457,9 +2030,9 @@ function renameItem(item) {
   item.textContent = newName;
 
   const id = item.dataset.id;
-  projects[currentProjectId].documents[id].title = newName;
+  projects[appState.currentProjectId].documents[id].title = newName;
 
-  if (currentDocumentId === id) {
+  if (appState.currentDocumentId === id) {
     editorTitle.value = newName;
   }
 
@@ -1473,7 +2046,7 @@ function deleteItem(item) {
 
   const id = item.dataset.id;
 
-  delete projects[currentProjectId].documents[id];
+  delete projects[appState.currentProjectId].documents[id];
 
   const nextItem = item.nextElementSibling || item.previousElementSibling;
 
@@ -1484,7 +2057,7 @@ function deleteItem(item) {
   } else {
     editorTitle.value = "";
     editorContent.value = "";
-    currentDocumentId = null;
+    appState.currentDocumentId = null;
   }
 
   debounceSave();
@@ -1498,7 +2071,7 @@ function setActiveItem(clickedItem) {
 function handleItemClick(item) {
   const id = item.dataset.id;
 
-  currentDocumentId = id;
+  appState.currentDocumentId = id;
   loadDocument(id);
   setActiveItem(item);
 }
@@ -1506,40 +2079,6 @@ function handleItemClick(item) {
 // ===========================
 // PROJECT SYSTEM
 // ===========================
-
-function renderSidebar() {
-  const lists = document.querySelectorAll("ul");
-  lists.forEach((list) => {
-    list.innerHTML = "";
-  });
-
-  const docs = projects[currentProjectId]?.documents || {};
-
-  for (const id in docs) {
-    const doc = docs[id];
-
-    const matchesSearch =
-      !searchQuery ||
-      (doc.title || "").toLowerCase().includes(searchQuery) ||
-      (doc.content || "").toLowerCase().includes(searchQuery) ||
-      (doc.tags || []).some((tag) => tag.toLowerCase().includes(searchQuery)) ||
-      (doc.type === "character" &&
-        doc.title.toLowerCase().includes(searchQuery));
-
-    if (!matchesSearch) continue;
-
-    const li = document.createElement("li");
-    li.textContent = doc.title;
-    li.dataset.id = doc.id;
-    li.dataset.type = doc.type;
-
-    const list = document.querySelector(`ul[data-type="${doc.type}"]`);
-    if (list) {
-      list.appendChild(li);
-      attachItemListeners(li);
-    }
-  }
-}
 
 function createNewProject() {
   const name = prompt("Project name?");
@@ -1552,7 +2091,7 @@ function createNewProject() {
     documents: {},
   };
 
-  currentProjectId = id;
+  appState.currentProjectId = id;
 
   debounceSave();
   renderProjectList();
@@ -1560,7 +2099,7 @@ function createNewProject() {
 }
 
 function deleteProject() {
-  if (!currentProjectId) return;
+  if (!appState.currentProjectId) return;
 
   const confirmDelete = confirm(
     "Are you sure you want to delete this project?",
@@ -1568,11 +2107,11 @@ function deleteProject() {
 
   if (!confirmDelete) return;
 
-  delete projects[currentProjectId];
+  delete projects[appState.currentProjectId];
 
   const remainingIds = Object.keys(projects);
 
-  currentProjectId = remainingIds[0] || null;
+  appState.currentProjectId = remainingIds[0] || null;
 
   debounceSave();
   renderProjectList();
@@ -1581,12 +2120,12 @@ function deleteProject() {
 }
 
 function renameProject() {
-  if (!currentProjectId) return;
+  if (!appState.currentProjectId) return;
 
   const newName = prompt("Rename project:");
   if (!newName) return;
 
-  projects[currentProjectId].name = newName;
+  projects[appState.currentProjectId].name = newName;
 
   debounceSave();
   renderProjectList();
@@ -1601,7 +2140,7 @@ function renderProjectList() {
     option.value = pid;
     option.textContent = projects[pid].name;
 
-    if (pid === currentProjectId) {
+    if (pid === appState.currentProjectId) {
       option.selected = true;
     }
 
@@ -1615,10 +2154,10 @@ function searchDocuments(query) {
   const lists = document.querySelectorAll("ul");
   lists.forEach((list) => (list.innerHTML = ""));
 
-  const docs = projects[currentProjectId]?.documents || {};
+  const docs = projects[appState.currentProjectId]?.documents || {};
 
   for (const id in docs) {
-    const doc = projects[currentProjectId].documents[id];
+    const doc = projects[appState.currentProjectId].documents[id];
 
     if (
       doc.title.toLowerCase().includes(query) ||
@@ -1660,7 +2199,7 @@ function openExportModal() {
   const options = modal.querySelector(".export-options");
   options.innerHTML = "";
 
-  const project = projects[currentProjectId];
+  const project = projects[appState.currentProjectId];
   if (!project) return;
 
   if (exportMode === "document") {
@@ -1700,9 +2239,20 @@ function openExportModal() {
   closeAllMenus();
 }
 
+function initModalEvents() {
+  document
+    .getElementById("close-help")
+    ?.addEventListener("click", closeHelpModal);
+
+  document
+    .getElementById("close-export")
+    ?.addEventListener("click", closeExportModal);
+
+  document.getElementById("close-graph")?.addEventListener("click", closeGraph);
+}
+
 function closeExportModal() {
   document.getElementById("export-modal").classList.add("hidden");
-  focusEditor();
 }
 
 function handleExportConfirm() {
@@ -1783,7 +2333,7 @@ function buildExportContent(selectedSections) {
 }
 
 function exportCurrentDocument() {
-  const doc = getCurrentDocs()[currentDocumentId];
+  const doc = getCurrentDocs()[appState.currentDocumentId];
   if (!doc) return "";
 
   return `# ${doc.title}\n\n${doc.content}`;
@@ -1792,7 +2342,7 @@ function exportCurrentDocument() {
 function projectToMarkdown() {
   const docs = getCurrentDocs();
 
-  let md = `# ${projects[currentProjectId].name}\n\n`;
+  let md = `# ${projects[appState.currentProjectId].name}\n\n`;
 
   for (const id in docs) {
     const doc = docs[id];
@@ -1858,7 +2408,6 @@ function closeHelpModal() {
   isModalOpen = false;
 
   updateModeIndicator();
-  focusEditor();
 }
 
 function getAboutContent() {
@@ -1888,7 +2437,7 @@ function getShortcutsContent() {
 // =====================
 
 function handleMenuAction(action) {
-  activeMenu = null;
+  menuState.activeMenu = null;
   closeAllMenus();
 
   setTimeout(action, 0);
@@ -1905,358 +2454,78 @@ function updateMenuState() {
   }
 }
 
-function initMenuSystem() {
-  menus.file = document.getElementById("file-menu");
-  menus.edit = document.getElementById("edit-menu");
-  menus.view = document.getElementById("view-menu");
-  menus.help = document.getElementById("help-menu");
-
-  document.querySelectorAll(".menu-item").forEach((item) => {
-    item.addEventListener("click", (e) => {
-      if (menuLocked) return;
-
-      e.stopPropagation();
-
-      const menuName = item.dataset.menu;
-      const menu = menus[menuName];
-
-      if (activeMenu === menuName) {
-        closeAllMenus();
-        menuOpen = false;
-        return;
-      }
-
-      Object.values(menus).forEach((m) => (m.style.display = "none"));
-      menu.style.display = "block";
-
-      activeMenu = menuName;
-      menuOpen = true;
-    });
-
-    item.addEventListener("mouseenter", () => {
-      if (!menuOpen) return;
-
-      const menuName = item.dataset.menu;
-      const menu = menus[menuName];
-
-      if (menuName === activeMenu) return;
-
-      Object.values(menus).forEach((m) => (m.style.display = "none"));
-      menu.style.display = "block";
-
-      activeMenu = menuName;
-    });
-  });
-
-  document.addEventListener("click", () => {
-    closeAllMenus();
-  });
-
-  document.addEventListener("mousedown", (e) => {
-    const isMenuItem = e.target.closest(".menu-item");
-    const isDropdown = e.target.closest(".menu-dropdown");
-
-    if (isMenuItem || isDropdown) return;
-
-    closeAllMenus();
-  });
-
-  const exportProject = document.getElementById("export-project");
-
-  if (exportProject) {
-    exportProject.addEventListener("click", () => {
-      exportMode = "project";
-      openExportModal();
-    });
-  }
-
-  const exportDoc = document.getElementById("export-doc");
-
-  if (exportDoc) {
-    exportDoc.addEventListener("click", () => {
-      exportMode = "document";
-      openExportModal();
-    });
-  }
-
-  const helpAbout = document.getElementById("help-about");
-
-  if (helpAbout) {
-    helpAbout.addEventListener("click", () => {
-      openHelpModal("About Tapestri", getAboutContent());
-    });
-  }
-
-  const helpShortcuts = document.getElementById("help-shortcuts");
-
-  if (helpShortcuts) {
-    helpShortcuts.addEventListener("click", () => {
-      openHelpModal("Keyboard Shortcuts", getShortcutsContent());
-    });
-  }
-
-  const closeHelp = document.getElementById("close-help");
-
-  if (closeHelp) {
-    closeHelp.addEventListener("click", closeHelpModal);
-  }
-
-  document.addEventListener("keydown", (e) => {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-  });
-}
-
-// =====================
+// ====================
 // EVENTS SYSTEM
-// =====================
-
-function initEditorEvents() {
-  editorContent.addEventListener("select", () => {
-    savedSelection.start = editorContent.selectionStart;
-    savedSelection.end = editorContent.selectionEnd;
-  });
-
-  editorContent.addEventListener("input", () => {
-    let doc = getCurrentDocs()[currentDocumentId];
-
-    if (!doc) {
-      const docs = getCurrentDocs();
-      const firstId = Object.keys(docs)[0];
-      if (firstId) {
-        loadDocument(firstId);
-        doc = docs[firstId];
-      } else {
-        return;
-      }
-    }
-
-    doc.content = editorContent.value;
-
-    saveHistory();
-    updatePreview();
-    updateWordCount();
-    debounceSave();
-  });
-
-  const fontSize = document.getElementById("font-size");
-
-  if (fontSize) {
-    fontSize.addEventListener("change", (e) => {
-      const start = editorContent.selectionStart;
-      const end = editorContent.selectionEnd;
-
-      setEditorFontSize(e.target.value);
-
-      focusEditor();
-      editorContent.setSelectionRange(start, end);
-    });
-  }
-
-  editorContent.addEventListener("keydown", (e) => {
-    // UNDO / REDO
-    if (e.ctrlKey && e.key.toLowerCase() === "z") {
-      e.preventDefault();
-
-      if (e.shiftKey) {
-        redo();
-      } else {
-        undo();
-      }
-      return;
-    }
-
-    if (e.ctrlKey && e.key.toLowerCase() === "g") {
-      e.preventDefault();
-      openGraph();
-    }
-
-    // TAB HANDLING
-    if (e.key === "Tab") {
-      e.preventDefault();
-
-      const textarea = editorContent;
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const value = textarea.value;
-
-      const before = value.substring(0, start);
-      const selection = value.substring(start, end);
-      const after = value.substring(end);
-
-      const tab = "  ";
-
-      if (selection.includes("\n")) {
-        const indented = selection
-          .split("\n")
-          .map((line) => tab + line)
-          .join("\n");
-
-        textarea.value = before + indented + after;
-        textarea.selectionStart = start;
-        textarea.selectionEnd = start + indented.length;
-      } else {
-        textarea.value = before + tab + after;
-        textarea.selectionStart = textarea.selectionEnd = start + tab.length;
-      }
-
-      saveHistory();
-      updatePreview();
-      updateWordCount();
-      saveDocument();
-    }
-  });
-
-  editorTitle.addEventListener("input", () => {
-    const doc = getCurrentDocs()[currentDocumentId];
-    if (!doc) return;
-
-    doc.title = editorTitle.value;
-    debounceSave();
-    renderSidebar();
-  });
-
-  editorTitle.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      loadDocument(currentDocumentId);
-      focusEditor();
-    }
-  });
-}
-
-function initSidebarEvents() {
-  addButtons.forEach((button) => {
-    button.addEventListener("click", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      const section = button.closest("details");
-      addNewItem(section);
-    });
-  });
-}
+// ====================
 
 function initKeyboardShortcuts() {
-  editorContent.addEventListener("keydown", (e) => {
-    if (!e.ctrlKey) return;
+  document.addEventListener("keydown", handleKeyboardShorts);
+}
 
-    document.addEventListener("keydown", (e) => {
-      if (e.altKey) {
-        const key = e.key.toLowerCase();
+function handleKeyboardShorts(e) {
+  const isEditorFocused = document.activeElement === editorContent;
 
-        if (key === "f") openMenu("file");
-        if (key === "e") openMenu("edit");
-        if (key === "v") openMenu("view");
-        if (key === "h") openMenu("help");
-      }
-
-      if (e.key.toLowerCase() === "c") {
-        resetGraphView();
-      }
-    });
-
-    switch (e.key.toLowerCase()) {
-      case "b":
-        e.preventDefault();
-        formatText("bold");
-        break;
-      case "i":
-        e.preventDefault();
-        formatText("italic");
-        break;
-      case "u":
-        e.preventDefault();
-        formatText("underline");
-        break;
+  // --- UNDO / REDO (ONLY IF NOT IN EDITOR) ---
+  if (!isEditorFocused && e.ctrlKey && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    if (e.shiftKey) {
+      redo();
+    } else {
+      undo();
     }
-    closeAllMenus();
-  });
+    return;
+  }
 
-  document.addEventListener("keydown", (e) => {
-    // PREVIEW
-    if (e.ctrlKey && e.key.toLowerCase() === "p") {
-      e.preventDefault();
-      togglePreview();
+  // --- PREVIEW ---
+  if (e.ctrlKey && e.key.toLowerCase() === "p") {
+    e.preventDefault();
+    togglePreview();
+    return;
+  }
+
+  // --- FOCUS MODE ---
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "f") {
+    e.preventDefault();
+    toggleFocusMode();
+    return;
+  }
+
+  // --- CLOSE MENUS ON TYPING ---
+  if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (e.key.length === 1 || e.key === "Backspace" || e.key === "Enter") {
+      if (menuState.activeMenu) closeAllMenus();
+    }
+  }
+
+  // --- ESCAPE ---
+  if (e.key === "Escape") {
+    const graphModal = document.getElementById("graph-modal");
+    const helpModal = document.getElementById("help-modal");
+
+    if (graphModal && !graphModal.classList.contains("hidden")) {
+      closeGraph();
       return;
     }
 
-    // FOCUS MODE
-    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "f") {
-      e.preventDefault();
+    if (helpModal && !helpModal.classList.contains("hidden")) {
+      closeHelpModal();
+      return;
+    }
+
+    if (document.body.classList.contains("focus-mode")) {
       toggleFocusMode();
       return;
     }
 
-    // Ignore modifier-only presses
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-
-    // If user is typing (real character keys)
-    if (e.key.length === 1 || e.key === "Backspace" || e.key === "Enter") {
-      if (activeMenu) {
-        closeAllMenus();
-      }
-    }
-
-    // ESCAPE
-    if (e.key === "Escape") {
-      const graphModal = document.getElementById("graph-modal");
-      const helpModal = document.getElementById("help-modal");
-
-      if (graphModal && !graphModal.classList.contains("hidden")) {
-        graphModal.classList.add("hidden");
-        graphAnimating = false;
-
-        if (isPreviewMode) {
-          document.getElementById("mode-indicator")?.classList.remove("hidden");
-        }
-
-        setTimeout(() => focusEditor(), 0);
-        return;
-      }
-
-      if (helpModal && !helpModal.classList.contains("hidden")) {
-        helpModal.classList.add("hidden");
-        setTimeout(() => focusEditor(), 0);
-        return;
-      }
-
-      if (document.body.classList.contains("focus-mode")) {
-        toggleFocusMode();
-        return;
-      }
-
-      if (e.key === "Escape") {
-        Object.values(menus).forEach((menu) => {
-          menu.style.display = "none";
-        });
-        activeMenu = null;
-        Object.values(menus).forEach((menu) => {
-          menu.style.display = "none";
-        });
-      }
-    }
-  });
-}
-
-function initGraphEvents() {
-  initGraphCanvasEvent();
-  initGraphToolbarEvents();
-  initGraphFilters();
+    closeAllMenus();
+  }
 }
 
 function initEventListeners() {
-  getItems().forEach((item) => {
-    attachItemListeners(item);
-  });
-
-  document.addEventListener("mousedown", (e) => {
-    const isEditor = e.target.closest("#editor-content");
-    const isPreview = e.target.closest("#preview-pane");
-    const isUI = e.target.closest(
-      "button, input, select, .menu-item, .menu-dropdown",
-    );
-  });
-
   const newProject = document.getElementById("new-project");
+
+  if (eventsInitialized) return;
+  eventsInitialized = true;
 
   if (newProject) {
     newProject.addEventListener("click", () => {
@@ -2264,17 +2533,11 @@ function initEventListeners() {
     });
   }
 
-  document.querySelectorAll("#edit-menu [data-format]").forEach((item) => {
-    item.addEventListener("click", () => {
-      formatText(item.dataset.format);
-      closeAllMenus();
-    });
-  });
-
   const toggleFocus = document.getElementById("toggle-focus");
 
   if (toggleFocus) {
-    toggleFocus.addEventListener("click", () => {
+    toggleFocus.addEventListener("click", (e) => {
+      e.stopPropagation();
       toggleFocusMode();
       closeAllMenus();
     });
@@ -2284,7 +2547,8 @@ function initEventListeners() {
 
   if (togglePreviewMenu) {
     togglePreviewMenu.addEventListener("click", () => {
-      handleMenuAction(togglePreview);
+      togglePreview();
+      closeAllMenus();
     });
     updateMenuState();
   }
@@ -2292,7 +2556,8 @@ function initEventListeners() {
   const indicator = document.getElementById("mode-indicator");
 
   if (indicator) {
-    indicator.addEventListener("click", () => {
+    indicator.addEventListener("click", (e) => {
+      e.stopPropagation();
       togglePreview();
     });
   }
@@ -2302,24 +2567,6 @@ function initEventListeners() {
   if (togglePreviewBtn) {
     togglePreviewBtn.addEventListener("click", togglePreview);
   }
-
-  let currentSearchQuery = "";
-
-  searchInput.addEventListener("input", (e) => {
-    searchQuery = e.target.value.toLowerCase();
-
-    renderSidebar();
-    updatePreview();
-  });
-
-  searchInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-
-      editorContent.focus();
-      scrollToFirstMatch();
-    }
-  });
 
   tagInput.addEventListener("keypress", (e) => {
     if (e.key === "Enter") {
@@ -2334,21 +2581,12 @@ function initEventListeners() {
     }
   });
 
-  getItems().forEach((item) => {
-    item.addEventListener("click", () => handleItemClick(item));
-    item.addEventListener("dblclick", () => renameItem(item));
-    item.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      deleteItem(item);
-    });
-  });
-
   addCharacterBtn.addEventListener("click", addCharacterToChapter);
   newProjectBtn.addEventListener("click", createNewProject);
 
   projectSelect.addEventListener("change", () => {
-    currentProjectId = projectSelect.value;
-    currentDocumentId = null;
+    appState.currentProjectId = projectSelect.value;
+    appState.currentDocumentId = null;
 
     debounceSave();
     renderProjectList();
@@ -2409,6 +2647,7 @@ function initApp() {
   initSidebarEvents();
   initKeyboardShortcuts();
   initGraphEvents();
+  initModalEvents();
   initEventListeners();
 
   renderProjectList();
