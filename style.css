@@ -461,6 +461,11 @@ button {
   cursor: pointer;
 }
 
+.toolbar-btn.active {
+  background: #444;
+  color: #fff;
+}
+
 .add-btn {
   display: flex;
   align-items: center;

@@ -68,6 +68,7 @@ const CLICK_RADIUS = 25;
 const MIN_SCALE = 0.4;
 const MAX_SCALE = 2.5;
 
+let historyDebounceTimer = null;
 let graphAnimating = false;
 let graphAnimationFrame = null;
 let graphTransitioning = false;
@@ -717,7 +718,6 @@ function initGraphKeyboardControls() {
       centerGraph();
     }
   });
-  console.log("Graph open?", graphState.isOpen);
 }
 
 // ====================
@@ -923,6 +923,8 @@ function initEditorEvents() {
 
 function initEditorInputEvents() {
   editorContent.addEventListener("input", onEditorInput);
+  editorContent.addEventListener("keyup", updateToolbarState);
+  editorContent.addEventListener("click", updateToolbarState);
 }
 
 function onEditorInput(e) {
@@ -932,7 +934,15 @@ function onEditorInput(e) {
 
   doc.content = editorContent.value;
 
-  saveHistory();
+  // Debounced history (typing only)
+  if (historyDebounceTimer) {
+    clearTimeout(historyDebounceTimer);
+  }
+
+  historyDebounceTimer = setTimeout(() => {
+    saveHistory();
+  }, 400);
+
   updatePreview();
   updateWordCount();
   debounceSave();
@@ -981,6 +991,13 @@ function handleEditorKeyDown(e) {
     }
   }
 
+  // --- GRAPH ---
+  if (e.ctrlKey && e.key.toLowerCase() === "g") {
+    e.preventDefault();
+    openGraph();
+    return;
+  }
+
   // --- TAB INDENT ---
   if (handleTabIndent(e)) return;
 }
@@ -1003,13 +1020,6 @@ function handleEditorShortcuts(e) {
       break;
   }
   closeAllMenus();
-
-  if (e.ctrlKey && e.key.toLowerCase() === "g") {
-    e.preventDefault();
-    saveEditorState();
-    openGraph();
-    return true;
-  }
   return false;
 }
 
@@ -1087,6 +1097,22 @@ function initEditorToolbarEvents() {
       e.preventDefault();
     });
   });
+}
+
+function updateToolbarState() {
+  const formats = getActiveFormats();
+
+  document
+    .querySelectorAll(".toolbar-btn[data-format='bold']")
+    .forEach((btn) => btn.classList.toggle("active", formats.bold));
+
+  document
+    .querySelectorAll(".toolbar-btn[data-format='italic']")
+    .forEach((btn) => btn.classList.toggle("active", formats.italic));
+
+  document
+    .querySelectorAll(".toolbar-btn[data-format='underline']")
+    .forEach((btn) => btn.classList.toggle("active", formats.underline));
 }
 
 // ====================
@@ -1287,9 +1313,34 @@ function initMenuActionEvents() {
       }
 
       // Everything else = formatting
-      formatText(action);
 
-      closeAllMenus();
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const start = editorContent.selectionStart;
+          const end = editorContent.selectionEnd;
+          const text = editorContent.value;
+
+          let marker = "";
+          if (action === "bold") marker = "**";
+          else if (action === "italic") marker = "*";
+          else if (action === "underline") marker = "__";
+
+          if (marker) {
+            const before = text.slice(start - marker.length, start);
+            const after = text.slice(end, end + marker.length);
+
+            if (before === marker && after === marker) {
+              editorContent.setSelectionRange(
+                start - marker.length,
+                end + marker.length,
+              );
+            }
+          }
+
+          formatText(action);
+          closeAllMenus();
+        });
+      });
     });
   });
 
@@ -1319,7 +1370,6 @@ function initMenuActionEvents() {
   }
 
   const helpAbout = document.getElementById("help-about");
-
   if (helpAbout) {
     helpAbout.addEventListener("click", () => {
       openHelpModal("About Tapestri", getAboutContent());
@@ -1327,7 +1377,6 @@ function initMenuActionEvents() {
   }
 
   const helpShortcuts = document.getElementById("help-shortcuts");
-
   if (helpShortcuts) {
     helpShortcuts.addEventListener("click", () => {
       openHelpModal("Keyboard Shortcuts", getShortcutsContent());
@@ -1486,13 +1535,53 @@ function formatText(type) {
   const text = editorContent.value;
   const selected = text.slice(start, end);
 
+  let marker = "";
+
+  if (type === "bold") marker = "**";
+  if (type === "italic") {
+    // Detect double marker (bold) and avoid breaking it
+    const before2 = text.slice(start - 2, start);
+    const after2 = text.slice(end, end + 2);
+
+    const isInsideBold = before2 === "**" && after2 === "**";
+
+    if (isInsideBold) {
+      // Apply italic INSIDE bold, not over it
+      const formatted = `*${selected}*`;
+
+      const newValue = text.slice(0, start) + formatted + text.slice(end);
+
+      editorState.isProgrammaticEdit = true;
+
+      saveHistory();
+
+      editorContent.value = newValue;
+      editorContent.focus();
+      editorContent.setSelectionRange(start, start + formatted.length);
+
+      saveHistory();
+
+      editorState.isProgrammaticEdit = false;
+      updateToolbarState();
+
+      return;
+    }
+
+    marker = "*";
+  }
+  if (type === "underline") marker = "__";
+
   let formatted = selected;
 
-  if (type === "bold") formatted = `**${selected}**`;
-  if (type === "italic") formatted = `*${selected}*`;
-  if (type === "underline") formatted = `__${selected}__`;
+  // Toggle OFF if already wrapped
+  if (selected.startsWith(marker) && selected.endsWith(marker)) {
+    formatted = selected.slice(marker.length, -marker.length);
+  } else {
+    // Toggle ON
+    formatted = `${marker}${selected}${marker}`;
+  }
 
-  // ✅ STEP 1: Save PRE-FORMAT state (this is what undo needs)
+  // STEP 1: Save PRE-FORMAT state (this is what undo needs)
   saveHistory();
 
   const newValue = text.slice(0, start) + formatted + text.slice(end);
@@ -1500,7 +1589,7 @@ function formatText(type) {
   const newStart = start;
   const newEnd = start + formatted.length;
 
-  // 🚨 Prevent input-triggered history
+  // Prevent input-triggered history
   editorState.isProgrammaticEdit = true;
 
   editorContent.value = newValue;
@@ -1508,10 +1597,58 @@ function formatText(type) {
   editorContent.focus();
   editorContent.setSelectionRange(newStart, newEnd);
 
-  // ✅ STEP 2: Save POST-FORMAT state (redo target)
+  // STEP 2: Save POST-FORMAT state (redo target)
   saveHistory();
-
+  updateToolbarState();
   editorState.isProgrammaticEdit = false;
+}
+
+function isInsideMarker(text, pos, marker) {
+  const before = text.slice(0, pos);
+  const after = text.slice(pos);
+
+  const beforeCount = before.split(marker).length - 1;
+  const afterCount = after.split(marker).length - 1;
+
+  return beforeCount % 2 === 1 && afterCount > 0;
+}
+
+function normalizeSelectionForFormat(type) {
+  const start = editorContent.selectionStart;
+  const end = editorContent.selectionEnd;
+  const text = editorContent.value;
+
+  let marker = "";
+  if (type === "bold") marker = "**";
+  else if (type === "italic") marker = "*";
+  else if (type === "underline") marker = "__";
+  else return;
+
+  // Look OUTSIDE selection
+  const before = text.slice(start - marker.length, start);
+  const after = text.slice(end, end + marker.length);
+
+  if (before === marker && after === marker) {
+    editorContent.setSelectionRange(start - marker.length, end + marker.length);
+  }
+}
+
+function getActiveFormats() {
+  const pos = editorContent.selectionStart;
+  const text = editorContent.value;
+
+  const isBold = isInsideMarker(text, pos, "**");
+  const isUnderline = isInsideMarker(text, pos, "__");
+
+  // 🔥 FIX: italic must NOT trigger inside bold/underline markers
+  const isItalic = !isBold && !isUnderline && isInsideMarker(text, pos, "*");
+
+  return {
+    bold: isBold,
+    italic: isItalic,
+    underline: isUnderline,
+    italic: isInsideMarker(text, pos, "*") && !isInsideMarker(text, pos, "**"),
+  };
 }
 
 function togglePreview() {
@@ -1794,6 +1931,8 @@ function undo() {
       entry.selectionEnd ?? entry.selectionStart ?? 0,
     );
 
+    updateToolbarState();
+
     editorState.isRestoring = false;
   });
 }
@@ -1815,6 +1954,8 @@ function redo() {
       entry.selectionStart ?? 0,
       entry.selectionEnd ?? entry.selectionStart ?? 0,
     );
+
+    updateToolbarState();
 
     editorState.isRestoring = false;
   });
