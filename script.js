@@ -32,6 +32,13 @@ const graphState = {
   offsetX: 0,
   offsetY: 0,
 
+  targetOffsetX: 0,
+  targetOffsetY: 0,
+  targetScale: 1,
+
+  temperature: 1,
+  isOpen: false,
+
   filters: {
     chapter: true,
     character: true,
@@ -313,25 +320,31 @@ function getConnectedNodeIds(nodeId) {
 // ====================
 
 function renderGraph() {
+  const ctx = canvas.getContext("2d");
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const selectedId = graphState.selectedNodeId;
+
+  const connectedIds = selectedId ? getConnectedNodeIds(selectedId) : new Set();
+
+  // FILTERED NODES
   const visibleNodes = graphState.nodes.filter(
     (node) => graphState.filters[node.type],
   );
 
-  const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  const selectedId = graphState.selectedNodeId;
-  const connectedIds = selectedId ? getConnectedNodeIds(selectedId) : new Set();
-
-  // Draw edges
+  // DRAW EDGES
   graphState.edges.forEach((edge) => {
     const from = visibleNodes.find((n) => n.id === edge.from);
     const to = visibleNodes.find((n) => n.id === edge.to);
+
+    // hide edge if either node hidden
     if (!from || !to) return;
 
     const isConnected = edge.from === selectedId || edge.to === selectedId;
 
     ctx.beginPath();
+
     ctx.moveTo(
       from.x * graphState.scale + graphState.offsetX,
       from.y * graphState.scale + graphState.offsetY,
@@ -343,11 +356,11 @@ function renderGraph() {
     );
 
     if (!selectedId || !graphState.focusMode) {
-      ctx.strokeStyle = "#888";
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = "#666";
+      ctx.lineWidth = 1.5;
     } else if (isConnected) {
       ctx.strokeStyle = "#f39c12";
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2.5;
     } else {
       ctx.strokeStyle = "#222";
       ctx.lineWidth = 1;
@@ -356,50 +369,56 @@ function renderGraph() {
     ctx.stroke();
   });
 
-  // Draw nodes
+  // DRAW NODES
   visibleNodes.forEach((node) => {
     const isSelected = node.id === selectedId;
     const isConnected = connectedIds.has(node.id);
 
+    // keeps node clickable even zoomed out
+    const radius = Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7));
+
+    const screenX = node.x * graphState.scale + graphState.offsetX;
+
+    const screenY = node.y * graphState.scale + graphState.offsetY;
+
     ctx.beginPath();
-    ctx.arc(
-      node.x * graphState.scale + graphState.offsetX,
-      node.y * graphState.scale + graphState.offsetY,
-      NODE_RADIUS * graphState.scale,
-      0,
-      Math.PI * 2,
-    );
+
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
 
     if (isSelected) {
       ctx.shadowColor = "#f39c12";
-      ctx.shadowBlur = 15;
+      ctx.shadowBlur = 18;
     } else {
       ctx.shadowBlur = 0;
     }
 
     if (!selectedId || !graphState.focusMode) {
-      // default
-      ctx.fillStyle = node.type === "character" ? "#2980b9" : "#27ae60";
+      ctx.fillStyle =
+        node.type === "character"
+          ? "#2980b9"
+          : node.type === "chapter"
+            ? "#27ae60"
+            : "#8e44ad";
     } else if (isSelected) {
-      ctx.fillStyle = "#f39c12"; // selected
+      ctx.fillStyle = "#f39c12";
     } else if (isConnected) {
-      ctx.fillStyle = "#3498db"; // connected
+      ctx.fillStyle = "#3498db";
     } else {
-      ctx.fillStyle = "#333"; // faded (stronger fade)
+      ctx.fillStyle = "#333";
     }
 
     ctx.fill();
 
-    // Reset shadow AFTER drawing
+    // RESET SHADOW
     ctx.shadowBlur = 0;
 
+    // LABELS
     ctx.fillStyle = "#fff";
     ctx.textAlign = "center";
-    ctx.fillText(
-      node.label,
-      node.x * graphState.scale + graphState.offsetX,
-      node.y * graphState.scale + graphState.offsetY + 35,
-    );
+    ctx.textBaseline = "middle";
+    ctx.font = "14px sans-serif";
+
+    ctx.fillText(node.label, screenX, screenY + radius + 18);
   });
 }
 
@@ -410,15 +429,17 @@ function renderGraph() {
 function applyForces() {
   const nodes = graphState.nodes;
   const edges = graphState.edges;
-
-  graphState.temperature *= 0.98;
-
   if (!nodes.length) return;
 
   const centerX = canvas.width / 2;
   const centerY = canvas.height / 2;
 
-  // REPULSION (push nodes apart)
+  // Smooth cooling (slower = nicer animation)
+  graphState.temperature *= 0.96;
+
+  // --- REPULSION + MIN DISTANCE (prevents overlap)
+  const minDist = 60; // 👈 about node size spacing
+
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
       const a = nodes[i];
@@ -428,7 +449,8 @@ function applyForces() {
       const dy = b.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
 
-      const force = (6000 / (dist * dist)) * graphState.temperature;
+      // Normal repulsion
+      const force = (4000 / (dist * dist)) * graphState.temperature;
 
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
@@ -438,81 +460,116 @@ function applyForces() {
       b.vx += fx;
       b.vy += fy;
 
-      const minDist = 80;
-
+      // HARD separation if too close
       if (dist < minDist) {
-        const push = (minDist - dist) * 0.01;
-        const fx = (dx / dist) * push;
-        const fy = (dy / dist) * push;
+        const push = (minDist - dist) * 0.05;
+        const px = (dx / dist) * push;
+        const py = (dy / dist) * push;
 
-        a.vx -= fx;
-        a.vy -= fy;
-        b.vx += fx;
-        b.vy += fy;
+        a.vx -= px;
+        a.vy -= py;
+        b.vx += px;
+        b.vy += py;
       }
     }
   }
 
-  // CENTER GRAVITY (keep nodes on screen)
-  nodes.forEach((node) => {
-    node.vx += (centerX - node.x) * 0.0005;
-    node.vy += (centerY - node.y) * 0.0005;
-  });
-
-  // EDGE ATTRACTION (connected nodes pull together)
+  // --- EDGE ATTRACTION (stronger so things cluster)
   edges.forEach((edge) => {
     const a = nodes.find((n) => n.id === edge.from);
     const b = nodes.find((n) => n.id === edge.to);
-
     if (!a || !b) return;
 
     const dx = b.x - a.x;
     const dy = b.y - a.y;
 
-    a.vx += dx * 0.002 * graphState.temperature;
-    a.vy += dy * 0.002 * graphState.temperature;
-    b.vx -= dx * 0.002 * graphState.temperature;
-    b.vy -= dy * 0.002 * graphState.temperature;
+    const strength = 0.01;
+
+    a.vx += dx * strength;
+    a.vy += dy * strength;
+    b.vx -= dx * strength;
+    b.vy -= dy * strength;
   });
 
-  // APPLY VELOCITY + LIMITS
-  const padding = 40;
+  // --- CENTER GRAVITY (stronger = prevents drifting off screen)
+  nodes.forEach((node) => {
+    if (node.fixed) return;
+
+    node.vx += (centerX - node.x) * 0.002;
+    node.vy += (centerY - node.y) * 0.002;
+  });
+
+  // --- APPLY MOVEMENT
+  const padding = 60;
 
   nodes.forEach((node) => {
+    if (node.fixed) return;
+
     node.x += node.vx;
     node.y += node.vy;
 
-    // Damping
-    node.vx *= 0.9;
-    node.vy *= 0.9;
+    // Strong damping = no runaway
+    node.vx *= 0.7;
+    node.vy *= 0.7;
 
-    // Clamp to canvas
+    // HARD BOUNDS (prevents flying off screen)
     node.x = Math.max(padding, Math.min(canvas.width - padding, node.x));
     node.y = Math.max(padding, Math.min(canvas.height - padding, node.y));
 
-    // Limit velocity
-    node.vx = Math.max(-4, Math.min(4, node.vx));
-    node.vy = Math.max(-4, Math.min(4, node.vy));
+    // velocity cap
+    node.vx = Math.max(-3, Math.min(3, node.vx));
+    node.vy = Math.max(-3, Math.min(3, node.vy));
   });
 }
 
 function animateGraph() {
   if (!graphAnimating) return;
 
-  if (graphState.temperature < 0.01) {
-    graphAnimating = false;
-    return;
-  }
+  const lerp = 0.18;
 
-  graphState.nodes.forEach((node) => {
-    node.x += Math.random() * 2 - 1;
-    node.y += Math.random() * 2 - 1;
-  });
+  graphState.offsetX += (graphState.targetOffsetX - graphState.offsetX) * lerp;
+  graphState.offsetY += (graphState.targetOffsetY - graphState.offsetY) * lerp;
+  graphState.scale += (graphState.targetScale - graphState.scale) * lerp;
 
-  applyForces();
+  // clamp scale
+  graphState.scale = Math.max(0.05, graphState.scale);
+  graphState.targetScale = Math.max(0.05, graphState.targetScale);
+
   renderGraph();
 
+  const done =
+    Math.abs(graphState.offsetX - graphState.targetOffsetX) < 0.5 &&
+    Math.abs(graphState.offsetY - graphState.targetOffsetY) < 0.5 &&
+    Math.abs(graphState.scale - graphState.targetScale) < 0.001;
+
+  if (!done) {
+    graphAnimationFrame = requestAnimationFrame(animateGraph);
+  } else {
+    graphAnimating = false;
+    console.log("Graph settled");
+  }
+
+  clampGraphCamera();
+}
+
+function setCamera(scale, offsetX, offsetY) {
+  graphState.targetScale = scale;
+  graphState.targetOffsetX = offsetX;
+  graphState.targetOffsetY = offsetY;
+
+  // immediately start animation loop
+  ensureGraphAnimating();
+}
+
+function ensureGraphAnimating() {
+  if (graphAnimating) return;
+
+  graphAnimating = true;
   graphAnimationFrame = requestAnimationFrame(animateGraph);
+}
+
+function snap(value, target, epsilon = 0.01) {
+  return Math.abs(value - target) < epsilon ? target : value;
 }
 
 // ====================
@@ -520,11 +577,10 @@ function animateGraph() {
 // ====================
 
 function handleGraphClick(x, y) {
-  const drag = graphState.dragging;
+  if (graphState.hasDragged) return;
+
   let closestNode = null;
   let closestDistance = Infinity;
-
-  if (drag.hasDragged) return;
 
   const visibleNodes = graphState.nodes.filter(
     (node) => graphState.filters[node.type],
@@ -545,8 +601,8 @@ function handleGraphClick(x, y) {
     if (graphTransitioning) return;
 
     graphTransitioning = true;
-
     graphState.selectedNodeId = closestNode.id;
+
     renderGraph();
 
     setTimeout(() => {
@@ -562,67 +618,86 @@ function handleGraphClick(x, y) {
 // GRAPH CONTROLS
 // ====================
 
+function getGraphBounds() {
+  const nodes = graphState.nodes;
+  if (!nodes.length) return null;
+
+  let minX = Infinity,
+    maxX = -Infinity;
+  let minY = Infinity,
+    maxY = -Infinity;
+
+  nodes.forEach((n) => {
+    minX = Math.min(minX, n.x);
+    maxX = Math.max(maxX, n.x);
+    minY = Math.min(minY, n.y);
+    maxY = Math.max(maxY, n.y);
+  });
+
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    centerX: (minX + maxX) / 2,
+    centerY: (minY + maxY) / 2,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+}
+
+function centerGraph() {
+  const bounds = getGraphBounds();
+  if (!bounds) return;
+
+  graphState.targetOffsetX =
+    canvas.width / 2 - bounds.centerX * graphState.scale;
+
+  graphState.targetOffsetY =
+    canvas.height / 2 - bounds.centerY * graphState.scale;
+}
+
 function centerOnNode(nodeId) {
+  ensureGraphAnimating();
+
   const node = graphState.nodes.find((n) => n.id === nodeId);
   if (!node) return;
 
-  const canvas = document.getElementById("graph-canvas");
+  const newOffsetX = canvas.width / 2 - node.x * graphState.scale;
+  const newOffsetY = canvas.height / 2 - node.y * graphState.scale;
 
-  const centerX = canvas.width / 2;
-  const centerY = canvas.height / 2;
-
-  graphState.offsetX = centerX - node.x * graphState.scale;
-  graphState.offsetY = centerY - node.y * graphState.scale;
-
-  renderGraph();
+  graphState.targetOffsetX = newOffsetX;
+  graphState.targetOffsetY = newOffsetY;
 }
 
 function resetGraphView() {
-  graphState.offsetX = 0;
-  graphState.offsetY = 0;
-  graphState.scale = 1;
+  setCamera(
+    graphState.initialScale,
+    graphState.initialOffsetX,
+    graphState.initialOffsetY,
+  );
 
-  renderGraph();
+  ensureGraphAnimating();
 }
 
 function fitGraphToScreen() {
-  const nodes = graphState.nodes;
-  if (!nodes.length) return;
+  const bounds = getGraphBounds();
+  if (!bounds) return;
 
-  const canvas = document.getElementById("graph-canvas");
+  const padding = 120;
 
-  let minX = Infinity,
-    maxX = -Infinity,
-    minY = Infinity,
-    maxY = -Infinity;
+  const scaleX = (canvas.width - padding) / bounds.width;
+  const scaleY = (canvas.height - padding) / bounds.height;
 
-  nodes.forEach((node) => {
-    minX = Math.min(minX, node.x);
-    maxX = Math.max(maxX, node.x);
-    minY = Math.min(minY, node.y);
-    maxY = Math.max(maxY, node.y);
-  });
+  const newScale = Math.min(scaleX, scaleY);
 
-  const graphWidth = maxX - minX;
-  const graphHeight = maxY - minY;
+  setCamera(
+    newScale,
+    canvas.width / 2 - bounds.centerX * newScale,
+    canvas.height / 2 - bounds.centerY * newScale,
+  );
 
-  const padding = 100;
-
-  const scaleX = (canvas.width - padding) / graphWidth;
-  const scaleY = (canvas.height - padding) / graphHeight;
-
-  graphState.scale = Math.min(scaleX, scaleY, 2); // cap zoom
-
-  const centerX = canvas.width / 2;
-  const centerY = canvas.height / 2;
-
-  const graphCenterX = (minX + maxX) / 2;
-  const graphCenterY = (minY + maxY) / 2;
-
-  graphState.offsetX = centerX - graphCenterX * graphState.scale;
-  graphState.offsetY = centerY - graphCenterY * graphState.scale;
-
-  renderGraph();
+  ensureGraphAnimating();
 }
 
 // ====================
@@ -643,10 +718,11 @@ function initGraphCanvasEvent() {
   const canvas = document.getElementById("graph-canvas");
 
   canvas.addEventListener("mouseup", onGraphMouseUp);
+  canvas.addEventListener("mouseleave", onGraphMouseUp);
   canvas.addEventListener("mousedown", onGraphMouseDown);
   canvas.addEventListener("mousemove", onGraphMouseMove);
   canvas.addEventListener("mouseleave", onGraphMouseLeave);
-  canvas.addEventListener("wheel", onGraphWheel);
+  canvas.addEventListener("wheel", onGraphWheel, { passive: false });
   canvas.addEventListener("click", onGraphClick);
   canvas.addEventListener("dblclick", onGraphDoubleClick);
 }
@@ -715,6 +791,7 @@ function initGraphKeyboardControls() {
 
     if (e.key.toLowerCase() === "c") {
       e.preventDefault();
+      ensureGraphAnimating();
       centerGraph();
     }
   });
@@ -724,140 +801,176 @@ function initGraphKeyboardControls() {
 // GRAPH HANDLERS
 // ====================
 
-function centerGraph() {
-  graphState.offsetX = 0;
-  graphState.offsetY = 0;
-  graphState.scale = 1;
+function clampGraphCamera() {
+  const bounds = getGraphBounds();
+  if (!bounds) return;
 
-  // Trigger re-render if needed
-  renderGraph();
+  const scaledWidth = bounds.width * graphState.scale;
+  const scaledHeight = bounds.height * graphState.scale;
+
+  const padding = 1000;
+
+  const minOffsetX = canvas.width - scaledWidth - padding;
+  const maxOffsetX = padding;
+
+  const minOffsetY = canvas.height - scaledHeight - padding;
+  const maxOffsetY = padding;
+
+  graphState.offsetX = Math.max(
+    minOffsetX,
+    Math.min(maxOffsetX, graphState.offsetX),
+  );
+
+  graphState.offsetY = Math.max(
+    minOffsetY,
+    Math.min(maxOffsetY, graphState.offsetY),
+  );
 }
 
-function onGraphMouseUp(e) {
+function centerGraph() {
+  const bounds = getGraphBounds();
+  if (!bounds) return;
+
+  graphState.targetOffsetX =
+    canvas.width / 2 - bounds.centerX * graphState.scale;
+
+  graphState.targetOffsetY =
+    canvas.height / 2 - bounds.centerY * graphState.scale;
+
+  ensureGraphAnimating();
+}
+
+function onGraphMouseUp() {
   const drag = graphState.dragging;
-  drag.isDraggingGraph = false;
   drag.draggedNode = null;
+  drag.isDraggingGraph = false;
+  canvas.style.cursor = "grab";
 }
 
 function onGraphMouseDown(e) {
-  const rect = canvas.getBoundingClientRect();
   const drag = graphState.dragging;
+  if (!drag) {
+    console.error("Dragging state missing");
+    return;
+  }
 
-  const x = (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
-  const y = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
+  const rect = canvas.getBoundingClientRect();
 
+  const worldX =
+    (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
+  const worldY = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
+
+  drag.startX = e.clientX;
+  drag.startY = e.clientY;
   drag.hasDragged = false;
 
-  //  Check if clicking a node
-  drag.draggedNode = null;
-
+  // find clicked node
   const visibleNodes = graphState.nodes.filter(
     (node) => graphState.filters[node.type],
   );
 
+  let clickedNode = null;
+
   for (const node of visibleNodes) {
-    // Convert node to SCREEN space
-    const screenX = node.x * graphState.scale + graphState.offsetX;
-    const screenY = node.y * graphState.scale + graphState.offsetY;
-    const dx = screenX - (e.clientX - rect.left);
-    const dy = screenY - (e.clientY - rect.top);
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    const scaledRadius = NODE_RADIUS * graphState.scale;
+    const dx = node.x - worldX;
+    const dy = node.y - worldY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (distance <= scaledRadius) {
-      drag.draggedNode = node;
+    const clickableRadius = Math.max(NODE_RADIUS * graphState.scale, 18);
 
-      // offset still in WORLD space
-      const worldX =
-        (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
-      const worldY =
-        (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
-
-      nodeOffsetX = worldX - node.x;
-      nodeOffsetY = worldY - node.y;
-
+    if (dist < clickableRadius / graphState.scale) {
+      clickedNode = node;
       break;
     }
+
+    canvas.style.cursor = clickedNode ? "pointer" : "grab";
   }
 
-  if (drag.draggedNode) {
-    // Node dragging
-    return;
-  }
+  if (clickedNode) {
+    drag.draggedNode = clickedNode;
 
-  // Graph dragging
-  drag.isDraggingGraph = true;
-  drag.startX = e.clientX;
-  drag.startY = e.clientY;
+    drag.nodeOffsetX = worldX - clickedNode.x;
+    drag.nodeOffsetY = worldY - clickedNode.y;
+
+    drag.isDraggingGraph = false;
+  } else {
+    drag.draggedNode = null;
+    drag.isDraggingGraph = true; // enables panning
+  }
 }
 
 function onGraphMouseMove(e) {
   const rect = canvas.getBoundingClientRect();
   const drag = graphState.dragging;
 
-  //  NODE DRAG
+  const worldX =
+    (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
+  const worldY = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
+
+  // NODE DRAG (priority)
   if (drag.draggedNode) {
     drag.hasDragged = true;
 
-    drag.draggedNode.x =
-      (e.clientX - rect.left - graphState.offsetX) / graphState.scale -
-      nodeOffsetX;
+    drag.draggedNode.x = worldX - drag.nodeOffsetX;
+    drag.draggedNode.y = worldY - drag.nodeOffsetY;
 
-    drag.draggedNode.y =
-      (e.clientY - rect.top - graphState.offsetY) / graphState.scale -
-      nodeOffsetY;
+    drag.draggedNode.vx = 0;
+    drag.draggedNode.vy = 0;
+    drag.draggedNode.fixed = true;
 
     renderGraph();
     return;
   }
 
-  //  GRAPH DRAG
-  if (!drag.isDraggingGraph) return;
+  // GRAPH PAN
+  if (drag.isDraggingGraph) {
+    drag.hasDragged = true;
 
-  drag.hasDragged = true;
+    canvas.style.cursor = "grabbing";
 
-  const dx = e.clientX - drag.startX;
-  const dy = e.clientY - drag.startY;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
 
-  graphState.offsetX += dx;
-  graphState.offsetY += dy;
+    graphState.offsetX += dx;
+    graphState.offsetY += dy;
 
-  drag.startX = e.clientX;
-  drag.startY = e.clientY;
+    drag.startX = e.clientX;
+    drag.startY = e.clientY;
 
-  renderGraph();
+    renderGraph();
+  }
+  clampGraphCamera();
 }
 
-function onGraphMouseLeave(e) {
-  const drag = graphState.dragging;
-  drag.isDraggingGraph = false;
-  drag.draggedNode = null;
+function onGraphMouseLeave() {
+  graphState.isDraggingGraph = false;
+  graphState.draggedNode = null;
+  graphState.hasDragged = false;
 }
 
 function onGraphWheel(e) {
   e.preventDefault();
 
-  const rect = canvas.getBoundingClientRect();
+  ensureGraphAnimating();
 
+  const rect = canvas.getBoundingClientRect();
   const mouseX = e.clientX - rect.left;
   const mouseY = e.clientY - rect.top;
 
-  const scaleAmount = 0.1;
-  const direction = e.deltaY > 0 ? -1 : 1;
+  const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
 
   const newScale = Math.max(
-    MIN_SCALE,
-    Math.min(MAX_SCALE, graphState.scale + direction * scaleAmount),
+    0.1,
+    Math.min(3, graphState.targetScale * zoomFactor),
   );
 
-  // Zoom toward cursor
-  const scaleRatio = newScale / graphState.scale;
+  const worldX = (mouseX - graphState.offsetX) / graphState.scale;
+  const worldY = (mouseY - graphState.offsetY) / graphState.scale;
 
-  graphState.offsetX = mouseX - (mouseX - graphState.offsetX) * scaleRatio;
-  graphState.offsetY = mouseY - (mouseY - graphState.offsetY) * scaleRatio;
-  graphState.scale = newScale;
+  graphState.targetScale = newScale;
 
-  renderGraph();
+  graphState.targetOffsetX = mouseX - worldX * newScale;
+  graphState.targetOffsetY = mouseY - worldY * newScale;
 }
 
 function onGraphClick(e) {
@@ -996,6 +1109,14 @@ function handleEditorKeyDown(e) {
     e.preventDefault();
     openGraph();
     return;
+  }
+
+  if (graphState.isOpen) {
+    if (e.key.toLowerCase() === "c") {
+      e.preventDefault();
+      centerGraph();
+      return;
+    }
   }
 
   // --- TAB INDENT ---
@@ -1762,7 +1883,12 @@ function getGraphData() {
 }
 
 function openGraph() {
+  console.log("Graph started");
   if (isPreviewMode) return;
+
+  canvas.setAttribute("tabindex", "0");
+
+  setTimeout(() => canvas.focus(), 50);
 
   graphState.isOpen = true;
 
@@ -1778,22 +1904,16 @@ function openGraph() {
     .querySelectorAll("#graph-filters input[type='checkbox']")
     .forEach((checkbox) => {
       const type = checkbox.dataset.type;
-
-      if (type) {
-        checkbox.checked = graphState.filters[type];
-      }
-
+      if (type) checkbox.checked = graphState.filters[type];
       if (checkbox.id === "focus-mode-toggle") {
         checkbox.checked = graphState.focusMode;
       }
     });
 
-  const modal = document.getElementById("graph-modal");
-  modal.classList.remove("hidden");
+  document.getElementById("graph-modal").classList.remove("hidden");
 
-  // HARD RESET
+  // STOP animation
   graphAnimating = false;
-
   if (graphAnimationFrame) {
     cancelAnimationFrame(graphAnimationFrame);
     graphAnimationFrame = null;
@@ -1802,34 +1922,51 @@ function openGraph() {
   // RESET STATE
   graphState.nodes = [];
   graphState.edges = [];
-  graphState.offsetX = 0;
-  graphState.offsetY = 0;
-  graphState.scale = 1;
-  graphState.temperature = 1;
   graphState.selectedNodeId = null;
 
-  // Canvas sizing
   setupCanvasSize();
 
-  // Build graph
+  // BUILD GRAPH
   const data = getGraphData();
 
-  graphState.nodes = data.nodes.map((node) => ({
-    ...node,
-    x: Math.random() * canvas.width,
-    y: Math.random() * canvas.height,
-    vx: (Math.random() - 0.5) * 2,
-    vy: (Math.random() - 0.5) * 2,
-  }));
+  const spacing = Math.max(120, 300 - data.nodes.length * 5);
+  const radius = spacing * Math.sqrt(data.nodes.length || 1);
 
-  if (graphState.temperature < 0.01) {
-    graphAnimating = false;
-    return;
-  }
+  graphState.nodes = data.nodes.map((node, i) => {
+    const angle = (i / data.nodes.length) * Math.PI * 2;
+
+    return {
+      ...node,
+      x: Math.cos(angle) * radius,
+      y: Math.sin(angle) * radius,
+      vx: 0,
+      vy: 0,
+      fixed: true,
+    };
+  });
 
   graphState.edges = data.edges;
 
-  // RESTART LOOP
+  // INITIAL CAMERA (centered)
+  graphState.scale = 0.3;
+  graphState.targetScale = 0.3;
+
+  graphState.offsetX = canvas.width / 2;
+  graphState.offsetY = canvas.height / 2;
+
+  graphState.targetOffsetX = canvas.width / 2;
+  graphState.targetOffsetY = canvas.height / 2;
+
+  // FIT AFTER RENDER
+  setTimeout(() => {
+    fitGraphToScreen();
+
+    // SAVE BASELINE
+    graphState.initialScale = graphState.targetScale;
+    graphState.initialOffsetX = graphState.targetOffsetX;
+    graphState.initialOffsetY = graphState.targetOffsetY;
+  }, 100);
+
   graphAnimating = true;
   animateGraph();
 }
