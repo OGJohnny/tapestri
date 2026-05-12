@@ -27,6 +27,7 @@ const graphState = {
   nodes: [],
   edges: [],
   selectedNodeId: null,
+  hoveredNodeId: null,
 
   scale: 1,
   offsetX: 0,
@@ -331,10 +332,14 @@ function renderGraph() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   const selectedId = graphState.selectedNodeId;
+  const hoveredId = graphState.hoveredNodeId;
 
-  const connectedIds = selectedId ? getConnectedNodeIds(selectedId) : new Set();
+  // hovered node takes priority
+  const activeId = hoveredId || selectedId;
 
-  // FILTERED NODES
+  const connectedIds = activeId ? getConnectedNodeIds(activeId) : new Set();
+
+  // ONLY visible nodes
   const visibleNodes = graphState.nodes.filter(
     (node) => graphState.filters[node.type],
   );
@@ -347,78 +352,92 @@ function renderGraph() {
     // hide edge if either node hidden
     if (!from || !to) return;
 
-    const isConnected = edge.from === selectedId || edge.to === selectedId;
+    const fromX = from.x * graphState.scale + graphState.offsetX;
+
+    const fromY = from.y * graphState.scale + graphState.offsetY;
+
+    const toX = to.x * graphState.scale + graphState.offsetX;
+
+    const toY = to.y * graphState.scale + graphState.offsetY;
+
+    const isConnected = edge.from === activeId || edge.to === activeId;
 
     ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
 
-    ctx.moveTo(
-      from.x * graphState.scale + graphState.offsetX,
-      from.y * graphState.scale + graphState.offsetY,
-    );
-
-    ctx.lineTo(
-      to.x * graphState.scale + graphState.offsetX,
-      to.y * graphState.scale + graphState.offsetY,
-    );
-
-    if (!selectedId || !graphState.focusMode) {
+    if (!activeId || !graphState.focusMode) {
       ctx.strokeStyle = "#666";
       ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 1;
     } else if (isConnected) {
       ctx.strokeStyle = "#f39c12";
       ctx.lineWidth = 2.5;
+      ctx.globalAlpha = 1;
     } else {
       ctx.strokeStyle = "#222";
       ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.25;
     }
 
     ctx.stroke();
   });
 
+  ctx.globalAlpha = 1;
+
   // DRAW NODES
   visibleNodes.forEach((node) => {
     const isSelected = node.id === selectedId;
+    const isHovered = node.id === hoveredId;
     const isConnected = connectedIds.has(node.id);
-
-    // keeps node clickable even zoomed out
-    const radius = Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7));
 
     const screenX = node.x * graphState.scale + graphState.offsetX;
 
     const screenY = node.y * graphState.scale + graphState.offsetY;
 
-    ctx.beginPath();
+    // clickable even zoomed out
+    const radius = Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7));
 
+    ctx.beginPath();
     ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
 
-    if (isSelected) {
+    // glow
+    if (isSelected || isHovered) {
       ctx.shadowColor = "#f39c12";
-      ctx.shadowBlur = 18;
+      ctx.shadowBlur = 20;
     } else {
       ctx.shadowBlur = 0;
     }
 
-    if (!selectedId || !graphState.focusMode) {
-      ctx.fillStyle =
-        node.type === "character"
-          ? "#2980b9"
-          : node.type === "chapter"
-            ? "#27ae60"
-            : "#8e44ad";
-    } else if (isSelected) {
+    // coloring
+    if (!activeId || !graphState.focusMode) {
+      ctx.globalAlpha = 1;
+
+      if (node.type === "character") {
+        ctx.fillStyle = "#2980b9";
+      } else if (node.type === "chapter") {
+        ctx.fillStyle = "#27ae60";
+      } else {
+        ctx.fillStyle = "#8e44ad";
+      }
+    } else if (isSelected || isHovered) {
+      ctx.globalAlpha = 1;
       ctx.fillStyle = "#f39c12";
     } else if (isConnected) {
+      ctx.globalAlpha = 1;
       ctx.fillStyle = "#3498db";
     } else {
+      ctx.globalAlpha = 0.3;
       ctx.fillStyle = "#333";
     }
 
     ctx.fill();
 
-    // RESET SHADOW
+    // reset effects
     ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
 
-    // LABELS
+    // LABEL
     ctx.fillStyle = "#fff";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -711,6 +730,29 @@ function fitGraphToScreen() {
   ensureGraphAnimating();
 }
 
+function getNodeAtPosition(x, y) {
+  const visibleNodes = graphState.nodes.filter(
+    (node) => graphState.filters[node.type],
+  );
+
+  for (let i = visibleNodes.length - 1; i >= 0; i--) {
+    const node = visibleNodes[i];
+
+    const dx = node.x - x;
+    const dy = node.y - y;
+
+    const radius =
+      Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7)) /
+      graphState.scale;
+
+    if (Math.sqrt(dx * dx + dy * dy) <= radius) {
+      return node;
+    }
+  }
+
+  return null;
+}
+
 // ====================
 // GRAPH EVENTS
 // ====================
@@ -916,17 +958,25 @@ function onGraphMouseMove(e) {
 
   const worldX =
     (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
+
   const worldY = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
 
-  // NODE DRAG (priority)
+  // HOVER DETECTION
+  const hoveredNode = getNodeAtPosition(worldX, worldY);
+
+  graphState.hoveredNodeId = hoveredNode ? hoveredNode.id : null;
+
+  // NODE DRAG
   if (drag.draggedNode) {
     drag.hasDragged = true;
 
     drag.draggedNode.x = worldX - drag.nodeOffsetX;
+
     drag.draggedNode.y = worldY - drag.nodeOffsetY;
 
     drag.draggedNode.vx = 0;
     drag.draggedNode.vy = 0;
+
     drag.draggedNode.fixed = true;
 
     renderGraph();
@@ -949,7 +999,14 @@ function onGraphMouseMove(e) {
     drag.startY = e.clientY;
 
     renderGraph();
+    return;
   }
+
+  // CURSOR FEEDBACK
+  canvas.style.cursor = hoveredNode ? "pointer" : "grab";
+
+  renderGraph();
+
   clampGraphCamera();
 }
 
