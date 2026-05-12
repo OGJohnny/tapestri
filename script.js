@@ -58,6 +58,12 @@ const graphState = {
   },
 };
 
+const clusterCenters = {
+  chapter: { x: 0, y: 0 },
+  character: { x: 0, y: 0 },
+  tag: { x: 0, y: 0 },
+};
+
 const menuState = {
   activeMenu: null,
   isLocked: false,
@@ -438,7 +444,7 @@ function applyForces() {
   graphState.temperature *= 0.96;
 
   // --- REPULSION + MIN DISTANCE (prevents overlap)
-  const minDist = 60; // 👈 about node size spacing
+  const minDist = 140; //  about node size spacing
 
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
@@ -450,7 +456,7 @@ function applyForces() {
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
 
       // Normal repulsion
-      const force = (4000 / (dist * dist)) * graphState.temperature;
+      const force = 40000 / (dist * dist);
 
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
@@ -491,12 +497,17 @@ function applyForces() {
     b.vy -= dy * strength;
   });
 
-  // --- CENTER GRAVITY (stronger = prevents drifting off screen)
+  // SOFT CLUSTER GRAVITY
   nodes.forEach((node) => {
     if (node.fixed) return;
 
-    node.vx += (centerX - node.x) * 0.002;
-    node.vy += (centerY - node.y) * 0.002;
+    const cluster = clusterCenters[node.type] || clusterCenters.chapter;
+
+    const dx = cluster.x - node.x;
+    const dy = cluster.y - node.y;
+
+    node.vx += dx * 0.0008;
+    node.vy += dy * 0.0008;
   });
 
   // --- APPLY MOVEMENT
@@ -509,8 +520,8 @@ function applyForces() {
     node.y += node.vy;
 
     // Strong damping = no runaway
-    node.vx *= 0.7;
-    node.vy *= 0.7;
+    node.vx *= 0.72;
+    node.vy *= 0.72;
 
     // HARD BOUNDS (prevents flying off screen)
     node.x = Math.max(padding, Math.min(canvas.width - padding, node.x));
@@ -1855,25 +1866,54 @@ function setEditorFontSize(size) {
 
 function getGraphData() {
   const docs = getCurrentDocs();
-  if (!docs) return { nodes: [], edges: [] };
+
+  if (!docs) {
+    return { nodes: [], edges: [] };
+  }
 
   const nodes = [];
   const edges = [];
 
+  const addedTags = new Set();
+
   Object.values(docs).forEach((doc) => {
-    // Add node
+    // MAIN DOCUMENT NODE
     nodes.push({
       id: String(doc.id),
       label: doc.title || "Untitled",
       type: doc.type,
     });
 
-    // Relationships (chapters → characters)
+    // CHAPTER -> CHARACTER RELATIONSHIPS
     if (doc.type === "chapter" && doc.relationships?.characters) {
       doc.relationships.characters.forEach((charId) => {
         edges.push({
           from: String(doc.id),
           to: String(charId),
+        });
+      });
+    }
+
+    // TAG NODES + RELATIONSHIPS
+    if (doc.tags && Array.isArray(doc.tags)) {
+      doc.tags.forEach((tag) => {
+        const tagId = `tag-${tag}`;
+
+        // CREATE TAG NODE ONCE
+        if (!addedTags.has(tagId)) {
+          addedTags.add(tagId);
+
+          nodes.push({
+            id: tagId,
+            label: `#${tag}`,
+            type: "tag",
+          });
+        }
+
+        // CONNECT DOC -> TAG
+        edges.push({
+          from: String(doc.id),
+          to: tagId,
         });
       });
     }
@@ -1926,22 +1966,40 @@ function openGraph() {
 
   setupCanvasSize();
 
+  clusterCenters.chapter = {
+    x: canvas.width * 0.5,
+    y: canvas.height * 0.5,
+  };
+
+  clusterCenters.character = {
+    x: canvas.width * 0.25,
+    y: canvas.height * 0.5,
+  };
+
+  clusterCenters.tag = {
+    x: canvas.width * 0.75,
+    y: canvas.height * 0.5,
+  };
+
   // BUILD GRAPH
   const data = getGraphData();
 
   const spacing = Math.max(120, 300 - data.nodes.length * 5);
   const radius = spacing * Math.sqrt(data.nodes.length || 1);
 
-  graphState.nodes = data.nodes.map((node, i) => {
-    const angle = (i / data.nodes.length) * Math.PI * 2;
+  graphState.nodes = data.nodes.map((node) => {
+    const cluster = clusterCenters[node.type] || clusterCenters.chapter;
 
     return {
       ...node,
-      x: Math.cos(angle) * radius,
-      y: Math.sin(angle) * radius,
+
+      x: cluster.x + (Math.random() - 0.5) * 300,
+      y: cluster.y + (Math.random() - 0.5) * 300,
+
       vx: 0,
       vy: 0,
-      fixed: true,
+
+      fixed: false,
     };
   });
 
