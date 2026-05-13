@@ -65,6 +65,10 @@ const graphState = {
     nodeOffsetX: 0,
     nodeOffsetY: 0,
   },
+
+  tooltip: {
+    nodeId: null,
+  },
 };
 
 // Cluster positioning system
@@ -153,6 +157,9 @@ const newProjectBtn = document.getElementById("new-project-btn");
 
 const sections = document.querySelectorAll("details");
 const addButtons = document.querySelectorAll(".add-btn");
+
+const graphTooltip = document.getElementById("graph-tooltip");
+const graphModalContent = document.querySelector("#graph-modal .modal-content");
 
 const canvas = document.getElementById("graph-canvas");
 
@@ -251,6 +258,48 @@ function getGraphData() {
   });
 
   return { nodes, edges };
+}
+
+function getTooltipData(node) {
+  const docs = getCurrentDocs();
+
+  if (!node || !docs) return null;
+
+  // TAG NODE
+  if (node.type === "tag") {
+    const connectedCount = graphState.edges.filter(
+      (edge) => edge.to === node.id,
+    ).length;
+
+    return {
+      title: node.label,
+      type: "tag",
+      excerpt: `${connectedCount} connected documents`,
+      meta: [`${connectedCount} relationships`],
+    };
+  }
+
+  const doc = docs[node.id];
+
+  if (!doc) return null;
+
+  const excerpt =
+    (doc.content || "").replace(/\n/g, " ").trim().slice(0, 140) ||
+    "No content";
+
+  const relationshipCount = graphState.edges.filter(
+    (edge) => edge.from === node.id || edge.to === node.id,
+  ).length;
+
+  return {
+    title: doc.title || "Untitled",
+    type: doc.type,
+    excerpt,
+    meta: [
+      `${relationshipCount} relationships`,
+      ...(doc.tags || []).slice(0, 3),
+    ],
+  };
 }
 
 // Utility helpers
@@ -750,6 +799,43 @@ function renderGraph() {
   });
 }
 
+function renderGraphTooltip(node, mouseX, mouseY) {
+  const data = getTooltipData(node);
+
+  if (!data) {
+    hideGraphTooltip();
+    return;
+  }
+
+  graphTooltip.innerHTML = `
+    <div class="graph-tooltip-title">
+      ${data.title}
+    </div>
+
+    <div class="graph-tooltip-type">
+      ${data.type}
+    </div>
+
+    <div class="graph-tooltip-excerpt">
+      ${data.excerpt}
+    </div>
+
+    <div class="graph-tooltip-meta">
+      ${data.meta
+        .map((item) => `<span class="graph-tooltip-pill">${item}</span>`)
+        .join("")}
+    </div>
+  `;
+
+  positionGraphTooltip(mouseX, mouseY);
+
+  graphTooltip.classList.remove("hidden");
+
+  requestAnimationFrame(() => {
+    graphTooltip.classList.add("visible");
+  });
+}
+
 function applyForces() {
   const nodes = graphState.nodes;
   const edges = graphState.edges;
@@ -875,7 +961,6 @@ function animateGraph() {
     graphAnimationFrame = requestAnimationFrame(animateGraph);
   } else {
     graphAnimating = false;
-    console.log("Graph settled");
   }
 
   clampGraphCamera();
@@ -1019,8 +1104,41 @@ function handleGraphClick(x, y) {
   }
 }
 
+function positionGraphTooltip(mouseX, mouseY) {
+  const modalRect = graphModalContent.getBoundingClientRect();
+
+  const tooltipRect = graphTooltip.getBoundingClientRect();
+
+  const padding = 18;
+
+  let x = mouseX + 18;
+  let y = mouseY + 18;
+
+  // RIGHT EDGE
+  if (x + tooltipRect.width > modalRect.width - padding) {
+    x = modalRect.width - tooltipRect.width - padding;
+  }
+
+  // BOTTOM EDGE
+  if (y + tooltipRect.height > modalRect.height - padding) {
+    y = modalRect.height - tooltipRect.height - padding;
+  }
+
+  graphTooltip.style.left = `${x}px`;
+  graphTooltip.style.top = `${y}px`;
+}
+
+function hideGraphTooltip() {
+  graphTooltip.classList.remove("visible");
+
+  setTimeout(() => {
+    if (!graphTooltip.classList.contains("visible")) {
+      graphTooltip.classList.add("hidden");
+    }
+  }, 140);
+}
+
 function openGraph() {
-  console.log("Graph started");
   if (isPreviewMode) return;
 
   canvas.setAttribute("tabindex", "0");
@@ -1233,6 +1351,16 @@ function onGraphMouseMove(e) {
 
   graphState.hoveredNodeId = hoveredNode ? hoveredNode.id : null;
 
+  if (hoveredNode) {
+    renderGraphTooltip(
+      hoveredNode,
+      e.clientX - rect.left,
+      e.clientY - rect.top,
+    );
+  } else {
+    hideGraphTooltip();
+  }
+
   // NODE DRAG
   if (drag.draggedNode) {
     drag.hasDragged = true;
@@ -1288,6 +1416,7 @@ function onGraphMouseLeave() {
   graphState.isDraggingGraph = false;
   graphState.draggedNode = null;
   graphState.hasDragged = false;
+  hideGraphTooltip();
 }
 
 function onGraphWheel(e) {

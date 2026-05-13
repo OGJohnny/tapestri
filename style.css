@@ -555,6 +555,99 @@ body.graph-open #mode-indicator {
   display: none !important;
 }
 
+/* ======================
+   GRAPH TOOLTIP
+====================== */
+
+.graph-tooltip {
+  position: absolute;
+
+  top: 0;
+  left: 0;
+
+  width: 260px;
+
+  padding: 12px;
+
+  border-radius: 10px;
+
+  background: rgba(20, 20, 20, 0.96);
+  color: white;
+
+  border: 1px solid rgba(255, 255, 255, 0.08);
+
+  backdrop-filter: blur(10px);
+
+  z-index: 100;
+
+  pointer-events: none;
+
+  opacity: 0;
+
+  transform: translateY(6px) scale(0.98);
+
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease;
+
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+
+  will-change: transform, opacity;
+}
+
+.graph-tooltip.visible {
+  opacity: 1;
+
+  transform: translateY(0) scale(1);
+}
+
+.graph-tooltip.hidden {
+  display: none;
+}
+
+.graph-tooltip-title {
+  font-size: 15px;
+  font-weight: bold;
+
+  margin-bottom: 6px;
+}
+
+.graph-tooltip-type {
+  font-size: 12px;
+
+  opacity: 0.7;
+
+  margin-bottom: 10px;
+
+  text-transform: capitalize;
+}
+
+.graph-tooltip-excerpt {
+  font-size: 13px;
+
+  line-height: 1.45;
+
+  opacity: 0.92;
+
+  margin-bottom: 10px;
+}
+
+.graph-tooltip-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.graph-tooltip-pill {
+  font-size: 11px;
+
+  padding: 3px 7px;
+
+  border-radius: 999px;
+
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .menu-option.disabled {
   opacity: 0.5;
   pointer-events: none;
