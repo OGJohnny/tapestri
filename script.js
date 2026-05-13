@@ -1,12 +1,19 @@
-// =====================
-// GLOBAL STATE
-// =====================
+// =====================================================
+// TAPESTRI
+// Main Application Script
+// =====================================================
 
+// =====================================================
+// GLOBAL APPLICATION STATE
+// =====================================================
+
+// Core app/project state
 const appState = {
   currentProjectId: null,
   currentDocumentId: null,
 };
 
+// Editor state/history/selection
 const editorState = {
   history: [],
   historyIndex: -1,
@@ -23,6 +30,7 @@ const editorState = {
   isProgrammaticEdit: false,
 };
 
+// Graph visualization state
 const graphState = {
   nodes: [],
   edges: [],
@@ -59,12 +67,14 @@ const graphState = {
   },
 };
 
+// Cluster positioning system
 const clusterCenters = {
   chapter: { x: 0, y: 0 },
   character: { x: 0, y: 0 },
   tag: { x: 0, y: 0 },
 };
 
+// Menu system state
 const menuState = {
   activeMenu: null,
   isLocked: false,
@@ -77,54 +87,83 @@ const menus = {
   help: null,
 };
 
+// =====================================================
+// GLOBAL CONSTANTS
+// =====================================================
+
 const NODE_RADIUS = 20;
 const CLICK_RADIUS = 25;
+
 const MIN_SCALE = 0.4;
 const MAX_SCALE = 2.5;
 
+// =====================================================
+// GLOBAL VARIABLES
+// =====================================================
+
 let historyDebounceTimer = null;
+
 let graphAnimating = false;
 let graphAnimationFrame = null;
 let graphTransitioning = false;
+
 let menuJustClosed = false;
 let menuOpen = false;
+
 let projects = {};
+
 let saveTimeout;
+
 let currentSearchQuery = "";
 let searchQuery = "";
+
 let isFocusMode = false;
 let isPreviewMode = false;
 let isTogglingPreview = false;
+
 let exportMode = "project";
+
 let isModalOpen = false;
+
 let eventsInitialized = false;
+
 let isRestoringHistory = false;
 let isProgrammaticEdit = false;
 
-// ====================
-// DOM REFERENCES
-// ====================
+let lastSavedContent = "";
+
+// =====================================================
+// DOM ELEMENT REFERENCES
+// =====================================================
 
 const editorTitle = document.getElementById("editor-title");
 const editorContent = document.getElementById("editor-content");
+
 const tagInput = document.getElementById("tag-input");
 const tagList = document.getElementById("tag-list");
+
 const characterSelect = document.getElementById("character-select");
 const addCharacterBtn = document.getElementById("add-character-btn");
 const characterList = document.getElementById("character-list");
+
 const searchInput = document.getElementById("search-input");
+
 const projectSelect = document.getElementById("project-select");
 const newProjectBtn = document.getElementById("new-project-btn");
+
 const sections = document.querySelectorAll("details");
 const addButtons = document.querySelectorAll(".add-btn");
+
 const canvas = document.getElementById("graph-canvas");
+
 canvas.width = canvas.clientWidth;
 canvas.height = canvas.clientHeight;
 
-// ====================
-// GLOBAL HELPERS
-// ====================
+// =====================================================
+// CORE DATA HELPERS
+// =====================================================
 
+// Project/document retrieval
 function getCurrentDocs() {
   if (
     !projects ||
@@ -144,10 +183,222 @@ function getDocumentById(id) {
   return Object.values(docs).find((doc) => doc.id === id);
 }
 
-function escapeRegExp(str) {
+function getItems() {
+  return document.querySelectorAll("li[data-id]");
+}
+
+function getChaptersSorted() {
+  const docs = getCurrentDocs();
+
+  return Object.values(docs)
+    .filter((doc) => doc.type === "chapter")
+    .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function getGraphData() {
+  const docs = getCurrentDocs();
+
+  if (!docs) {
+    return { nodes: [], edges: [] };
+  }
+
+  const nodes = [];
+  const edges = [];
+
+  const addedTags = new Set();
+
+  Object.values(docs).forEach((doc) => {
+    // MAIN DOCUMENT NODE
+    nodes.push({
+      id: String(doc.id),
+      label: doc.title || "Untitled",
+      type: doc.type,
+    });
+
+    // CHAPTER -> CHARACTER RELATIONSHIPS
+    if (doc.type === "chapter" && doc.relationships?.characters) {
+      doc.relationships.characters.forEach((charId) => {
+        edges.push({
+          from: String(doc.id),
+          to: String(charId),
+        });
+      });
+    }
+
+    // TAG NODES + RELATIONSHIPS
+    if (doc.tags && Array.isArray(doc.tags)) {
+      doc.tags.forEach((tag) => {
+        const tagId = `tag-${tag}`;
+
+        // CREATE TAG NODE ONCE
+        if (!addedTags.has(tagId)) {
+          addedTags.add(tagId);
+
+          nodes.push({
+            id: tagId,
+            label: `#${tag}`,
+            type: "tag",
+          });
+        }
+
+        // CONNECT DOC -> TAG
+        edges.push({
+          from: String(doc.id),
+          to: tagId,
+        });
+      });
+    }
+  });
+
+  return { nodes, edges };
+}
+
+// Utility helpers
+function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function debounceSave() {
+  clearTimeout(saveTimeout);
+
+  saveTimeout = setTimeout(() => {
+    saveToLocalStorage();
+  }, 300);
+}
+
+function snap(value, target, epsilon = 0.01) {
+  return Math.abs(value - target) < epsilon ? target : value;
+}
+
+function getWordCount(text) {
+  if (!text) return 0;
+
+  return text
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length > 0).length;
+}
+
+function scrollToFirstMatch() {
+  const match = document.querySelector("#preview-pane mark");
+  if (match) {
+    match.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+}
+
+// Graph helpers
+function getConnectedNodeIds(nodeId) {
+  const connected = new Set();
+
+  graphState.edges.forEach((edge) => {
+    if (edge.from === nodeId) connected.add(edge.to);
+    if (edge.to === nodeId) connected.add(edge.from);
+  });
+
+  return connected;
+}
+
+function getGraphBounds() {
+  const nodes = graphState.nodes;
+  if (!nodes.length) return null;
+
+  let minX = Infinity,
+    maxX = -Infinity;
+  let minY = Infinity,
+    maxY = -Infinity;
+
+  nodes.forEach((n) => {
+    minX = Math.min(minX, n.x);
+    maxX = Math.max(maxX, n.x);
+    minY = Math.min(minY, n.y);
+    maxY = Math.max(maxY, n.y);
+  });
+
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    centerX: (minX + maxX) / 2,
+    centerY: (minY + maxY) / 2,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+}
+
+function getNodeAtPosition(x, y) {
+  const visibleNodes = graphState.nodes.filter(
+    (node) => graphState.filters[node.type],
+  );
+
+  for (let i = visibleNodes.length - 1; i >= 0; i--) {
+    const node = visibleNodes[i];
+
+    const dx = node.x - x;
+    const dy = node.y - y;
+
+    const radius =
+      Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7)) /
+      graphState.scale;
+
+    if (Math.sqrt(dx * dx + dy * dy) <= radius) {
+      return node;
+    }
+  }
+
+  return null;
+}
+
+// Formatting helpers
+function isInsideMarker(text, pos, marker) {
+  const before = text.slice(0, pos);
+  const after = text.slice(pos);
+
+  const beforeCount = before.split(marker).length - 1;
+  const afterCount = after.split(marker).length - 1;
+
+  return beforeCount % 2 === 1 && afterCount > 0;
+}
+
+function normalizeSelectionForFormat(type) {
+  const start = editorContent.selectionStart;
+  const end = editorContent.selectionEnd;
+  const text = editorContent.value;
+
+  let marker = "";
+  if (type === "bold") marker = "**";
+  else if (type === "italic") marker = "*";
+  else if (type === "underline") marker = "__";
+  else return;
+
+  // Look OUTSIDE selection
+  const before = text.slice(start - marker.length, start);
+  const after = text.slice(end, end + marker.length);
+
+  if (before === marker && after === marker) {
+    editorContent.setSelectionRange(start - marker.length, end + marker.length);
+  }
+}
+
+function getActiveFormats() {
+  const pos = editorContent.selectionStart;
+  const text = editorContent.value;
+
+  const isBold = isInsideMarker(text, pos, "**");
+  const isUnderline = isInsideMarker(text, pos, "__");
+
+  // italic must NOT trigger inside bold/underline markers
+  const isItalic = !isBold && !isUnderline && isInsideMarker(text, pos, "*");
+
+  return {
+    bold: isBold,
+    italic: isItalic,
+    underline: isUnderline,
+    italic: isInsideMarker(text, pos, "*") && !isInsideMarker(text, pos, "**"),
+  };
+}
+
+// Markdown/export helpers
 function renderMarkdown(text) {
   if (!text) return "";
 
@@ -161,7 +412,7 @@ function renderMarkdown(text) {
 
   if (currentSearchQuery && currentSearchQuery.length > 0) {
     try {
-      const safeQuery = escapeRegExp(currentSearchQuery);
+      const safeQuery = escapeRegex(currentSearchQuery);
       const regex = new RegExp(`(${safeQuery})`, "gi");
       html = html.replace(regex, `<mark>$1</mark>`);
     } catch (err) {
@@ -172,28 +423,19 @@ function renderMarkdown(text) {
   return html;
 }
 
-function savePreviewMode() {
-  localStorage.setItem("tapestri_preview_mode", JSON.stringify(isPreviewMode));
+function convertToPlainText(markdown) {
+  return markdown
+    .replace(/^# /gm, "")
+    .replace(/^## /gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/__/g, "")
+    .replace(/<u>|<\/u>/g, "");
 }
 
-function loadPreviewMode() {
-  const saved = localStorage.getItem("tapestri_preview_mode");
-  if (saved !== null) {
-    isPreviewMode = JSON.parse(saved);
-  }
-}
-
-function saveFocusMode() {
-  localStorage.setItem("tapestri_focus_mode", JSON.stringify(isFocusMode));
-}
-
-function loadFocusMode() {
-  const saved = localStorage.getItem("tapestri_focus_mode");
-  if (saved !== null) {
-    isFocusMode = JSON.parse(saved);
-    document.body.classList.toggle("focus-mode", isFocusMode);
-  }
-}
+// =====================================================
+// LOCAL STORAGE / PERSISTENCE
+// =====================================================
 
 function saveToLocalStorage() {
   localStorage.setItem("tapestriProjects", JSON.stringify(projects));
@@ -261,71 +503,132 @@ function loadFromLocalStorage() {
   }
 }
 
-function debounceSave() {
-  clearTimeout(saveTimeout);
-
-  saveTimeout = setTimeout(() => {
-    saveToLocalStorage();
-  }, 300);
+function savePreviewMode() {
+  localStorage.setItem("tapestri_preview_mode", JSON.stringify(isPreviewMode));
 }
 
-function getItems() {
-  return document.querySelectorAll("li[data-id]");
-}
-
-function getChaptersSorted() {
-  const docs = getCurrentDocs();
-
-  return Object.values(docs)
-    .filter((doc) => doc.type === "chapter")
-    .sort((a, b) => a.title.localeCompare(b.title));
-}
-
-function getWordCount(text) {
-  if (!text) return 0;
-
-  return text
-    .trim()
-    .split(/\s+/)
-    .filter((word) => word.length > 0).length;
-}
-
-function scrollToFirstMatch() {
-  const match = document.querySelector("#preview-pane mark");
-  if (match) {
-    match.scrollIntoView({ behavior: "smooth", block: "center" });
+function loadPreviewMode() {
+  const saved = localStorage.getItem("tapestri_preview_mode");
+  if (saved !== null) {
+    isPreviewMode = JSON.parse(saved);
   }
 }
 
-function getConnectedNodeIds(nodeId) {
-  const connected = new Set();
-
-  graphState.edges.forEach((edge) => {
-    if (edge.from === nodeId) connected.add(edge.to);
-    if (edge.to === nodeId) connected.add(edge.from);
-  });
-
-  return connected;
+function saveFocusMode() {
+  localStorage.setItem("tapestri_focus_mode", JSON.stringify(isFocusMode));
 }
 
-function getConnectedNodeIds(nodeId) {
-  const connected = new Set();
-
-  graphState.edges.forEach((edge) => {
-    if (edge.from === nodeId) connected.add(edge.to);
-    if (edge.to === nodeId) connected.add(edge.from);
-  });
-
-  return connected;
+function loadFocusMode() {
+  const saved = localStorage.getItem("tapestri_focus_mode");
+  if (saved !== null) {
+    isFocusMode = JSON.parse(saved);
+    document.body.classList.toggle("focus-mode", isFocusMode);
+  }
 }
 
-// ==============================================
-//                GRAPH SYSTEM
-// ==============================================
-// ====================
-// GRAPH RENDERING
-// ====================
+function saveDocument() {
+  if (!appState.currentDocumentId) return;
 
+  projects[appState.currentProjectId].documents[
+    appState.currentDocumentId
+  ].title = editorTitle.value;
+  projects[appState.currentProjectId].documents[
+    appState.currentDocumentId
+  ].content = editorContent.value;
+
+  debounceSave();
+}
+
+// =====================================================
+// HISTORY SYSTEM
+// =====================================================
+
+function saveHistory() {
+  if (editorState.isRestoring) return;
+
+  const content = editorContent.value;
+
+  // Prevent duplicate spam entries
+  if (
+    content === lastSavedContent &&
+    editorContent.selectionStart === editorState.lastSelectionStart &&
+    editorContent.selectionEnd === editorState.lastSelectionEnd
+  )
+    return;
+
+  editorState.lastSelectionStart = editorContent.selectionStart;
+  editorState.lastSelectionEnd = editorContent.selectionEnd;
+
+  lastSavedContent = content;
+
+  // Trim redo stack
+  editorState.history = editorState.history.slice(
+    0,
+    editorState.historyIndex + 1,
+  );
+
+  editorState.history.push({
+    content,
+    selectionStart: editorContent.selectionStart,
+    selectionEnd: editorContent.selectionEnd,
+  });
+
+  editorState.historyIndex++;
+}
+
+function undo() {
+  if (editorState.historyIndex <= 0) return;
+
+  editorState.historyIndex--;
+
+  const entry = editorState.history[editorState.historyIndex];
+
+  editorState.isRestoring = true;
+
+  editorContent.value = entry.content;
+
+  requestAnimationFrame(() => {
+    editorContent.focus();
+    editorContent.setSelectionRange(
+      entry.selectionStart ?? 0,
+      entry.selectionEnd ?? entry.selectionStart ?? 0,
+    );
+
+    updateToolbarState();
+
+    editorState.isRestoring = false;
+  });
+}
+
+function redo() {
+  if (editorState.historyIndex >= editorState.history.length - 1) return;
+
+  editorState.historyIndex++;
+
+  const entry = editorState.history[editorState.historyIndex];
+
+  editorState.isRestoring = true;
+
+  editorContent.value = entry.content;
+
+  requestAnimationFrame(() => {
+    editorContent.focus();
+    editorContent.setSelectionRange(
+      entry.selectionStart ?? 0,
+      entry.selectionEnd ?? entry.selectionStart ?? 0,
+    );
+
+    updateToolbarState();
+
+    editorState.isRestoring = false;
+  });
+}
+
+// =====================================================
+// GRAPH SYSTEM
+// =====================================================
+
+// Graph rendering
 function renderGraph() {
   const ctx = canvas.getContext("2d");
 
@@ -446,10 +749,6 @@ function renderGraph() {
     ctx.fillText(node.label, screenX, screenY + radius + 18);
   });
 }
-
-// ====================
-// GRAPH PHYSICS
-// ====================
 
 function applyForces() {
   const nodes = graphState.nodes;
@@ -582,6 +881,7 @@ function animateGraph() {
   clampGraphCamera();
 }
 
+// Camera system
 function setCamera(scale, offsetX, offsetY) {
   graphState.targetScale = scale;
   graphState.targetOffsetX = offsetX;
@@ -598,84 +898,6 @@ function ensureGraphAnimating() {
   graphAnimationFrame = requestAnimationFrame(animateGraph);
 }
 
-function snap(value, target, epsilon = 0.01) {
-  return Math.abs(value - target) < epsilon ? target : value;
-}
-
-// ====================
-// GRAPH INTERACTION
-// ====================
-
-function handleGraphClick(x, y) {
-  if (graphState.hasDragged) return;
-
-  let closestNode = null;
-  let closestDistance = Infinity;
-
-  const visibleNodes = graphState.nodes.filter(
-    (node) => graphState.filters[node.type],
-  );
-
-  for (const node of visibleNodes) {
-    const dx = node.x - x;
-    const dy = node.y - y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-
-    if (distance < closestDistance) {
-      closestDistance = distance;
-      closestNode = node;
-    }
-  }
-
-  if (closestNode && closestDistance <= CLICK_RADIUS) {
-    if (graphTransitioning) return;
-
-    graphTransitioning = true;
-    graphState.selectedNodeId = closestNode.id;
-
-    renderGraph();
-
-    setTimeout(() => {
-      graphTransitioning = false;
-    }, 180);
-  } else {
-    graphState.selectedNodeId = null;
-    renderGraph();
-  }
-}
-
-// ====================
-// GRAPH CONTROLS
-// ====================
-
-function getGraphBounds() {
-  const nodes = graphState.nodes;
-  if (!nodes.length) return null;
-
-  let minX = Infinity,
-    maxX = -Infinity;
-  let minY = Infinity,
-    maxY = -Infinity;
-
-  nodes.forEach((n) => {
-    minX = Math.min(minX, n.x);
-    maxX = Math.max(maxX, n.x);
-    minY = Math.min(minY, n.y);
-    maxY = Math.max(maxY, n.y);
-  });
-
-  return {
-    minX,
-    maxX,
-    minY,
-    maxY,
-    centerX: (minX + maxX) / 2,
-    centerY: (minY + maxY) / 2,
-    width: maxX - minX,
-    height: maxY - minY,
-  };
-}
-
 function centerGraph() {
   const bounds = getGraphBounds();
   if (!bounds) return;
@@ -685,6 +907,8 @@ function centerGraph() {
 
   graphState.targetOffsetY =
     canvas.height / 2 - bounds.centerY * graphState.scale;
+
+  ensureGraphAnimating();
 }
 
 function centerOnNode(nodeId) {
@@ -730,130 +954,6 @@ function fitGraphToScreen() {
   ensureGraphAnimating();
 }
 
-function getNodeAtPosition(x, y) {
-  const visibleNodes = graphState.nodes.filter(
-    (node) => graphState.filters[node.type],
-  );
-
-  for (let i = visibleNodes.length - 1; i >= 0; i--) {
-    const node = visibleNodes[i];
-
-    const dx = node.x - x;
-    const dy = node.y - y;
-
-    const radius =
-      Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7)) /
-      graphState.scale;
-
-    if (Math.sqrt(dx * dx + dy * dy) <= radius) {
-      return node;
-    }
-  }
-
-  return null;
-}
-
-// ====================
-// GRAPH EVENTS
-// ====================
-
-function initGraphEvents() {
-  initGraphCanvasEvent();
-  initGraphUIEvents();
-  initGraphKeyboardControls();
-}
-
-// ====================
-// CANVAS EVENTS
-// ====================
-
-function initGraphCanvasEvent() {
-  const canvas = document.getElementById("graph-canvas");
-
-  canvas.addEventListener("mouseup", onGraphMouseUp);
-  canvas.addEventListener("mouseleave", onGraphMouseUp);
-  canvas.addEventListener("mousedown", onGraphMouseDown);
-  canvas.addEventListener("mousemove", onGraphMouseMove);
-  canvas.addEventListener("mouseleave", onGraphMouseLeave);
-  canvas.addEventListener("wheel", onGraphWheel, { passive: false });
-  canvas.addEventListener("click", onGraphClick);
-  canvas.addEventListener("dblclick", onGraphDoubleClick);
-}
-
-function initGraphUIEvents() {
-  // Graph open
-  const openGraphBtn = document.getElementById("open-graph");
-  if (openGraphBtn) {
-    openGraphBtn.addEventListener("click", openGraph);
-  }
-
-  // Graph close
-  const closeGraphBtn = document.getElementById("close-graph");
-  if (closeGraphBtn) {
-    closeGraphBtn.addEventListener("click", closeGraph);
-  }
-
-  const focusToggle = document.getElementById("focus-mode-toggle");
-
-  if (focusToggle) {
-    focusToggle.addEventListener("change", (e) => {
-      graphState.focusMode = e.target.checked;
-      renderGraph();
-    });
-  }
-
-  const centerBtn = document.getElementById("center-node-btn");
-
-  if (centerBtn) {
-    centerBtn.addEventListener("click", () => {
-      if (graphState.selectedNodeId) {
-        centerOnNode(graphState.selectedNodeId);
-      }
-    });
-  }
-
-  const resetBtn = document.getElementById("reset-view-btn");
-
-  if (resetBtn) {
-    resetBtn.addEventListener("click", resetGraphView);
-  }
-
-  const fitBtn = document.getElementById("fit-graph-btn");
-
-  if (fitBtn) {
-    fitBtn.addEventListener("click", fitGraphToScreen);
-  }
-
-  document.querySelectorAll("#graph-filters input").forEach((checkbox) => {
-    checkbox.addEventListener("change", (e) => {
-      const type = e.target.dataset.type;
-      graphState.filters[type] = e.target.checked;
-
-      renderGraph();
-    });
-  });
-}
-
-function initGraphKeyboardControls() {
-  document.addEventListener("keydown", (e) => {
-    // Only run when graph is open
-    if (!graphState.isOpen) return;
-
-    // Prevent editor conflicts
-    if (document.activeElement === editorContent) return;
-
-    if (e.key.toLowerCase() === "c") {
-      e.preventDefault();
-      ensureGraphAnimating();
-      centerGraph();
-    }
-  });
-}
-
-// ====================
-// GRAPH HANDLERS
-// ====================
-
 function clampGraphCamera() {
   const bounds = getGraphBounds();
   if (!bounds) return;
@@ -880,185 +980,9 @@ function clampGraphCamera() {
   );
 }
 
-function centerGraph() {
-  const bounds = getGraphBounds();
-  if (!bounds) return;
-
-  graphState.targetOffsetX =
-    canvas.width / 2 - bounds.centerX * graphState.scale;
-
-  graphState.targetOffsetY =
-    canvas.height / 2 - bounds.centerY * graphState.scale;
-
-  ensureGraphAnimating();
-}
-
-function onGraphMouseUp() {
-  const drag = graphState.dragging;
-  drag.draggedNode = null;
-  drag.isDraggingGraph = false;
-  canvas.style.cursor = "grab";
-}
-
-function onGraphMouseDown(e) {
-  const drag = graphState.dragging;
-  if (!drag) {
-    console.error("Dragging state missing");
-    return;
-  }
-
-  const rect = canvas.getBoundingClientRect();
-
-  const worldX =
-    (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
-  const worldY = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
-
-  drag.startX = e.clientX;
-  drag.startY = e.clientY;
-  drag.hasDragged = false;
-
-  // find clicked node
-  const visibleNodes = graphState.nodes.filter(
-    (node) => graphState.filters[node.type],
-  );
-
-  let clickedNode = null;
-
-  for (const node of visibleNodes) {
-    const dx = node.x - worldX;
-    const dy = node.y - worldY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    const clickableRadius = Math.max(NODE_RADIUS * graphState.scale, 18);
-
-    if (dist < clickableRadius / graphState.scale) {
-      clickedNode = node;
-      break;
-    }
-
-    canvas.style.cursor = clickedNode ? "pointer" : "grab";
-  }
-
-  if (clickedNode) {
-    drag.draggedNode = clickedNode;
-
-    drag.nodeOffsetX = worldX - clickedNode.x;
-    drag.nodeOffsetY = worldY - clickedNode.y;
-
-    drag.isDraggingGraph = false;
-  } else {
-    drag.draggedNode = null;
-    drag.isDraggingGraph = true; // enables panning
-  }
-}
-
-function onGraphMouseMove(e) {
-  const rect = canvas.getBoundingClientRect();
-  const drag = graphState.dragging;
-
-  const worldX =
-    (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
-
-  const worldY = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
-
-  // HOVER DETECTION
-  const hoveredNode = getNodeAtPosition(worldX, worldY);
-
-  graphState.hoveredNodeId = hoveredNode ? hoveredNode.id : null;
-
-  // NODE DRAG
-  if (drag.draggedNode) {
-    drag.hasDragged = true;
-
-    drag.draggedNode.x = worldX - drag.nodeOffsetX;
-
-    drag.draggedNode.y = worldY - drag.nodeOffsetY;
-
-    drag.draggedNode.vx = 0;
-    drag.draggedNode.vy = 0;
-
-    drag.draggedNode.fixed = true;
-
-    renderGraph();
-    return;
-  }
-
-  // GRAPH PAN
-  if (drag.isDraggingGraph) {
-    drag.hasDragged = true;
-
-    canvas.style.cursor = "grabbing";
-
-    const dx = e.clientX - drag.startX;
-    const dy = e.clientY - drag.startY;
-
-    graphState.offsetX += dx;
-    graphState.offsetY += dy;
-
-    drag.startX = e.clientX;
-    drag.startY = e.clientY;
-
-    renderGraph();
-    return;
-  }
-
-  // CURSOR FEEDBACK
-  canvas.style.cursor = hoveredNode ? "pointer" : "grab";
-
-  renderGraph();
-
-  clampGraphCamera();
-}
-
-function onGraphMouseLeave() {
-  graphState.isDraggingGraph = false;
-  graphState.draggedNode = null;
-  graphState.hasDragged = false;
-}
-
-function onGraphWheel(e) {
-  e.preventDefault();
-
-  ensureGraphAnimating();
-
-  const rect = canvas.getBoundingClientRect();
-  const mouseX = e.clientX - rect.left;
-  const mouseY = e.clientY - rect.top;
-
-  const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-
-  const newScale = Math.max(
-    0.1,
-    Math.min(3, graphState.targetScale * zoomFactor),
-  );
-
-  const worldX = (mouseX - graphState.offsetX) / graphState.scale;
-  const worldY = (mouseY - graphState.offsetY) / graphState.scale;
-
-  graphState.targetScale = newScale;
-
-  graphState.targetOffsetX = mouseX - worldX * newScale;
-  graphState.targetOffsetY = mouseY - worldY * newScale;
-}
-
-function onGraphClick(e) {
-  const rect = canvas.getBoundingClientRect();
-
-  const mouseX = e.clientX - rect.left;
-  const mouseY = e.clientY - rect.top;
-
-  handleGraphClick(
-    (mouseX - graphState.offsetX) / graphState.scale,
-    (mouseY - graphState.offsetY) / graphState.scale,
-  );
-}
-
-function onGraphDoubleClick(e) {
-  const rect = canvas.getBoundingClientRect();
-
-  const x = (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
-
-  const y = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
+// Graph interaction
+function handleGraphClick(x, y) {
+  if (graphState.hasDragged) return;
 
   let closestNode = null;
   let closestDistance = Infinity;
@@ -1078,905 +1002,21 @@ function onGraphDoubleClick(e) {
     }
   }
 
-  if (closestNode && closestDistance <= NODE_RADIUS) {
-    openDocumentFromGraph(closestNode.id);
-  }
-}
+  if (closestNode && closestDistance <= CLICK_RADIUS) {
+    if (graphTransitioning) return;
 
-// ==============================================
-//                EDITOR SYSTEM
-// ==============================================
-// ====================
-// EDITOR EVENTS
-// ====================
+    graphTransitioning = true;
+    graphState.selectedNodeId = closestNode.id;
 
-function initEditorEvents() {
-  initEditorInputEvents();
-  initEditorKeyboardEvents();
-  initEditorToolbarEvents();
-  initEditorTitleEvents();
-  initEditorUIEvents();
-}
+    renderGraph();
 
-// ====================
-// INPUT
-// ====================
-
-function initEditorInputEvents() {
-  editorContent.addEventListener("input", onEditorInput);
-  editorContent.addEventListener("keyup", updateToolbarState);
-  editorContent.addEventListener("click", updateToolbarState);
-}
-
-function onEditorInput(e) {
-  let doc = getCurrentDocs()[appState.currentDocumentId];
-  if (!doc) return;
-  if (editorState.isRestoring || editorState.isProgrammaticEdit) return;
-
-  doc.content = editorContent.value;
-
-  // Debounced history (typing only)
-  if (historyDebounceTimer) {
-    clearTimeout(historyDebounceTimer);
-  }
-
-  historyDebounceTimer = setTimeout(() => {
-    saveHistory();
-  }, 400);
-
-  updatePreview();
-  updateWordCount();
-  debounceSave();
-}
-
-// ====================
-// KEYBOARD
-// ====================
-
-function initEditorKeyboardEvents() {
-  editorContent.addEventListener("keydown", handleEditorKeyDown);
-
-  editorContent.addEventListener("blur", () => {
-    editorState.lastSelectionStart = editorContent.selectionStart;
-    editorState.lastSelectionEnd = editorContent.selectionEnd;
-  });
-}
-
-function handleEditorKeyDown(e) {
-  // --- UNDO / REDO ---
-  if (e.ctrlKey && e.key.toLowerCase() === "z") {
-    e.preventDefault();
-    if (e.shiftKey) {
-      redo();
-    } else {
-      undo();
-    }
-    return;
-  }
-
-  // --- FORMATTING ---
-  if (e.ctrlKey) {
-    switch (e.key.toLowerCase()) {
-      case "b":
-        e.preventDefault();
-        formatText("bold");
-        return;
-      case "i":
-        e.preventDefault();
-        formatText("italic");
-        return;
-      case "u":
-        e.preventDefault();
-        formatText("underline");
-        return;
-    }
-  }
-
-  // --- GRAPH ---
-  if (e.ctrlKey && e.key.toLowerCase() === "g") {
-    e.preventDefault();
-    openGraph();
-    return;
-  }
-
-  if (graphState.isOpen) {
-    if (e.key.toLowerCase() === "c") {
-      e.preventDefault();
-      centerGraph();
-      return;
-    }
-  }
-
-  // --- TAB INDENT ---
-  if (handleTabIndent(e)) return;
-}
-
-function handleEditorShortcuts(e) {
-  if (!e.ctrlKey) return;
-
-  switch (e.key.toLowerCase()) {
-    case "b":
-      e.preventDefault();
-      formatText("bold");
-      break;
-    case "i":
-      e.preventDefault();
-      formatText("italic");
-      break;
-    case "u":
-      e.preventDefault();
-      formatText("underline");
-      break;
-  }
-  closeAllMenus();
-  return false;
-}
-
-function handleTabIndent(e) {
-  if (e.key !== "Tab") return false;
-
-  e.preventDefault();
-
-  const textarea = editorContent;
-
-  const start = textarea.selectionStart ?? 0;
-  const end = textarea.selectionEnd ?? start;
-
-  const value = textarea.value;
-  const before = value.substring(0, start);
-  const selection = value.substring(start, end);
-  const after = value.substring(end);
-
-  const tab = "  ";
-
-  let newValue, newStart, newEnd;
-
-  if (selection.includes("\n")) {
-    const indented = selection
-      .split("\n")
-      .map((line) => tab + line)
-      .join("\n");
-
-    newValue = before + indented + after;
-    newStart = start;
-    newEnd = start + indented.length;
+    setTimeout(() => {
+      graphTransitioning = false;
+    }, 180);
   } else {
-    newValue = before + tab + selection + after;
-    newStart = start + tab.length;
-    newEnd = newStart + selection.length;
+    graphState.selectedNodeId = null;
+    renderGraph();
   }
-
-  textarea.value = newValue;
-
-  saveHistory();
-  updatePreview();
-  updateWordCount();
-  saveDocument();
-
-  requestAnimationFrame(() => {
-    editorState.isRestoring = true;
-    textarea.setSelectionRange(newStart, newEnd);
-    editorState.isRestoring = false;
-  });
-
-  return true;
-}
-
-// ====================
-// TOOLBAR
-// ====================
-
-function initEditorToolbarEvents() {
-  document.querySelectorAll(".format-toolbar button").forEach((button) => {
-    button.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      editorContent.focus();
-    });
-
-    button.addEventListener("click", (e) => {
-      const type = e.currentTarget.dataset.format;
-      if (!type) return;
-
-      formatText(type);
-    });
-  });
-
-  document.querySelectorAll(".menu-dropdown").forEach((menu) => {
-    menu.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-    });
-  });
-}
-
-function updateToolbarState() {
-  const formats = getActiveFormats();
-
-  document
-    .querySelectorAll(".toolbar-btn[data-format='bold']")
-    .forEach((btn) => btn.classList.toggle("active", formats.bold));
-
-  document
-    .querySelectorAll(".toolbar-btn[data-format='italic']")
-    .forEach((btn) => btn.classList.toggle("active", formats.italic));
-
-  document
-    .querySelectorAll(".toolbar-btn[data-format='underline']")
-    .forEach((btn) => btn.classList.toggle("active", formats.underline));
-}
-
-// ====================
-// TITLE
-// ====================
-
-function initEditorTitleEvents() {
-  editorTitle.addEventListener("input", onTitleChange);
-  editorTitle.addEventListener("keydown", onTitleKeyDown);
-}
-
-function onTitleChange() {
-  const docs = getCurrentDocs();
-  const doc = docs[appState.currentDocumentId];
-  if (!doc) return;
-
-  doc.title = editorTitle.value;
-
-  renderSidebar();
-  renderCharacterRelationships(appState.currentDocumentId);
-}
-
-function onTitleKeyDown(e) {
-  if (e.key === "Enter") {
-    e.preventDefault();
-
-    restoreEditorState();
-  }
-}
-
-// ====================
-// UI
-// ====================
-
-function initEditorUIEvents() {
-  const fontSize = document.getElementById("font-size");
-
-  if (!fontSize) return;
-
-  fontSize.addEventListener("change", (e) => {
-    const start = editorContent.selectionStart;
-    const end = editorContent.selectionEnd;
-
-    setEditorFontSize(e.target.value);
-
-    restoreEditorState();
-    editorContent.setSelectionRange(start, end);
-  });
-}
-
-// ====================
-// HELPERS
-// ====================
-
-function restoreSelection() {
-  editorContent.focus();
-}
-
-function saveEditorState() {
-  if (!editorContent) return;
-  if (editorState.isRestoring) return;
-}
-
-function restoreEditorState() {
-  const textarea = editorContent;
-  if (!textarea) return;
-
-  const start = editorState.lastSelectionStart ?? 0;
-  const end = editorState.lastSelectionEnd ?? start;
-
-  editorState.isRestoring = true;
-
-  requestAnimationFrame(() => {
-    textarea.focus();
-
-    requestAnimationFrame(() => {
-      textarea.setSelectionRange(start, end);
-
-      setTimeout(() => {
-        editorState.isRestoring = false;
-      }, 0);
-    });
-  });
-}
-
-// ==============================================
-//                MENU SYSTEM
-// ==============================================
-// ====================
-// MENU EVENTS
-// ====================
-
-function initMenuSystem() {
-  initMenuCoreEvents();
-  initMenuSwitchEvents();
-  initMenuActionEvents();
-}
-
-// ====================
-// CORE
-// ====================
-function initMenuCoreEvents() {
-  menus.file = document.getElementById("file-menu");
-  menus.edit = document.getElementById("edit-menu");
-  menus.view = document.getElementById("view-menu");
-  menus.help = document.getElementById("help-menu");
-
-  document.addEventListener("click", (e) => {
-    const isMenu = e.target.closest(".menu-item, .menu-dropdown");
-    if (!isMenu) closeAllMenus();
-  });
-
-  document.addEventListener("mousedown", (e) => {
-    const isMenuItem = e.target.closest(".menu-item");
-    const isDropdown = e.target.closest(".menu-dropdown");
-
-    if (isMenuItem || isDropdown) return;
-
-    closeAllMenus();
-  });
-
-  document.addEventListener("click", () => {
-    closeAllMenus();
-  });
-}
-
-// ====================
-// HOVER
-// ====================
-function initMenuSwitchEvents() {
-  document.querySelectorAll(".menu-item").forEach((item) => {
-    item.addEventListener("click", (e) => {
-      if (menuState.isLocked) return;
-
-      e.stopPropagation();
-
-      const menuName = item.dataset.menu;
-      const menu = menus[menuName];
-
-      if (menuState.activeMenu === menuName) {
-        closeAllMenus();
-        menuOpen = false;
-        return;
-      }
-
-      Object.values(menus).forEach((m) => (m.style.display = "none"));
-      menu.style.display = "block";
-
-      menuState.activeMenu = menuName;
-      menuOpen = true;
-    });
-
-    item.addEventListener("mouseenter", () => {
-      if (!menuOpen) return;
-
-      const menuName = item.dataset.menu;
-      const menu = menus[menuName];
-
-      if (menuName === menuState.activeMenu) return;
-
-      Object.values(menus).forEach((m) => (m.style.display = "none"));
-      menu.style.display = "block";
-
-      menuState.activeMenu = menuName;
-    });
-  });
-
-  document.addEventListener("keydown", (e) => {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-  });
-}
-
-// ====================
-// ACTIONS
-// ====================
-function initMenuActionEvents() {
-  // Edit Menu
-  document.querySelectorAll("#edit-menu [data-format]").forEach((item) => {
-    item.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-
-      const action = item.dataset.format;
-
-      editorContent.focus();
-      restoreEditorState();
-
-      // Handle undo/redo separately
-      if (action === "undo") {
-        undo();
-        closeAllMenus();
-        return;
-      }
-
-      if (action === "redo") {
-        redo();
-        closeAllMenus();
-        return;
-      }
-
-      // Everything else = formatting
-
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const start = editorContent.selectionStart;
-          const end = editorContent.selectionEnd;
-          const text = editorContent.value;
-
-          let marker = "";
-          if (action === "bold") marker = "**";
-          else if (action === "italic") marker = "*";
-          else if (action === "underline") marker = "__";
-
-          if (marker) {
-            const before = text.slice(start - marker.length, start);
-            const after = text.slice(end, end + marker.length);
-
-            if (before === marker && after === marker) {
-              editorContent.setSelectionRange(
-                start - marker.length,
-                end + marker.length,
-              );
-            }
-          }
-
-          formatText(action);
-          closeAllMenus();
-        });
-      });
-    });
-  });
-
-  // graph
-  document.getElementById("open-graph-menu")?.addEventListener("click", () => {
-    saveEditorState();
-    openGraph();
-    closeAllMenus();
-  });
-
-  // Export Project
-  const exportProject = document.getElementById("export-project");
-  if (exportProject) {
-    exportProject.addEventListener("click", () => {
-      exportMode = "project";
-      openExportModal();
-    });
-  }
-
-  // Export Document
-  const exportDoc = document.getElementById("export-doc");
-  if (exportDoc) {
-    exportDoc.addEventListener("click", () => {
-      exportMode = "document";
-      openExportModal();
-    });
-  }
-
-  const helpAbout = document.getElementById("help-about");
-  if (helpAbout) {
-    helpAbout.addEventListener("click", () => {
-      openHelpModal("About Tapestri", getAboutContent());
-    });
-  }
-
-  const helpShortcuts = document.getElementById("help-shortcuts");
-  if (helpShortcuts) {
-    helpShortcuts.addEventListener("click", () => {
-      openHelpModal("Keyboard Shortcuts", getShortcutsContent());
-    });
-  }
-}
-
-// ====================
-// HELPERS
-// ====================
-
-function openMenu(name) {
-  const menus = {
-    file: document.getElementById("file-menu"),
-    edit: document.getElementById("edit-menu"),
-    view: document.getElementById("view-menu"),
-    help: document.getElementById("help-menu"),
-  };
-
-  Object.values(menus).forEach((m) => (m.style.display = "none"));
-
-  if (menus[name]) {
-    menus[name].style.display = "block";
-  }
-}
-
-function closeAllMenus() {
-  Object.values(menus).forEach((m) => (m.style.display = "none"));
-  menuState.activeMenu = null;
-  menuOpen = false;
-}
-
-// ==============================================
-//                SIDEBAR SYSTEM
-// ==============================================
-// ====================
-// SIDEBAR EVENTS
-// ====================
-
-function initSidebarEvents() {
-  initSidebarSearch();
-
-  addButtons.forEach((button) => {
-    button.addEventListener("click", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      const section = button.closest("details");
-      addNewItem(section);
-    });
-  });
-}
-
-function initSidebarSearch() {
-  searchInput.addEventListener("input", (e) => {
-    searchQuery = e.target.value.toLowerCase();
-
-    renderSidebar();
-    updatePreview();
-  });
-
-  searchInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-
-      editorContent.focus();
-      scrollToFirstMatch();
-    }
-  });
-}
-
-function renderSidebar() {
-  const lists = document.querySelectorAll("ul");
-  lists.forEach((list) => {
-    list.innerHTML = "";
-  });
-
-  const docs = projects[appState.currentProjectId]?.documents || {};
-
-  for (const id in docs) {
-    const doc = docs[id];
-
-    const matchesSearch =
-      !searchQuery ||
-      (doc.title || "").toLowerCase().includes(searchQuery) ||
-      (doc.content || "").toLowerCase().includes(searchQuery) ||
-      (doc.tags || []).some((tag) => tag.toLowerCase().includes(searchQuery)) ||
-      (doc.type === "character" &&
-        doc.title.toLowerCase().includes(searchQuery));
-
-    if (!matchesSearch) continue;
-
-    const li = document.createElement("li");
-    li.textContent = doc.title;
-    li.dataset.id = doc.id;
-    li.dataset.type = doc.type;
-
-    const list = document.querySelector(`ul[data-type="${doc.type}"]`);
-    if (list) {
-      list.appendChild(li);
-      attachItemListeners(li);
-    }
-  }
-}
-
-// ====================
-// CORE EDITOR FEATURES
-// ====================
-
-function saveDocument() {
-  if (!appState.currentDocumentId) return;
-
-  projects[appState.currentProjectId].documents[
-    appState.currentDocumentId
-  ].title = editorTitle.value;
-  projects[appState.currentProjectId].documents[
-    appState.currentDocumentId
-  ].content = editorContent.value;
-
-  debounceSave();
-}
-
-function selectFirstDocument() {
-  const docs = projects[appState.currentProjectId]?.documents || {};
-  const firstId = Object.keys(docs)[0];
-
-  if (firstId) {
-    loadDocument(firstId);
-  }
-}
-
-function updatePreview() {
-  const doc = getCurrentDocs()[appState.currentDocumentId];
-  if (!doc) return;
-
-  doc.content = editorContent.value;
-
-  let html = renderMarkdown(doc.content || "");
-
-  if (searchQuery) {
-    const regex = new RegExp(`(${escapeRegex(searchQuery)})`, "gi");
-    html = html.replace(regex, "<mark>$1</mark>");
-  }
-
-  const preview = document.getElementById("preview-pane");
-  preview.innerHTML = html;
-}
-
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function formatText(type) {
-  const start = editorContent.selectionStart;
-  const end = editorContent.selectionEnd;
-
-  const text = editorContent.value;
-  const selected = text.slice(start, end);
-
-  let marker = "";
-
-  if (type === "bold") marker = "**";
-  if (type === "italic") {
-    // Detect double marker (bold) and avoid breaking it
-    const before2 = text.slice(start - 2, start);
-    const after2 = text.slice(end, end + 2);
-
-    const isInsideBold = before2 === "**" && after2 === "**";
-
-    if (isInsideBold) {
-      // Apply italic INSIDE bold, not over it
-      const formatted = `*${selected}*`;
-
-      const newValue = text.slice(0, start) + formatted + text.slice(end);
-
-      editorState.isProgrammaticEdit = true;
-
-      saveHistory();
-
-      editorContent.value = newValue;
-      editorContent.focus();
-      editorContent.setSelectionRange(start, start + formatted.length);
-
-      saveHistory();
-
-      editorState.isProgrammaticEdit = false;
-      updateToolbarState();
-
-      return;
-    }
-
-    marker = "*";
-  }
-  if (type === "underline") marker = "__";
-
-  let formatted = selected;
-
-  // Toggle OFF if already wrapped
-  if (selected.startsWith(marker) && selected.endsWith(marker)) {
-    formatted = selected.slice(marker.length, -marker.length);
-  } else {
-    // Toggle ON
-    formatted = `${marker}${selected}${marker}`;
-  }
-
-  // STEP 1: Save PRE-FORMAT state (this is what undo needs)
-  saveHistory();
-
-  const newValue = text.slice(0, start) + formatted + text.slice(end);
-
-  const newStart = start;
-  const newEnd = start + formatted.length;
-
-  // Prevent input-triggered history
-  editorState.isProgrammaticEdit = true;
-
-  editorContent.value = newValue;
-
-  editorContent.focus();
-  editorContent.setSelectionRange(newStart, newEnd);
-
-  // STEP 2: Save POST-FORMAT state (redo target)
-  saveHistory();
-  updateToolbarState();
-  editorState.isProgrammaticEdit = false;
-}
-
-function isInsideMarker(text, pos, marker) {
-  const before = text.slice(0, pos);
-  const after = text.slice(pos);
-
-  const beforeCount = before.split(marker).length - 1;
-  const afterCount = after.split(marker).length - 1;
-
-  return beforeCount % 2 === 1 && afterCount > 0;
-}
-
-function normalizeSelectionForFormat(type) {
-  const start = editorContent.selectionStart;
-  const end = editorContent.selectionEnd;
-  const text = editorContent.value;
-
-  let marker = "";
-  if (type === "bold") marker = "**";
-  else if (type === "italic") marker = "*";
-  else if (type === "underline") marker = "__";
-  else return;
-
-  // Look OUTSIDE selection
-  const before = text.slice(start - marker.length, start);
-  const after = text.slice(end, end + marker.length);
-
-  if (before === marker && after === marker) {
-    editorContent.setSelectionRange(start - marker.length, end + marker.length);
-  }
-}
-
-function getActiveFormats() {
-  const pos = editorContent.selectionStart;
-  const text = editorContent.value;
-
-  const isBold = isInsideMarker(text, pos, "**");
-  const isUnderline = isInsideMarker(text, pos, "__");
-
-  // 🔥 FIX: italic must NOT trigger inside bold/underline markers
-  const isItalic = !isBold && !isUnderline && isInsideMarker(text, pos, "*");
-
-  return {
-    bold: isBold,
-    italic: isItalic,
-    underline: isUnderline,
-    italic: isInsideMarker(text, pos, "*") && !isInsideMarker(text, pos, "**"),
-  };
-}
-
-function togglePreview() {
-  if (isTogglingPreview) return;
-  isTogglingPreview = true;
-
-  if (!isPreviewMode) {
-    saveEditorState();
-  }
-
-  isPreviewMode = !isPreviewMode;
-
-  updatePreview();
-  applyPreviewMode();
-  updateMenuState();
-  savePreviewMode();
-
-  const indicator = document.getElementById("mode-indicator");
-
-  if (isPreviewMode) {
-    indicator.classList.remove("hidden");
-  } else {
-    indicator.classList.add("hidden");
-
-    requestAnimationFrame(() => {
-      restoreEditorState();
-    });
-  }
-
-  setTimeout(() => {
-    isTogglingPreview = false;
-  }, 0);
-}
-
-function toggleFocusMode() {
-  isFocusMode = !isFocusMode;
-
-  document.body.classList.toggle("focus-mode", isFocusMode);
-  saveFocusMode();
-}
-
-function applyPreviewMode() {
-  const preview = document.getElementById("preview-pane");
-  const textarea = document.getElementById("editor-content");
-
-  if (isPreviewMode) {
-    preview.classList.remove("hidden");
-    textarea.classList.add("hidden");
-  } else {
-    preview.classList.add("hidden");
-    textarea.classList.remove("hidden");
-  }
-
-  document.body.classList.toggle("preview-mode", isPreviewMode);
-}
-
-function updateModeIndicator() {
-  const indicator = document.getElementById("mode-indicator");
-
-  if (!indicator) return;
-
-  if (isPreviewMode && !isModalOpen) {
-    indicator.classList.remove("hidden");
-  } else {
-    indicator.classList.add("hidden");
-  }
-}
-
-function updateWordCount() {
-  const text = editorContent.value;
-
-  const words = getWordCount(text);
-  const chars = text.length;
-
-  document.getElementById("word-count").textContent =
-    `Words: ${words} | Characters: ${chars}`;
-}
-
-function setEditorFontSize(size) {
-  editorContent.style.fontSize = size;
-  localStorage.setItem("editorFontSize", size);
-}
-
-function getGraphData() {
-  const docs = getCurrentDocs();
-
-  if (!docs) {
-    return { nodes: [], edges: [] };
-  }
-
-  const nodes = [];
-  const edges = [];
-
-  const addedTags = new Set();
-
-  Object.values(docs).forEach((doc) => {
-    // MAIN DOCUMENT NODE
-    nodes.push({
-      id: String(doc.id),
-      label: doc.title || "Untitled",
-      type: doc.type,
-    });
-
-    // CHAPTER -> CHARACTER RELATIONSHIPS
-    if (doc.type === "chapter" && doc.relationships?.characters) {
-      doc.relationships.characters.forEach((charId) => {
-        edges.push({
-          from: String(doc.id),
-          to: String(charId),
-        });
-      });
-    }
-
-    // TAG NODES + RELATIONSHIPS
-    if (doc.tags && Array.isArray(doc.tags)) {
-      doc.tags.forEach((tag) => {
-        const tagId = `tag-${tag}`;
-
-        // CREATE TAG NODE ONCE
-        if (!addedTags.has(tagId)) {
-          addedTags.add(tagId);
-
-          nodes.push({
-            id: tagId,
-            label: `#${tag}`,
-            type: "tag",
-          });
-        }
-
-        // CONNECT DOC -> TAG
-        edges.push({
-          from: String(doc.id),
-          to: tagId,
-        });
-      });
-    }
-  });
-
-  return { nodes, edges };
 }
 
 function openGraph() {
@@ -2112,11 +1152,6 @@ function closeGraph() {
   });
 }
 
-function setupCanvasSize() {
-  canvas.width = canvas.offsetWidth;
-  canvas.height = canvas.offsetHeight;
-}
-
 function openDocumentFromGraph(id) {
   closeGraph();
   loadDocument(id);
@@ -2126,96 +1161,834 @@ function openDocumentFromGraph(id) {
   }, 100);
 }
 
-// ======================
-// HISTORY SYSTEM
-// ======================
+function setupCanvasSize() {
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+}
 
-let lastSavedContent = "";
-
-function saveHistory() {
-  if (editorState.isRestoring) return;
-
-  const content = editorContent.value;
-
-  // 🚨 Prevent duplicate spam entries
-  if (
-    content === lastSavedContent &&
-    editorContent.selectionStart === editorState.lastSelectionStart &&
-    editorContent.selectionEnd === editorState.lastSelectionEnd
-  )
+// Graph mouse controls
+function onGraphMouseDown(e) {
+  const drag = graphState.dragging;
+  if (!drag) {
+    console.error("Dragging state missing");
     return;
+  }
 
-  editorState.lastSelectionStart = editorContent.selectionStart;
-  editorState.lastSelectionEnd = editorContent.selectionEnd;
+  const rect = canvas.getBoundingClientRect();
 
-  lastSavedContent = content;
+  const worldX =
+    (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
+  const worldY = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
 
-  // Trim redo stack
-  editorState.history = editorState.history.slice(
-    0,
-    editorState.historyIndex + 1,
+  drag.startX = e.clientX;
+  drag.startY = e.clientY;
+  drag.hasDragged = false;
+
+  // find clicked node
+  const visibleNodes = graphState.nodes.filter(
+    (node) => graphState.filters[node.type],
   );
 
-  editorState.history.push({
-    content,
-    selectionStart: editorContent.selectionStart,
-    selectionEnd: editorContent.selectionEnd,
-  });
+  let clickedNode = null;
 
-  editorState.historyIndex++;
+  for (const node of visibleNodes) {
+    const dx = node.x - worldX;
+    const dy = node.y - worldY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    const clickableRadius = Math.max(NODE_RADIUS * graphState.scale, 18);
+
+    if (dist < clickableRadius / graphState.scale) {
+      clickedNode = node;
+      break;
+    }
+
+    canvas.style.cursor = clickedNode ? "pointer" : "grab";
+  }
+
+  if (clickedNode) {
+    drag.draggedNode = clickedNode;
+
+    drag.nodeOffsetX = worldX - clickedNode.x;
+    drag.nodeOffsetY = worldY - clickedNode.y;
+
+    drag.isDraggingGraph = false;
+  } else {
+    drag.draggedNode = null;
+    drag.isDraggingGraph = true; // enables panning
+  }
 }
 
-function undo() {
-  if (editorState.historyIndex <= 0) return;
+function onGraphMouseMove(e) {
+  const rect = canvas.getBoundingClientRect();
+  const drag = graphState.dragging;
 
-  editorState.historyIndex--;
+  const worldX =
+    (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
 
-  const entry = editorState.history[editorState.historyIndex];
+  const worldY = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
+
+  // HOVER DETECTION
+  const hoveredNode = getNodeAtPosition(worldX, worldY);
+
+  graphState.hoveredNodeId = hoveredNode ? hoveredNode.id : null;
+
+  // NODE DRAG
+  if (drag.draggedNode) {
+    drag.hasDragged = true;
+
+    drag.draggedNode.x = worldX - drag.nodeOffsetX;
+
+    drag.draggedNode.y = worldY - drag.nodeOffsetY;
+
+    drag.draggedNode.vx = 0;
+    drag.draggedNode.vy = 0;
+
+    drag.draggedNode.fixed = true;
+
+    renderGraph();
+    return;
+  }
+
+  // GRAPH PAN
+  if (drag.isDraggingGraph) {
+    drag.hasDragged = true;
+
+    canvas.style.cursor = "grabbing";
+
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+
+    graphState.offsetX += dx;
+    graphState.offsetY += dy;
+
+    drag.startX = e.clientX;
+    drag.startY = e.clientY;
+
+    renderGraph();
+    return;
+  }
+
+  // CURSOR FEEDBACK
+  canvas.style.cursor = hoveredNode ? "pointer" : "grab";
+
+  renderGraph();
+
+  clampGraphCamera();
+}
+
+function onGraphMouseUp() {
+  const drag = graphState.dragging;
+  drag.draggedNode = null;
+  drag.isDraggingGraph = false;
+  canvas.style.cursor = "grab";
+}
+
+function onGraphMouseLeave() {
+  graphState.isDraggingGraph = false;
+  graphState.draggedNode = null;
+  graphState.hasDragged = false;
+}
+
+function onGraphWheel(e) {
+  e.preventDefault();
+
+  ensureGraphAnimating();
+
+  const rect = canvas.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+
+  const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+
+  const newScale = Math.max(
+    0.1,
+    Math.min(3, graphState.targetScale * zoomFactor),
+  );
+
+  const worldX = (mouseX - graphState.offsetX) / graphState.scale;
+  const worldY = (mouseY - graphState.offsetY) / graphState.scale;
+
+  graphState.targetScale = newScale;
+
+  graphState.targetOffsetX = mouseX - worldX * newScale;
+  graphState.targetOffsetY = mouseY - worldY * newScale;
+}
+
+function onGraphClick(e) {
+  const rect = canvas.getBoundingClientRect();
+
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+
+  handleGraphClick(
+    (mouseX - graphState.offsetX) / graphState.scale,
+    (mouseY - graphState.offsetY) / graphState.scale,
+  );
+}
+
+function onGraphDoubleClick(e) {
+  const rect = canvas.getBoundingClientRect();
+
+  const x = (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
+
+  const y = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
+
+  let closestNode = null;
+  let closestDistance = Infinity;
+
+  const visibleNodes = graphState.nodes.filter(
+    (node) => graphState.filters[node.type],
+  );
+
+  for (const node of visibleNodes) {
+    const dx = node.x - x;
+    const dy = node.y - y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestNode = node;
+    }
+  }
+
+  if (closestNode && closestDistance <= NODE_RADIUS) {
+    openDocumentFromGraph(closestNode.id);
+  }
+}
+
+// Graph initialization
+function initGraphEvents() {
+  initGraphCanvasEvent();
+  initGraphUIEvents();
+  initGraphKeyboardControls();
+}
+
+function initGraphCanvasEvent() {
+  const canvas = document.getElementById("graph-canvas");
+
+  canvas.addEventListener("mouseup", onGraphMouseUp);
+  canvas.addEventListener("mouseleave", onGraphMouseUp);
+  canvas.addEventListener("mousedown", onGraphMouseDown);
+  canvas.addEventListener("mousemove", onGraphMouseMove);
+  canvas.addEventListener("mouseleave", onGraphMouseLeave);
+  canvas.addEventListener("wheel", onGraphWheel, { passive: false });
+  canvas.addEventListener("click", onGraphClick);
+  canvas.addEventListener("dblclick", onGraphDoubleClick);
+}
+
+function initGraphUIEvents() {
+  // Graph open
+  const openGraphBtn = document.getElementById("open-graph");
+  if (openGraphBtn) {
+    openGraphBtn.addEventListener("click", openGraph);
+  }
+
+  // Graph close
+  const closeGraphBtn = document.getElementById("close-graph");
+  if (closeGraphBtn) {
+    closeGraphBtn.addEventListener("click", closeGraph);
+  }
+
+  const focusToggle = document.getElementById("focus-mode-toggle");
+
+  if (focusToggle) {
+    focusToggle.addEventListener("change", (e) => {
+      graphState.focusMode = e.target.checked;
+      renderGraph();
+    });
+  }
+
+  const centerBtn = document.getElementById("center-node-btn");
+
+  if (centerBtn) {
+    centerBtn.addEventListener("click", () => {
+      if (graphState.selectedNodeId) {
+        centerOnNode(graphState.selectedNodeId);
+      }
+    });
+  }
+
+  const resetBtn = document.getElementById("reset-view-btn");
+
+  if (resetBtn) {
+    resetBtn.addEventListener("click", resetGraphView);
+  }
+
+  const fitBtn = document.getElementById("fit-graph-btn");
+
+  if (fitBtn) {
+    fitBtn.addEventListener("click", fitGraphToScreen);
+  }
+
+  document.querySelectorAll("#graph-filters input").forEach((checkbox) => {
+    checkbox.addEventListener("change", (e) => {
+      const type = e.target.dataset.type;
+      graphState.filters[type] = e.target.checked;
+
+      renderGraph();
+    });
+  });
+}
+
+function initGraphKeyboardControls() {
+  document.addEventListener("keydown", (e) => {
+    // Only run when graph is open
+    if (!graphState.isOpen) return;
+
+    // Prevent editor conflicts
+    if (document.activeElement === editorContent) return;
+
+    if (e.key.toLowerCase() === "c") {
+      e.preventDefault();
+      ensureGraphAnimating();
+      centerGraph();
+    }
+  });
+}
+
+// =====================================================
+// EDITOR SYSTEM
+// =====================================================
+
+// Editor initialization
+function initEditorEvents() {
+  initEditorInputEvents();
+  initEditorKeyboardEvents();
+  initEditorToolbarEvents();
+  initEditorTitleEvents();
+  initEditorUIEvents();
+}
+
+function initEditorInputEvents() {
+  editorContent.addEventListener("input", onEditorInput);
+  editorContent.addEventListener("keyup", updateToolbarState);
+  editorContent.addEventListener("click", updateToolbarState);
+}
+
+function initEditorKeyboardEvents() {
+  editorContent.addEventListener("keydown", handleEditorKeyDown);
+
+  editorContent.addEventListener("blur", () => {
+    editorState.lastSelectionStart = editorContent.selectionStart;
+    editorState.lastSelectionEnd = editorContent.selectionEnd;
+  });
+}
+
+function initEditorToolbarEvents() {
+  document.querySelectorAll(".format-toolbar button").forEach((button) => {
+    button.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      editorContent.focus();
+    });
+
+    button.addEventListener("click", (e) => {
+      const type = e.currentTarget.dataset.format;
+      if (!type) return;
+
+      formatText(type);
+    });
+  });
+
+  document.querySelectorAll(".menu-dropdown").forEach((menu) => {
+    menu.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+    });
+  });
+}
+
+function initEditorTitleEvents() {
+  editorTitle.addEventListener("input", onTitleChange);
+  editorTitle.addEventListener("keydown", onTitleKeyDown);
+}
+
+function initEditorUIEvents() {
+  const fontSize = document.getElementById("font-size");
+
+  if (!fontSize) return;
+
+  fontSize.addEventListener("change", (e) => {
+    const start = editorContent.selectionStart;
+    const end = editorContent.selectionEnd;
+
+    setEditorFontSize(e.target.value);
+
+    restoreEditorState();
+    editorContent.setSelectionRange(start, end);
+  });
+}
+
+// Editor input handling
+function onEditorInput(e) {
+  let doc = getCurrentDocs()[appState.currentDocumentId];
+  if (!doc) return;
+  if (editorState.isRestoring || editorState.isProgrammaticEdit) return;
+
+  doc.content = editorContent.value;
+
+  // Debounced history (typing only)
+  if (historyDebounceTimer) {
+    clearTimeout(historyDebounceTimer);
+  }
+
+  historyDebounceTimer = setTimeout(() => {
+    saveHistory();
+  }, 400);
+
+  updatePreview();
+  updateWordCount();
+  debounceSave();
+}
+
+function handleEditorKeyDown(e) {
+  // --- UNDO / REDO ---
+  if (e.ctrlKey && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    if (e.shiftKey) {
+      redo();
+    } else {
+      undo();
+    }
+    return;
+  }
+
+  // --- FORMATTING ---
+  if (e.ctrlKey) {
+    switch (e.key.toLowerCase()) {
+      case "b":
+        e.preventDefault();
+        formatText("bold");
+        return;
+      case "i":
+        e.preventDefault();
+        formatText("italic");
+        return;
+      case "u":
+        e.preventDefault();
+        formatText("underline");
+        return;
+    }
+  }
+
+  // --- GRAPH ---
+  if (e.ctrlKey && e.key.toLowerCase() === "g") {
+    e.preventDefault();
+    openGraph();
+    return;
+  }
+
+  if (graphState.isOpen) {
+    if (e.key.toLowerCase() === "c") {
+      e.preventDefault();
+      centerGraph();
+      return;
+    }
+  }
+
+  // --- TAB INDENT ---
+  if (handleTabIndent(e)) return;
+}
+
+function handleEditorShortcuts(e) {
+  if (!e.ctrlKey) return;
+
+  switch (e.key.toLowerCase()) {
+    case "b":
+      e.preventDefault();
+      formatText("bold");
+      break;
+    case "i":
+      e.preventDefault();
+      formatText("italic");
+      break;
+    case "u":
+      e.preventDefault();
+      formatText("underline");
+      break;
+  }
+  closeAllMenus();
+  return false;
+}
+
+function handleTabIndent(e) {
+  if (e.key !== "Tab") return false;
+
+  e.preventDefault();
+
+  const textarea = editorContent;
+
+  const start = textarea.selectionStart ?? 0;
+  const end = textarea.selectionEnd ?? start;
+
+  const value = textarea.value;
+  const before = value.substring(0, start);
+  const selection = value.substring(start, end);
+  const after = value.substring(end);
+
+  const tab = "  ";
+
+  let newValue, newStart, newEnd;
+
+  if (selection.includes("\n")) {
+    const indented = selection
+      .split("\n")
+      .map((line) => tab + line)
+      .join("\n");
+
+    newValue = before + indented + after;
+    newStart = start;
+    newEnd = start + indented.length;
+  } else {
+    newValue = before + tab + selection + after;
+    newStart = start + tab.length;
+    newEnd = newStart + selection.length;
+  }
+
+  textarea.value = newValue;
+
+  saveHistory();
+  updatePreview();
+  updateWordCount();
+  saveDocument();
+
+  requestAnimationFrame(() => {
+    editorState.isRestoring = true;
+    textarea.setSelectionRange(newStart, newEnd);
+    editorState.isRestoring = false;
+  });
+
+  return true;
+}
+
+// Toolbar/editor formatting
+function formatText(type) {
+  const start = editorContent.selectionStart;
+  const end = editorContent.selectionEnd;
+
+  const text = editorContent.value;
+  const selected = text.slice(start, end);
+
+  let marker = "";
+
+  if (type === "bold") marker = "**";
+  if (type === "italic") {
+    // Detect double marker (bold) and avoid breaking it
+    const before2 = text.slice(start - 2, start);
+    const after2 = text.slice(end, end + 2);
+
+    const isInsideBold = before2 === "**" && after2 === "**";
+
+    if (isInsideBold) {
+      // Apply italic INSIDE bold, not over it
+      const formatted = `*${selected}*`;
+
+      const newValue = text.slice(0, start) + formatted + text.slice(end);
+
+      editorState.isProgrammaticEdit = true;
+
+      saveHistory();
+
+      editorContent.value = newValue;
+      editorContent.focus();
+      editorContent.setSelectionRange(start, start + formatted.length);
+
+      saveHistory();
+
+      editorState.isProgrammaticEdit = false;
+      updateToolbarState();
+
+      return;
+    }
+
+    marker = "*";
+  }
+  if (type === "underline") marker = "__";
+
+  let formatted = selected;
+
+  // Toggle OFF if already wrapped
+  if (selected.startsWith(marker) && selected.endsWith(marker)) {
+    formatted = selected.slice(marker.length, -marker.length);
+  } else {
+    // Toggle ON
+    formatted = `${marker}${selected}${marker}`;
+  }
+
+  // STEP 1: Save PRE-FORMAT state (this is what undo needs)
+  saveHistory();
+
+  const newValue = text.slice(0, start) + formatted + text.slice(end);
+
+  const newStart = start;
+  const newEnd = start + formatted.length;
+
+  // Prevent input-triggered history
+  editorState.isProgrammaticEdit = true;
+
+  editorContent.value = newValue;
+
+  editorContent.focus();
+  editorContent.setSelectionRange(newStart, newEnd);
+
+  // STEP 2: Save POST-FORMAT state (redo target)
+  saveHistory();
+  updateToolbarState();
+  editorState.isProgrammaticEdit = false;
+}
+
+function updateToolbarState() {
+  const formats = getActiveFormats();
+
+  document
+    .querySelectorAll(".toolbar-btn[data-format='bold']")
+    .forEach((btn) => btn.classList.toggle("active", formats.bold));
+
+  document
+    .querySelectorAll(".toolbar-btn[data-format='italic']")
+    .forEach((btn) => btn.classList.toggle("active", formats.italic));
+
+  document
+    .querySelectorAll(".toolbar-btn[data-format='underline']")
+    .forEach((btn) => btn.classList.toggle("active", formats.underline));
+}
+
+// Title handling
+function onTitleChange() {
+  const docs = getCurrentDocs();
+  const doc = docs[appState.currentDocumentId];
+  if (!doc) return;
+
+  doc.title = editorTitle.value;
+
+  renderSidebar();
+  renderCharacterRelationships(appState.currentDocumentId);
+}
+
+function onTitleKeyDown(e) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+
+    restoreEditorState();
+  }
+}
+
+// Selection handling
+function restoreSelection() {
+  editorContent.focus();
+}
+
+// Editor save/restore
+function saveEditorState() {
+  if (!editorContent) return;
+  if (editorState.isRestoring) return;
+}
+
+function restoreEditorState() {
+  const textarea = editorContent;
+  if (!textarea) return;
+
+  const start = editorState.lastSelectionStart ?? 0;
+  const end = editorState.lastSelectionEnd ?? start;
 
   editorState.isRestoring = true;
 
-  editorContent.value = entry.content;
-
   requestAnimationFrame(() => {
-    editorContent.focus();
-    editorContent.setSelectionRange(
-      entry.selectionStart ?? 0,
-      entry.selectionEnd ?? entry.selectionStart ?? 0,
-    );
+    textarea.focus();
 
-    updateToolbarState();
+    requestAnimationFrame(() => {
+      textarea.setSelectionRange(start, end);
 
-    editorState.isRestoring = false;
+      setTimeout(() => {
+        editorState.isRestoring = false;
+      }, 0);
+    });
   });
 }
 
-function redo() {
-  if (editorState.historyIndex >= editorState.history.length - 1) return;
+// Preview/focus modes
+function togglePreview() {
+  if (isTogglingPreview) return;
+  isTogglingPreview = true;
 
-  editorState.historyIndex++;
+  if (!isPreviewMode) {
+    saveEditorState();
+  }
 
-  const entry = editorState.history[editorState.historyIndex];
+  isPreviewMode = !isPreviewMode;
 
-  editorState.isRestoring = true;
+  updatePreview();
+  applyPreviewMode();
+  updateMenuState();
+  savePreviewMode();
 
-  editorContent.value = entry.content;
+  const indicator = document.getElementById("mode-indicator");
 
-  requestAnimationFrame(() => {
-    editorContent.focus();
-    editorContent.setSelectionRange(
-      entry.selectionStart ?? 0,
-      entry.selectionEnd ?? entry.selectionStart ?? 0,
-    );
+  if (isPreviewMode) {
+    indicator.classList.remove("hidden");
+  } else {
+    indicator.classList.add("hidden");
 
-    updateToolbarState();
+    requestAnimationFrame(() => {
+      restoreEditorState();
+    });
+  }
 
-    editorState.isRestoring = false;
+  setTimeout(() => {
+    isTogglingPreview = false;
+  }, 0);
+}
+
+function toggleFocusMode() {
+  isFocusMode = !isFocusMode;
+
+  document.body.classList.toggle("focus-mode", isFocusMode);
+  saveFocusMode();
+}
+
+function applyPreviewMode() {
+  const preview = document.getElementById("preview-pane");
+  const textarea = document.getElementById("editor-content");
+
+  if (isPreviewMode) {
+    preview.classList.remove("hidden");
+    textarea.classList.add("hidden");
+  } else {
+    preview.classList.add("hidden");
+    textarea.classList.remove("hidden");
+  }
+
+  document.body.classList.toggle("preview-mode", isPreviewMode);
+}
+
+function updateModeIndicator() {
+  const indicator = document.getElementById("mode-indicator");
+
+  if (!indicator) return;
+
+  if (isPreviewMode && !isModalOpen) {
+    indicator.classList.remove("hidden");
+  } else {
+    indicator.classList.add("hidden");
+  }
+}
+
+// Word count / typography
+function updateWordCount() {
+  const text = editorContent.value;
+
+  const words = getWordCount(text);
+  const chars = text.length;
+
+  document.getElementById("word-count").textContent =
+    `Words: ${words} | Characters: ${chars}`;
+}
+
+function setEditorFontSize(size) {
+  editorContent.style.fontSize = size;
+  localStorage.setItem("editorFontSize", size);
+}
+
+// =====================================================
+// SIDEBAR SYSTEM
+// =====================================================
+
+function initSidebarEvents() {
+  initSidebarSearch();
+
+  addButtons.forEach((button) => {
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const section = button.closest("details");
+      addNewItem(section);
+    });
   });
 }
 
-// ======================
+function initSidebarSearch() {
+  searchInput.addEventListener("input", (e) => {
+    searchQuery = e.target.value.toLowerCase();
+
+    renderSidebar();
+    updatePreview();
+  });
+
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+
+      editorContent.focus();
+      scrollToFirstMatch();
+    }
+  });
+}
+
+function renderSidebar() {
+  const lists = document.querySelectorAll("ul");
+  lists.forEach((list) => {
+    list.innerHTML = "";
+  });
+
+  const docs = projects[appState.currentProjectId]?.documents || {};
+
+  for (const id in docs) {
+    const doc = docs[id];
+
+    const matchesSearch =
+      !searchQuery ||
+      (doc.title || "").toLowerCase().includes(searchQuery) ||
+      (doc.content || "").toLowerCase().includes(searchQuery) ||
+      (doc.tags || []).some((tag) => tag.toLowerCase().includes(searchQuery)) ||
+      (doc.type === "character" &&
+        doc.title.toLowerCase().includes(searchQuery));
+
+    if (!matchesSearch) continue;
+
+    const li = document.createElement("li");
+    li.textContent = doc.title;
+    li.dataset.id = doc.id;
+    li.dataset.type = doc.type;
+
+    const list = document.querySelector(`ul[data-type="${doc.type}"]`);
+    if (list) {
+      list.appendChild(li);
+      attachItemListeners(li);
+    }
+  }
+}
+
+function searchDocuments(query) {
+  query = query.toLowerCase();
+
+  const lists = document.querySelectorAll("ul");
+  lists.forEach((list) => (list.innerHTML = ""));
+
+  const docs = projects[appState.currentProjectId]?.documents || {};
+
+  for (const id in docs) {
+    const doc = projects[appState.currentProjectId].documents[id];
+
+    if (
+      doc.title.toLowerCase().includes(query) ||
+      doc.content.toLowerCase().includes(query)
+    ) {
+      const li = document.createElement("li");
+      li.textContent = doc.title;
+      li.dataset.id = doc.id;
+      li.dataset.type = doc.type;
+
+      const list = document.querySelector(`ul[data-type="${doc.type}"]`);
+      if (list) {
+        list.appendChild(li);
+        attachItemListeners(li);
+      }
+    }
+  }
+}
+
+// =====================================================
 // TAG SYSTEM
-//=======================
+// =====================================================
 
 function renderTags(doc) {
   tagList.innerHTML = "";
@@ -2261,9 +2034,9 @@ function removeTag(tag) {
   debounceSave();
 }
 
-// ======================
-// RELATIONSHIPS
-// ======================
+// =====================================================
+// CHARACTER RELATIONSHIP SYSTEM
+// =====================================================
 
 function populateCharacterSelect() {
   characterSelect.innerHTML = "";
@@ -2376,9 +2149,9 @@ function renderChapterAppearances(characterId) {
   });
 }
 
-// =========================
+// =====================================================
 // DOCUMENT MANAGEMENT
-// =========================
+// =====================================================
 
 function loadDocument(id) {
   const docs = getCurrentDocs();
@@ -2529,9 +2302,18 @@ function handleItemClick(item) {
   setActiveItem(item);
 }
 
-// ===========================
-// PROJECT SYSTEM
-// ===========================
+function selectFirstDocument() {
+  const docs = projects[appState.currentProjectId]?.documents || {};
+  const firstId = Object.keys(docs)[0];
+
+  if (firstId) {
+    loadDocument(firstId);
+  }
+}
+
+// =====================================================
+// PROJECT MANAGEMENT
+// =====================================================
 
 function createNewProject() {
   const name = prompt("Project name?");
@@ -2601,38 +2383,239 @@ function renderProjectList() {
   }
 }
 
-function searchDocuments(query) {
-  query = query.toLowerCase();
+// =====================================================
+// MENU SYSTEM
+// =====================================================
 
-  const lists = document.querySelectorAll("ul");
-  lists.forEach((list) => (list.innerHTML = ""));
+function initMenuSystem() {
+  initMenuCoreEvents();
+  initMenuSwitchEvents();
+  initMenuActionEvents();
+}
 
-  const docs = projects[appState.currentProjectId]?.documents || {};
+function initMenuCoreEvents() {
+  menus.file = document.getElementById("file-menu");
+  menus.edit = document.getElementById("edit-menu");
+  menus.view = document.getElementById("view-menu");
+  menus.help = document.getElementById("help-menu");
 
-  for (const id in docs) {
-    const doc = projects[appState.currentProjectId].documents[id];
+  document.addEventListener("click", (e) => {
+    const isMenu = e.target.closest(".menu-item, .menu-dropdown");
+    if (!isMenu) closeAllMenus();
+  });
 
-    if (
-      doc.title.toLowerCase().includes(query) ||
-      doc.content.toLowerCase().includes(query)
-    ) {
-      const li = document.createElement("li");
-      li.textContent = doc.title;
-      li.dataset.id = doc.id;
-      li.dataset.type = doc.type;
+  document.addEventListener("mousedown", (e) => {
+    const isMenuItem = e.target.closest(".menu-item");
+    const isDropdown = e.target.closest(".menu-dropdown");
 
-      const list = document.querySelector(`ul[data-type="${doc.type}"]`);
-      if (list) {
-        list.appendChild(li);
-        attachItemListeners(li);
+    if (isMenuItem || isDropdown) return;
+
+    closeAllMenus();
+  });
+
+  document.addEventListener("click", () => {
+    closeAllMenus();
+  });
+}
+
+function initMenuSwitchEvents() {
+  document.querySelectorAll(".menu-item").forEach((item) => {
+    item.addEventListener("click", (e) => {
+      if (menuState.isLocked) return;
+
+      e.stopPropagation();
+
+      const menuName = item.dataset.menu;
+      const menu = menus[menuName];
+
+      if (menuState.activeMenu === menuName) {
+        closeAllMenus();
+        menuOpen = false;
+        return;
       }
-    }
+
+      Object.values(menus).forEach((m) => (m.style.display = "none"));
+      menu.style.display = "block";
+
+      menuState.activeMenu = menuName;
+      menuOpen = true;
+    });
+
+    item.addEventListener("mouseenter", () => {
+      if (!menuOpen) return;
+
+      const menuName = item.dataset.menu;
+      const menu = menus[menuName];
+
+      if (menuName === menuState.activeMenu) return;
+
+      Object.values(menus).forEach((m) => (m.style.display = "none"));
+      menu.style.display = "block";
+
+      menuState.activeMenu = menuName;
+    });
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+  });
+}
+
+function initMenuActionEvents() {
+  // Edit Menu
+  document.querySelectorAll("#edit-menu [data-format]").forEach((item) => {
+    item.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+
+      const action = item.dataset.format;
+
+      editorContent.focus();
+      restoreEditorState();
+
+      // Handle undo/redo separately
+      if (action === "undo") {
+        undo();
+        closeAllMenus();
+        return;
+      }
+
+      if (action === "redo") {
+        redo();
+        closeAllMenus();
+        return;
+      }
+
+      // Everything else = formatting
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const start = editorContent.selectionStart;
+          const end = editorContent.selectionEnd;
+          const text = editorContent.value;
+
+          let marker = "";
+          if (action === "bold") marker = "**";
+          else if (action === "italic") marker = "*";
+          else if (action === "underline") marker = "__";
+
+          if (marker) {
+            const before = text.slice(start - marker.length, start);
+            const after = text.slice(end, end + marker.length);
+
+            if (before === marker && after === marker) {
+              editorContent.setSelectionRange(
+                start - marker.length,
+                end + marker.length,
+              );
+            }
+          }
+
+          formatText(action);
+          closeAllMenus();
+        });
+      });
+    });
+  });
+
+  // graph
+  document.getElementById("open-graph-menu")?.addEventListener("click", () => {
+    saveEditorState();
+    openGraph();
+    closeAllMenus();
+  });
+
+  // Export Project
+  const exportProject = document.getElementById("export-project");
+  if (exportProject) {
+    exportProject.addEventListener("click", () => {
+      exportMode = "project";
+      openExportModal();
+    });
+  }
+
+  // Export Document
+  const exportDoc = document.getElementById("export-doc");
+  if (exportDoc) {
+    exportDoc.addEventListener("click", () => {
+      exportMode = "document";
+      openExportModal();
+    });
+  }
+
+  const helpAbout = document.getElementById("help-about");
+  if (helpAbout) {
+    helpAbout.addEventListener("click", () => {
+      openHelpModal("About Tapestri", getAboutContent());
+    });
+  }
+
+  const helpShortcuts = document.getElementById("help-shortcuts");
+  if (helpShortcuts) {
+    helpShortcuts.addEventListener("click", () => {
+      openHelpModal("Keyboard Shortcuts", getShortcutsContent());
+    });
   }
 }
 
-// =====================
+function openMenu(name) {
+  const menus = {
+    file: document.getElementById("file-menu"),
+    edit: document.getElementById("edit-menu"),
+    view: document.getElementById("view-menu"),
+    help: document.getElementById("help-menu"),
+  };
+
+  Object.values(menus).forEach((m) => (m.style.display = "none"));
+
+  if (menus[name]) {
+    menus[name].style.display = "block";
+  }
+}
+
+function closeAllMenus() {
+  Object.values(menus).forEach((m) => (m.style.display = "none"));
+  menuState.activeMenu = null;
+  menuOpen = false;
+}
+
+function handleMenuAction(action) {
+  menuState.activeMenu = null;
+  closeAllMenus();
+
+  setTimeout(action, 0);
+}
+
+function updateMenuState() {
+  const graphItem = document.getElementById("open-graph-menu");
+  if (!graphItem) return;
+
+  if (isPreviewMode) {
+    graphItem.classList.add("disabled");
+  } else {
+    graphItem.classList.remove("disabled");
+  }
+}
+
+function updatePreview() {
+  const doc = getCurrentDocs()[appState.currentDocumentId];
+  if (!doc) return;
+
+  doc.content = editorContent.value;
+
+  let html = renderMarkdown(doc.content || "");
+
+  if (searchQuery) {
+    const regex = new RegExp(`(${escapeRegex(searchQuery)})`, "gi");
+    html = html.replace(regex, "<mark>$1</mark>");
+  }
+
+  const preview = document.getElementById("preview-pane");
+  preview.innerHTML = html;
+}
+
+// =====================================================
 // EXPORT SYSTEM
-// =====================
+// =====================================================
 
 function openExportModal() {
   const modal = document.getElementById("export-modal");
@@ -2692,6 +2675,10 @@ function openExportModal() {
   closeAllMenus();
 }
 
+function closeExportModal() {
+  document.getElementById("export-modal").classList.add("hidden");
+}
+
 function initModalEvents() {
   document
     .getElementById("close-help")
@@ -2702,10 +2689,6 @@ function initModalEvents() {
     ?.addEventListener("click", closeExportModal);
 
   document.getElementById("close-graph")?.addEventListener("click", closeGraph);
-}
-
-function closeExportModal() {
-  document.getElementById("export-modal").classList.add("hidden");
 }
 
 function handleExportConfirm() {
@@ -2832,15 +2815,9 @@ function downloadFile(filename, content) {
   document.body.removeChild(a);
 }
 
-function convertToPlainText(markdown) {
-  return markdown
-    .replace(/^# /gm, "")
-    .replace(/^## /gm, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/\*(.*?)\*/g, "$1")
-    .replace(/__/g, "")
-    .replace(/<u>|<\/u>/g, "");
-}
+// =====================================================
+// HELP / ABOUT MODALS
+// =====================================================
 
 function openHelpModal(title, content) {
   const modal = document.getElementById("help-modal");
@@ -2885,31 +2862,9 @@ function getShortcutsContent() {
   `;
 }
 
-// =====================
-// MENU SYSTEM
-// =====================
-
-function handleMenuAction(action) {
-  menuState.activeMenu = null;
-  closeAllMenus();
-
-  setTimeout(action, 0);
-}
-
-function updateMenuState() {
-  const graphItem = document.getElementById("open-graph-menu");
-  if (!graphItem) return;
-
-  if (isPreviewMode) {
-    graphItem.classList.add("disabled");
-  } else {
-    graphItem.classList.remove("disabled");
-  }
-}
-
-// ====================
-// EVENTS SYSTEM
-// ====================
+// =====================================================
+// KEYBOARD SHORTCUTS
+// =====================================================
 
 function initKeyboardShortcuts() {
   document.addEventListener("keydown", handleKeyboardShorts);
@@ -2973,6 +2928,10 @@ function handleKeyboardShorts(e) {
     closeAllMenus();
   }
 }
+
+// =====================================================
+// EVENT LISTENERS
+// =====================================================
 
 function initEventListeners() {
   const newProject = document.getElementById("new-project");
@@ -3088,9 +3047,9 @@ function attachItemListeners(item) {
   });
 }
 
-// =====================
-// INIT
-// =====================
+// =====================================================
+// APPLICATION INITIALIZATION
+// =====================================================
 
 function initApp() {
   loadFromLocalStorage();
