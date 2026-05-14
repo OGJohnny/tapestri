@@ -1041,9 +1041,41 @@ function applyForces() {
   });
 }
 
+function updateGraphPhysics() {
+  applyForces();
+}
+
+function wakeGraphPhysics() {
+  graphState.temperature = 1;
+
+  ensureGraphAnimating();
+}
+
 function animateGraph() {
   if (!graphAnimating) return;
 
+  updateGraphPhysics();
+
+  updateGraphCamera();
+
+  renderGraph();
+
+  const cameraSettled =
+    Math.abs(graphState.offsetX - graphState.targetOffsetX) < 0.5 &&
+    Math.abs(graphState.offsetY - graphState.targetOffsetY) < 0.5 &&
+    Math.abs(graphState.scale - graphState.targetScale) < 0.001;
+
+  const physicsSettled = graphState.temperature < 0.02;
+
+  if (!cameraSettled || !physicsSettled) {
+    graphAnimationFrame = requestAnimationFrame(animateGraph);
+  } else {
+    graphAnimating = false;
+  }
+}
+
+// Camera system
+function updateGraphCamera() {
   const cameraLerp = 0.14;
   const zoomLerp = 0.12;
 
@@ -1055,26 +1087,13 @@ function animateGraph() {
 
   graphState.scale += (graphState.targetScale - graphState.scale) * zoomLerp;
 
-  // clamp scale
   graphState.scale = Math.max(0.05, graphState.scale);
+
   graphState.targetScale = Math.max(0.05, graphState.targetScale);
 
   clampGraphCamera();
-  renderGraph();
-
-  const done =
-    Math.abs(graphState.offsetX - graphState.targetOffsetX) < 0.5 &&
-    Math.abs(graphState.offsetY - graphState.targetOffsetY) < 0.5 &&
-    Math.abs(graphState.scale - graphState.targetScale) < 0.001;
-
-  if (!done) {
-    graphAnimationFrame = requestAnimationFrame(animateGraph);
-  } else {
-    graphAnimating = false;
-  }
 }
 
-// Camera system
 function setCamera(scale, offsetX, offsetY) {
   graphState.targetScale = scale;
   graphState.targetOffsetX = offsetX;
@@ -1390,6 +1409,7 @@ function openGraph() {
   }, 100);
 
   graphAnimating = true;
+  graphState.temperature = 1;
   animateGraph();
 }
 
