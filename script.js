@@ -727,6 +727,8 @@ function drawEdges({ ctx, activeId, visibleNodeMap }) {
     const from = visibleNodeMap.get(edge.from);
     const to = visibleNodeMap.get(edge.to);
 
+    ctx.lineCap = "round";
+
     if (!from || !to) return;
 
     const fromX = from.x * graphState.scale + graphState.offsetX;
@@ -741,8 +743,28 @@ function drawEdges({ ctx, activeId, visibleNodeMap }) {
 
     ctx.beginPath();
 
+    const midX = (fromX + toX) / 2;
+    const midY = (fromY + toY) / 2;
+
+    // PERPENDICULAR OFFSET
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+
+    const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+
+    // NORMAL VECTOR
+    const nx = -dy / distance;
+    const ny = dx / distance;
+
+    // SUBTLE CURVATURE
+    const curveStrength = Math.min(40, distance * 0.12);
+
+    const curveX = midX + nx * curveStrength;
+    const curveY = midY + ny * curveStrength;
+
     ctx.moveTo(fromX, fromY);
-    ctx.lineTo(toX, toY);
+
+    ctx.quadraticCurveTo(curveX, curveY, toX, toY);
 
     if (!activeId || !graphState.focusMode) {
       ctx.strokeStyle = "#666";
@@ -751,14 +773,17 @@ function drawEdges({ ctx, activeId, visibleNodeMap }) {
     } else if (isConnected) {
       ctx.strokeStyle = "#f39c12";
       ctx.lineWidth = 2.5;
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = 0.95;
+      ctx.shadowColor = "#f39c12";
+      ctx.shadowBlur = 8;
     } else {
       ctx.strokeStyle = "#222";
       ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.25;
+      ctx.globalAlpha = 0.18;
     }
 
     ctx.stroke();
+    ctx.shadowBlur = 0;
   });
 
   ctx.globalAlpha = 1;
@@ -827,23 +852,55 @@ function drawNodes({
 }
 
 function drawLabels({ ctx, visibleNodes }) {
-  // ZOOM CULLING
-  if (graphState.scale < 0.45) return;
+  const minScale = 0.25;
+  const maxScale = 0.65;
+
+  // FULLY HIDDEN
+  if (graphState.scale <= minScale) {
+    return;
+  }
+
+  // SMOOTH INTERPOLATION
+  const alpha = Math.min(
+    1,
+    (graphState.scale - minScale) / (maxScale - minScale),
+  );
+
+  ctx.save();
+
+  ctx.globalAlpha = alpha;
 
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = "14px sans-serif";
+
+  // Dynamic font scaling
+  const fontSize = Math.max(11, Math.min(16, 14 * graphState.scale));
+
+  ctx.font = `${fontSize}px sans-serif`;
 
   visibleNodes.forEach((node) => {
+    const isHovered = node.id === graphState.hoveredNodeId;
+
     const screenX = node.x * graphState.scale + graphState.offsetX;
 
     const screenY = node.y * graphState.scale + graphState.offsetY;
 
     const radius = Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7));
 
+    ctx.shadowColor = "rgba(0,0,0,0.6)";
+    ctx.shadowBlur = 4;
+
+    if (alpha < 0.35 && node.type === "tag" && !isHovered) {
+      return;
+    }
+
     ctx.fillText(node.label, screenX, screenY + radius + 18);
   });
+
+  ctx.shadowBlur = 0;
+
+  ctx.restore();
 }
 
 function renderGraphTooltip(node, mouseX, mouseY) {
@@ -987,16 +1044,22 @@ function applyForces() {
 function animateGraph() {
   if (!graphAnimating) return;
 
-  const lerp = 0.18;
+  const cameraLerp = 0.14;
+  const zoomLerp = 0.12;
 
-  graphState.offsetX += (graphState.targetOffsetX - graphState.offsetX) * lerp;
-  graphState.offsetY += (graphState.targetOffsetY - graphState.offsetY) * lerp;
-  graphState.scale += (graphState.targetScale - graphState.scale) * lerp;
+  graphState.offsetX +=
+    (graphState.targetOffsetX - graphState.offsetX) * cameraLerp;
+
+  graphState.offsetY +=
+    (graphState.targetOffsetY - graphState.offsetY) * cameraLerp;
+
+  graphState.scale += (graphState.targetScale - graphState.scale) * zoomLerp;
 
   // clamp scale
   graphState.scale = Math.max(0.05, graphState.scale);
   graphState.targetScale = Math.max(0.05, graphState.targetScale);
 
+  clampGraphCamera();
   renderGraph();
 
   const done =
@@ -1009,8 +1072,6 @@ function animateGraph() {
   } else {
     graphAnimating = false;
   }
-
-  clampGraphCamera();
 }
 
 // Camera system
@@ -1043,17 +1104,46 @@ function centerGraph() {
   ensureGraphAnimating();
 }
 
-function centerOnNode(nodeId) {
-  ensureGraphAnimating();
-
+function focusNode(nodeId, options = {}) {
   const node = graphState.nodes.find((n) => n.id === nodeId);
+
   if (!node) return;
 
-  const newOffsetX = canvas.width / 2 - node.x * graphState.scale;
-  const newOffsetY = canvas.height / 2 - node.y * graphState.scale;
+  const { scale = Math.max(graphState.scale, 0.9), animate = true } = options;
 
-  graphState.targetOffsetX = newOffsetX;
-  graphState.targetOffsetY = newOffsetY;
+  const offsetX = canvas.width / 2 - node.x * scale;
+
+  const offsetY = canvas.height / 2 - node.y * scale;
+
+  setCamera(scale, offsetX, offsetY);
+
+  if (animate) {
+    ensureGraphAnimating();
+  } else {
+    graphState.scale = scale;
+    graphState.offsetX = offsetX;
+    graphState.offsetY = offsetY;
+  }
+
+  if (isNodeNearCenter(node)) {
+    return;
+  }
+}
+
+function centerOnNode(nodeId) {
+  focusNode(nodeId);
+}
+
+function isNodeNearCenter(node) {
+  const screenX = node.x * graphState.scale + graphState.offsetX;
+
+  const screenY = node.y * graphState.scale + graphState.offsetY;
+
+  const dx = screenX - canvas.width / 2;
+
+  const dy = screenY - canvas.height / 2;
+
+  return Math.sqrt(dx * dx + dy * dy) < 180;
 }
 
 function resetGraphView() {
@@ -1116,6 +1206,28 @@ function clampGraphCamera() {
 function handleGraphClick(x, y) {
   if (graphState.hasDragged) return;
 
+  const { node, distance } = findClosestNode(x, y);
+
+  if (node && distance <= CLICK_RADIUS) {
+    if (graphTransitioning) return;
+
+    graphTransitioning = true;
+
+    graphState.selectedNodeId = node.id;
+
+    renderGraph();
+
+    setTimeout(() => {
+      graphTransitioning = false;
+    }, 180);
+  } else {
+    graphState.selectedNodeId = null;
+
+    renderGraph();
+  }
+}
+
+function findClosestNode(x, y) {
   let closestNode = null;
   let closestDistance = Infinity;
 
@@ -1126,6 +1238,7 @@ function handleGraphClick(x, y) {
   for (const node of visibleNodes) {
     const dx = node.x - x;
     const dy = node.y - y;
+
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     if (distance < closestDistance) {
@@ -1134,21 +1247,10 @@ function handleGraphClick(x, y) {
     }
   }
 
-  if (closestNode && closestDistance <= CLICK_RADIUS) {
-    if (graphTransitioning) return;
-
-    graphTransitioning = true;
-    graphState.selectedNodeId = closestNode.id;
-
-    renderGraph();
-
-    setTimeout(() => {
-      graphTransitioning = false;
-    }, 180);
-  } else {
-    graphState.selectedNodeId = null;
-    renderGraph();
-  }
+  return {
+    node: closestNode,
+    distance: closestDistance,
+  };
 }
 
 function positionGraphTooltip(mouseX, mouseY) {
@@ -1499,8 +1601,15 @@ function onGraphClick(e) {
 
   handleGraphClick(
     (mouseX - graphState.offsetX) / graphState.scale,
+
     (mouseY - graphState.offsetY) / graphState.scale,
   );
+
+  if (graphState.selectedNodeId) {
+    focusNode(graphState.selectedNodeId, {
+      scale: Math.max(graphState.scale, 0.85),
+    });
+  }
 }
 
 function onGraphDoubleClick(e) {
@@ -1510,26 +1619,14 @@ function onGraphDoubleClick(e) {
 
   const y = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
 
-  let closestNode = null;
-  let closestDistance = Infinity;
+  const { node, distance } = findClosestNode(x, y);
 
-  const visibleNodes = graphState.nodes.filter(
-    (node) => graphState.filters[node.type],
-  );
+  if (node && distance <= NODE_RADIUS) {
+    focusNode(node.id, {
+      scale: 1.15,
+    });
 
-  for (const node of visibleNodes) {
-    const dx = node.x - x;
-    const dy = node.y - y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-
-    if (distance < closestDistance) {
-      closestDistance = distance;
-      closestNode = node;
-    }
-  }
-
-  if (closestNode && closestDistance <= NODE_RADIUS) {
-    openDocumentFromGraph(closestNode.id);
+    openDocumentFromGraph(node.id);
   }
 }
 
