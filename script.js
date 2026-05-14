@@ -686,22 +686,47 @@ function renderGraph() {
   const selectedId = graphState.selectedNodeId;
   const hoveredId = graphState.hoveredNodeId;
 
-  // hovered node takes priority
   const activeId = hoveredId || selectedId;
 
   const connectedIds = activeId ? getConnectedNodeIds(activeId) : new Set();
 
-  // ONLY visible nodes
   const visibleNodes = graphState.nodes.filter(
     (node) => graphState.filters[node.type],
   );
 
-  // DRAW EDGES
-  graphState.edges.forEach((edge) => {
-    const from = visibleNodes.find((n) => n.id === edge.from);
-    const to = visibleNodes.find((n) => n.id === edge.to);
+  // PERFORMANCE PREP
+  const visibleNodeMap = new Map();
 
-    // hide edge if either node hidden
+  visibleNodes.forEach((node) => {
+    visibleNodeMap.set(node.id, node);
+  });
+
+  drawEdges({
+    ctx,
+    activeId,
+    visibleNodeMap,
+  });
+
+  drawNodes({
+    ctx,
+    activeId,
+    connectedIds,
+    visibleNodes,
+    selectedId,
+    hoveredId,
+  });
+
+  drawLabels({
+    ctx,
+    visibleNodes,
+  });
+}
+
+function drawEdges({ ctx, activeId, visibleNodeMap }) {
+  graphState.edges.forEach((edge) => {
+    const from = visibleNodeMap.get(edge.from);
+    const to = visibleNodeMap.get(edge.to);
+
     if (!from || !to) return;
 
     const fromX = from.x * graphState.scale + graphState.offsetX;
@@ -715,6 +740,7 @@ function renderGraph() {
     const isConnected = edge.from === activeId || edge.to === activeId;
 
     ctx.beginPath();
+
     ctx.moveTo(fromX, fromY);
     ctx.lineTo(toX, toY);
 
@@ -736,24 +762,34 @@ function renderGraph() {
   });
 
   ctx.globalAlpha = 1;
+}
 
-  // DRAW NODES
+function drawNodes({
+  ctx,
+  activeId,
+  connectedIds,
+  visibleNodes,
+  selectedId,
+  hoveredId,
+}) {
   visibleNodes.forEach((node) => {
     const isSelected = node.id === selectedId;
+
     const isHovered = node.id === hoveredId;
+
     const isConnected = connectedIds.has(node.id);
 
     const screenX = node.x * graphState.scale + graphState.offsetX;
 
     const screenY = node.y * graphState.scale + graphState.offsetY;
 
-    // clickable even zoomed out
     const radius = Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7));
 
     ctx.beginPath();
+
     ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
 
-    // glow
+    // GLOW
     if (isSelected || isHovered) {
       ctx.shadowColor = "#f39c12";
       ctx.shadowBlur = 20;
@@ -761,7 +797,7 @@ function renderGraph() {
       ctx.shadowBlur = 0;
     }
 
-    // coloring
+    // COLORING
     if (!activeId || !graphState.focusMode) {
       ctx.globalAlpha = 1;
 
@@ -785,15 +821,26 @@ function renderGraph() {
 
     ctx.fill();
 
-    // reset effects
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
+  });
+}
 
-    // LABEL
-    ctx.fillStyle = "#fff";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = "14px sans-serif";
+function drawLabels({ ctx, visibleNodes }) {
+  // ZOOM CULLING
+  if (graphState.scale < 0.45) return;
+
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "14px sans-serif";
+
+  visibleNodes.forEach((node) => {
+    const screenX = node.x * graphState.scale + graphState.offsetX;
+
+    const screenY = node.y * graphState.scale + graphState.offsetY;
+
+    const radius = Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7));
 
     ctx.fillText(node.label, screenX, screenY + radius + 18);
   });
