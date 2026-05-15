@@ -246,6 +246,7 @@ function getGraphData() {
           strength: 2,
 
           relationshipType: "character",
+          direction: "outgoing",
         });
       });
     }
@@ -274,6 +275,7 @@ function getGraphData() {
           strength: 1,
 
           relationshipType: "tag",
+          direction: "outgoing",
         });
       });
     }
@@ -957,6 +959,55 @@ function drawEdgePulses({
   ctx.globalAlpha = 1;
 }
 
+function drawEdgeArrow({
+  ctx,
+  fromX,
+  fromY,
+  toX,
+  toY,
+  controlX,
+  controlY,
+  color,
+}) {
+  const t = 0.92;
+
+  const arrowX = quadraticBezier(fromX, controlX, toX, t);
+
+  const arrowY = quadraticBezier(fromY, controlY, toY, t);
+
+  const tangentX = 2 * (1 - t) * (controlX - fromX) + 2 * t * (toX - controlX);
+
+  const tangentY = 2 * (1 - t) * (controlY - fromY) + 2 * t * (toY - controlY);
+
+  const angle = Math.atan2(tangentY, tangentX);
+
+  const arrowSize = 8;
+
+  ctx.save();
+
+  ctx.translate(arrowX, arrowY);
+
+  ctx.rotate(angle);
+
+  ctx.beginPath();
+
+  ctx.moveTo(0, 0);
+
+  ctx.lineTo(-arrowSize, arrowSize * 0.5);
+
+  ctx.lineTo(-arrowSize, -arrowSize * 0.5);
+
+  ctx.closePath();
+
+  ctx.fillStyle = color;
+
+  ctx.globalAlpha = 0.85;
+
+  ctx.fill();
+
+  ctx.restore();
+}
+
 function drawEdges(ctx, renderState) {
   const { activeId, visibleNodeMap } = renderState;
 
@@ -1022,6 +1073,19 @@ function drawEdges(ctx, renderState) {
     }
 
     ctx.stroke();
+
+    if (edge.direction && (!graphState.focusMode || isConnected)) {
+      drawEdgeArrow({
+        ctx,
+        fromX,
+        fromY,
+        toX,
+        toY,
+        controlX,
+        controlY,
+        color: ctx.strokeStyle,
+      });
+    }
 
     if (isConnected) {
       drawEdgePulses({
