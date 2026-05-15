@@ -431,6 +431,34 @@ mark {
   padding: 0;
 }
 
+#graph-minimap-container {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+
+  width: 220px;
+  height: 160px;
+
+  background: rgba(15, 15, 15, 0.92);
+
+  border: 1px solid #333;
+
+  border-radius: 10px;
+
+  overflow: hidden;
+
+  backdrop-filter: blur(8px);
+
+  z-index: 50;
+}
+
+#graph-minimap {
+  width: 100%;
+  height: 100%;
+
+  display: block;
+}
+
 /* ======================
    TITLE
 ====================== */
@@ -520,10 +548,10 @@ mark {
 .graph-footer {
   position: absolute;
 
-  bottom: 16px;
-  right: 16px;
+  left: 20px;
+  bottom: 20px;
 
-  z-index: 40;
+  z-index: 60;
 }
 
 #close-graph {

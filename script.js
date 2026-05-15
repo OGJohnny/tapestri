@@ -69,6 +69,10 @@ const graphState = {
   tooltip: {
     nodeId: null,
   },
+
+  minimap: {
+    dragging: false,
+  },
 };
 
 // Cluster positioning system
@@ -160,6 +164,9 @@ const addButtons = document.querySelectorAll(".add-btn");
 
 const graphTooltip = document.getElementById("graph-tooltip");
 const graphModalContent = document.querySelector("#graph-modal .modal-content");
+
+const minimapCanvas = document.getElementById("graph-minimap");
+const minimapCtx = minimapCanvas.getContext("2d");
 
 const canvas = document.getElementById("graph-canvas");
 
@@ -396,6 +403,30 @@ function getNodeAtPosition(x, y) {
   }
 
   return null;
+}
+
+function getMinimapTransform() {
+  const bounds = getGraphBounds();
+
+  if (!bounds) return null;
+
+  const padding = 20;
+
+  const scaleX = (minimapCanvas.width - padding * 2) / bounds.width;
+
+  const scaleY = (minimapCanvas.height - padding * 2) / bounds.height;
+
+  const minimapScale = Math.min(scaleX, scaleY);
+
+  const offsetX = minimapCanvas.width / 2 - bounds.centerX * minimapScale;
+
+  const offsetY = minimapCanvas.height / 2 - bounds.centerY * minimapScale;
+
+  return {
+    minimapScale,
+    offsetX,
+    offsetY,
+  };
 }
 
 // Formatting helpers
@@ -720,6 +751,104 @@ function renderGraph() {
     ctx,
     visibleNodes,
   });
+
+  renderMinimap();
+}
+
+function renderMinimap() {
+  const ctx = minimapCtx;
+
+  ctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
+
+  const bounds = getGraphBounds();
+
+  if (!bounds) return;
+
+  const padding = 20;
+
+  const scaleX = (minimapCanvas.width - padding * 2) / bounds.width;
+
+  const scaleY = (minimapCanvas.height - padding * 2) / bounds.height;
+
+  const minimapScale = Math.min(scaleX, scaleY);
+
+  const offsetX = minimapCanvas.width / 2 - bounds.centerX * minimapScale;
+
+  const offsetY = minimapCanvas.height / 2 - bounds.centerY * minimapScale;
+
+  // EDGES
+  graphState.edges.forEach((edge) => {
+    const from = graphState.nodes.find((n) => n.id === edge.from);
+
+    const to = graphState.nodes.find((n) => n.id === edge.to);
+
+    if (!from || !to) return;
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      from.x * minimapScale + offsetX,
+      from.y * minimapScale + offsetY,
+    );
+
+    ctx.lineTo(to.x * minimapScale + offsetX, to.y * minimapScale + offsetY);
+
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = 1;
+
+    ctx.stroke();
+  });
+
+  // NODES
+  graphState.nodes.forEach((node) => {
+    ctx.beginPath();
+
+    ctx.arc(
+      node.x * minimapScale + offsetX,
+      node.y * minimapScale + offsetY,
+      3,
+      0,
+      Math.PI * 2,
+    );
+
+    if (node.type === "chapter") {
+      ctx.fillStyle = "#27ae60";
+    } else if (node.type === "character") {
+      ctx.fillStyle = "#2980b9";
+    } else {
+      ctx.fillStyle = "#8e44ad";
+    }
+
+    ctx.fill();
+  });
+
+  renderMinimapViewport({
+    minimapScale,
+    offsetX,
+    offsetY,
+  });
+}
+
+function renderMinimapViewport({ minimapScale, offsetX, offsetY }) {
+  const ctx = minimapCtx;
+
+  const viewWidth = canvas.width / graphState.scale;
+
+  const viewHeight = canvas.height / graphState.scale;
+
+  const worldX = -graphState.offsetX / graphState.scale;
+
+  const worldY = -graphState.offsetY / graphState.scale;
+
+  ctx.strokeStyle = "#f39c12";
+  ctx.lineWidth = 2;
+
+  ctx.strokeRect(
+    worldX * minimapScale + offsetX,
+    worldY * minimapScale + offsetY,
+    viewWidth * minimapScale,
+    viewHeight * minimapScale,
+  );
 }
 
 function drawEdges({ ctx, activeId, visibleNodeMap }) {
@@ -1048,7 +1177,7 @@ function updateGraphPhysics() {
 function wakeGraphPhysics() {
   graphState.temperature = 1;
 
-  ensureGraphAnimating();
+  startGraphLoop();
 }
 
 function animateGraph() {
@@ -1100,10 +1229,10 @@ function setCamera(scale, offsetX, offsetY) {
   graphState.targetOffsetY = offsetY;
 
   // immediately start animation loop
-  ensureGraphAnimating();
+  wakeGraphPhysics();
 }
 
-function ensureGraphAnimating() {
+function startGraphLoop() {
   if (graphAnimating) return;
 
   graphAnimating = true;
@@ -1120,7 +1249,7 @@ function centerGraph() {
   graphState.targetOffsetY =
     canvas.height / 2 - bounds.centerY * graphState.scale;
 
-  ensureGraphAnimating();
+  wakeGraphPhysics();
 }
 
 function focusNode(nodeId, options = {}) {
@@ -1137,7 +1266,7 @@ function focusNode(nodeId, options = {}) {
   setCamera(scale, offsetX, offsetY);
 
   if (animate) {
-    ensureGraphAnimating();
+    wakeGraphPhysics();
   } else {
     graphState.scale = scale;
     graphState.offsetX = offsetX;
@@ -1171,8 +1300,6 @@ function resetGraphView() {
     graphState.initialOffsetX,
     graphState.initialOffsetY,
   );
-
-  ensureGraphAnimating();
 }
 
 function fitGraphToScreen() {
@@ -1192,7 +1319,7 @@ function fitGraphToScreen() {
     canvas.height / 2 - bounds.centerY * newScale,
   );
 
-  ensureGraphAnimating();
+  wakeGraphPhysics();
 }
 
 function clampGraphCamera() {
@@ -1219,6 +1346,24 @@ function clampGraphCamera() {
     minOffsetY,
     Math.min(maxOffsetY, graphState.offsetY),
   );
+}
+
+function navigateFromMinimap(x, y) {
+  const transform = getMinimapTransform();
+
+  if (!transform) return;
+
+  const { minimapScale, offsetX, offsetY } = transform;
+
+  const worldX = (x - offsetX) / minimapScale;
+
+  const worldY = (y - offsetY) / minimapScale;
+
+  graphState.targetOffsetX = canvas.width / 2 - worldX * graphState.scale;
+
+  graphState.targetOffsetY = canvas.height / 2 - worldY * graphState.scale;
+
+  wakeGraphPhysics();
 }
 
 // Graph interaction
@@ -1408,9 +1553,8 @@ function openGraph() {
     graphState.initialOffsetY = graphState.targetOffsetY;
   }, 100);
 
-  graphAnimating = true;
   graphState.temperature = 1;
-  animateGraph();
+  wakeGraphPhysics();
 }
 
 function closeGraph() {
@@ -1451,6 +1595,8 @@ function openDocumentFromGraph(id) {
 function setupCanvasSize() {
   canvas.width = canvas.offsetWidth;
   canvas.height = canvas.offsetHeight;
+  minimapCanvas.width = 220;
+  minimapCanvas.height = 160;
 }
 
 // Graph mouse controls
@@ -1540,8 +1686,9 @@ function onGraphMouseMove(e) {
 
     drag.draggedNode.vx = 0;
     drag.draggedNode.vy = 0;
-
     drag.draggedNode.fixed = true;
+
+    wakeGraphPhysics();
 
     renderGraph();
     return;
@@ -1591,7 +1738,7 @@ function onGraphMouseLeave() {
 function onGraphWheel(e) {
   e.preventDefault();
 
-  ensureGraphAnimating();
+  wakeGraphPhysics();
 
   const rect = canvas.getBoundingClientRect();
   const mouseX = e.clientX - rect.left;
@@ -1650,9 +1797,30 @@ function onGraphDoubleClick(e) {
   }
 }
 
+function onMinimapMouseDown(e) {
+  graphState.minimap.dragging = true;
+
+  const rect = minimapCanvas.getBoundingClientRect();
+
+  navigateFromMinimap(e.clientX - rect.left, e.clientY - rect.top);
+}
+
+function onMinimapMouseMove(e) {
+  if (!graphState.minimap.dragging) return;
+
+  const rect = minimapCanvas.getBoundingClientRect();
+
+  navigateFromMinimap(e.clientX - rect.left, e.clientY - rect.top);
+}
+
+function onMinimapMouseUp() {
+  graphState.minimap.dragging = false;
+}
+
 // Graph initialization
 function initGraphEvents() {
   initGraphCanvasEvent();
+  initMinimapEvents();
   initGraphUIEvents();
   initGraphKeyboardControls();
 }
@@ -1734,10 +1902,17 @@ function initGraphKeyboardControls() {
 
     if (e.key.toLowerCase() === "c") {
       e.preventDefault();
-      ensureGraphAnimating();
       centerGraph();
     }
   });
+}
+
+function initMinimapEvents() {
+  minimapCanvas.addEventListener("mousedown", onMinimapMouseDown);
+
+  window.addEventListener("mousemove", onMinimapMouseMove);
+
+  window.addEventListener("mouseup", onMinimapMouseUp);
 }
 
 // =====================================================
