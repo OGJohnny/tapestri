@@ -73,6 +73,10 @@ const graphState = {
   minimap: {
     dragging: false,
   },
+
+  nodeMap: new Map(),
+
+  animationTime: 0,
 };
 
 // Cluster positioning system
@@ -213,7 +217,10 @@ function getGraphData() {
   const docs = getCurrentDocs();
 
   if (!docs) {
-    return { nodes: [], edges: [] };
+    return {
+      nodes: [],
+      edges: [],
+    };
   }
 
   const nodes = [];
@@ -235,11 +242,15 @@ function getGraphData() {
         edges.push({
           from: String(doc.id),
           to: String(charId),
+
+          strength: 2,
+
+          relationshipType: "character",
         });
       });
     }
 
-    // TAG NODES + RELATIONSHIPS
+    // TAG RELATIONSHIPS
     if (doc.tags && Array.isArray(doc.tags)) {
       doc.tags.forEach((tag) => {
         const tagId = `tag-${tag}`;
@@ -255,16 +266,23 @@ function getGraphData() {
           });
         }
 
-        // CONNECT DOC -> TAG
+        // DOC -> TAG EDGE
         edges.push({
           from: String(doc.id),
           to: tagId,
+
+          strength: 1,
+
+          relationshipType: "tag",
         });
       });
     }
   });
 
-  return { nodes, edges };
+  return {
+    nodes,
+    edges,
+  };
 }
 
 function getTooltipData(node) {
@@ -427,6 +445,10 @@ function getMinimapTransform() {
     offsetX,
     offsetY,
   };
+}
+
+function quadraticBezier(p0, p1, p2, t) {
+  return (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * p1 + t * t * p2;
 }
 
 // Formatting helpers
@@ -709,12 +731,9 @@ function redo() {
 // =====================================================
 
 // Graph rendering
-function renderGraph() {
-  const ctx = canvas.getContext("2d");
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
+function prepareGraphRenderState() {
   const selectedId = graphState.selectedNodeId;
+
   const hoveredId = graphState.hoveredNodeId;
 
   const activeId = hoveredId || selectedId;
@@ -725,32 +744,36 @@ function renderGraph() {
     (node) => graphState.filters[node.type],
   );
 
-  // PERFORMANCE PREP
   const visibleNodeMap = new Map();
 
   visibleNodes.forEach((node) => {
     visibleNodeMap.set(node.id, node);
   });
 
-  drawEdges({
-    ctx,
-    activeId,
-    visibleNodeMap,
-  });
-
-  drawNodes({
-    ctx,
+  return {
+    selectedId,
+    hoveredId,
     activeId,
     connectedIds,
     visibleNodes,
-    selectedId,
-    hoveredId,
-  });
+    visibleNodeMap,
+  };
+}
 
-  drawLabels({
-    ctx,
-    visibleNodes,
-  });
+function renderGraph() {
+  const ctx = canvas.getContext("2d");
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const renderState = prepareGraphRenderState();
+
+  drawEdges(ctx, renderState);
+
+  drawNodes(ctx, renderState);
+
+  drawLabels(ctx, renderState);
+
+  drawOverlays(ctx, renderState);
 
   renderMinimap();
 }
@@ -778,11 +801,16 @@ function renderMinimap() {
 
   // EDGES
   graphState.edges.forEach((edge) => {
-    const from = graphState.nodes.find((n) => n.id === edge.from);
+    const from = graphState.nodeMap.get(edge.from);
 
-    const to = graphState.nodes.find((n) => n.id === edge.to);
+    const to = graphState.nodeMap.get(edge.to);
 
     if (!from || !to) return;
+
+    // Skip hidden nodes
+    if (!graphState.filters[from.type] || !graphState.filters[to.type]) {
+      return;
+    }
 
     ctx.beginPath();
 
@@ -800,13 +828,19 @@ function renderMinimap() {
   });
 
   // NODES
-  graphState.nodes.forEach((node) => {
+  const visibleNodes = graphState.nodes.filter(
+    (node) => graphState.filters[node.type],
+  );
+
+  visibleNodes.forEach((node) => {
+    const radius = graphState.scale < 0.35 ? 2 : 3;
+
     ctx.beginPath();
 
     ctx.arc(
       node.x * minimapScale + offsetX,
       node.y * minimapScale + offsetY,
-      3,
+      radius,
       0,
       Math.PI * 2,
     );
@@ -851,12 +885,87 @@ function renderMinimapViewport({ minimapScale, offsetX, offsetY }) {
   );
 }
 
-function drawEdges({ ctx, activeId, visibleNodeMap }) {
+function getEdgeCurve(fromX, fromY, toX, toY) {
+  const midX = (fromX + toX) / 2;
+
+  const midY = (fromY + toY) / 2;
+
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  // perpendicular offset
+  const curveStrength = Math.min(80, distance * 0.18);
+
+  const normalX = -dy / distance;
+
+  const normalY = dx / distance;
+
+  const controlX = midX + normalX * curveStrength;
+
+  const controlY = midY + normalY * curveStrength;
+
+  return {
+    controlX,
+    controlY,
+  };
+}
+
+function drawEdgePulses({
+  ctx,
+  fromX,
+  fromY,
+  toX,
+  toY,
+  controlX,
+  controlY,
+  strength = 1,
+}) {
+  const pulseCount = Math.min(5, Math.max(1, strength));
+
+  const speed = 0.6 + strength * 0.25;
+
+  for (let i = 0; i < pulseCount; i++) {
+    const offset = i / pulseCount;
+
+    const t = (graphState.animationTime * speed + offset) % 1;
+
+    const pulseX = quadraticBezier(fromX, controlX, toX, t);
+
+    const pulseY = quadraticBezier(fromY, controlY, toY, t);
+
+    const radius = 2 + strength * 0.8;
+
+    ctx.beginPath();
+
+    ctx.arc(pulseX, pulseY, radius, 0, Math.PI * 2);
+
+    ctx.fillStyle = "#f39c12";
+
+    ctx.globalAlpha = 0.75 + strength * 0.08;
+
+    ctx.shadowColor = "#f39c12";
+
+    ctx.shadowBlur = 10 + strength * 2;
+
+    ctx.fill();
+  }
+
+  ctx.shadowBlur = 0;
+
+  ctx.globalAlpha = 1;
+}
+
+function drawEdges(ctx, renderState) {
+  const { activeId, visibleNodeMap } = renderState;
+
+  ctx.lineCap = "round";
+
   graphState.edges.forEach((edge) => {
     const from = visibleNodeMap.get(edge.from);
-    const to = visibleNodeMap.get(edge.to);
 
-    ctx.lineCap = "round";
+    const to = visibleNodeMap.get(edge.to);
 
     if (!from || !to) return;
 
@@ -870,62 +979,73 @@ function drawEdges({ ctx, activeId, visibleNodeMap }) {
 
     const isConnected = edge.from === activeId || edge.to === activeId;
 
+    const { controlX, controlY } = getEdgeCurve(fromX, fromY, toX, toY);
+
     ctx.beginPath();
-
-    const midX = (fromX + toX) / 2;
-    const midY = (fromY + toY) / 2;
-
-    // PERPENDICULAR OFFSET
-    const dx = toX - fromX;
-    const dy = toY - fromY;
-
-    const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-
-    // NORMAL VECTOR
-    const nx = -dy / distance;
-    const ny = dx / distance;
-
-    // SUBTLE CURVATURE
-    const curveStrength = Math.min(40, distance * 0.12);
-
-    const curveX = midX + nx * curveStrength;
-    const curveY = midY + ny * curveStrength;
 
     ctx.moveTo(fromX, fromY);
 
-    ctx.quadraticCurveTo(curveX, curveY, toX, toY);
+    ctx.quadraticCurveTo(controlX, controlY, toX, toY);
 
+    // DEFAULT
     if (!activeId || !graphState.focusMode) {
       ctx.strokeStyle = "#666";
-      ctx.lineWidth = 1.5;
-      ctx.globalAlpha = 1;
+
+      ctx.lineWidth = Math.max(1.2, graphState.scale * 1.5);
+
+      ctx.globalAlpha = 0.75;
+
+      // CONNECTED
     } else if (isConnected) {
       ctx.strokeStyle = "#f39c12";
-      ctx.lineWidth = 2.5;
+
+      ctx.lineWidth = Math.max(1.8, graphState.scale * 2.2);
+
       ctx.globalAlpha = 0.95;
+
       ctx.shadowColor = "#f39c12";
-      ctx.shadowBlur = 8;
+
+      ctx.shadowBlur = 12;
+
+      // FADED
     } else {
       ctx.strokeStyle = "#222";
+
       ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.18;
+
+      ctx.globalAlpha = 0.12;
+    }
+
+    // RELATIONSHIP WEIGHTING
+    if (edge.strength) {
+      ctx.lineWidth *= edge.strength;
     }
 
     ctx.stroke();
+
+    if (isConnected) {
+      drawEdgePulses({
+        ctx,
+        fromX,
+        fromY,
+        toX,
+        toY,
+        controlX,
+        controlY,
+        strength: edge.strength || 1,
+      });
+    }
+
     ctx.shadowBlur = 0;
   });
 
   ctx.globalAlpha = 1;
 }
 
-function drawNodes({
-  ctx,
-  activeId,
-  connectedIds,
-  visibleNodes,
-  selectedId,
-  hoveredId,
-}) {
+function drawNodes(ctx, renderState) {
+  const { activeId, connectedIds, visibleNodes, selectedId, hoveredId } =
+    renderState;
+
   visibleNodes.forEach((node) => {
     const isSelected = node.id === selectedId;
 
@@ -980,7 +1100,9 @@ function drawNodes({
   });
 }
 
-function drawLabels({ ctx, visibleNodes }) {
+function drawLabels(ctx, renderState) {
+  const { visibleNodes } = renderState;
+
   const minScale = 0.25;
   const maxScale = 0.65;
 
@@ -1031,6 +1153,8 @@ function drawLabels({ ctx, visibleNodes }) {
 
   ctx.restore();
 }
+
+function drawOverlays(ctx, renderState) {}
 
 function renderGraphTooltip(node, mouseX, mouseY) {
   const data = getTooltipData(node);
@@ -1119,8 +1243,8 @@ function applyForces() {
 
   // --- EDGE ATTRACTION (stronger so things cluster)
   edges.forEach((edge) => {
-    const a = nodes.find((n) => n.id === edge.from);
-    const b = nodes.find((n) => n.id === edge.to);
+    const a = graphState.nodeMap.get(edge.from);
+    const b = graphState.nodeMap.get(edge.to);
     if (!a || !b) return;
 
     const dx = b.x - a.x;
@@ -1186,6 +1310,8 @@ function animateGraph() {
   updateGraphPhysics();
 
   updateGraphCamera();
+
+  graphState.animationTime += 0.016;
 
   renderGraph();
 
@@ -1253,7 +1379,7 @@ function centerGraph() {
 }
 
 function focusNode(nodeId, options = {}) {
-  const node = graphState.nodes.find((n) => n.id === nodeId);
+  const node = graphState.nodeMap.get(nodeId);
 
   if (!node) return;
 
@@ -1529,6 +1655,12 @@ function openGraph() {
 
       fixed: false,
     };
+  });
+
+  graphState.nodeMap.clear();
+
+  graphState.nodes.forEach((node) => {
+    graphState.nodeMap.set(node.id, node);
   });
 
   graphState.edges = data.edges;
