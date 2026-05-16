@@ -593,6 +593,33 @@ function detectSubcommunities() {
   });
 }
 
+function getCommunityCenters() {
+  const centers = new Map();
+
+  graphState.nodes.forEach((node) => {
+    if (!centers.has(node.community)) {
+      centers.set(node.community, {
+        x: 0,
+        y: 0,
+        count: 0,
+      });
+    }
+
+    const center = centers.get(node.community);
+
+    center.x += node.x;
+    center.y += node.y;
+    center.count++;
+  });
+
+  centers.forEach((center) => {
+    center.x /= center.count;
+    center.y /= center.count;
+  });
+
+  return centers;
+}
+
 // Formatting helpers
 function isInsideMarker(text, pos, marker) {
   const before = text.slice(0, pos);
@@ -1526,6 +1553,24 @@ function applyForces() {
 
     b.vx -= fx;
     b.vy -= fy;
+  });
+
+  const communityCenters = getCommunityCenters();
+
+  nodes.forEach((node) => {
+    if (node.fixed) return;
+
+    const center = communityCenters.get(node.community);
+
+    if (!center) return;
+
+    const dx = center.x - node.x;
+    const dy = center.y - node.y;
+
+    const communityGravity = 0.0035;
+
+    node.vx += dx * communityGravity;
+    node.vy += dy * communityGravity;
   });
 
   // SOFT CLUSTER GRAVITY
