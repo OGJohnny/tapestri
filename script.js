@@ -37,6 +37,9 @@ const graphState = {
   selectedNodeId: null,
   hoveredNodeId: null,
 
+  tracedPath: [],
+  traceStartNodeId: null,
+
   scale: 1,
   offsetX: 0,
   offsetY: 0,
@@ -74,9 +77,42 @@ const graphState = {
     dragging: false,
   },
 
+  communityColors: [
+    "#e74c3c",
+    "#3498db",
+    "#2ecc71",
+    "#f1c40f",
+    "#9b59b6",
+    "#1abc9c",
+    "#e67e22",
+    "#fd79a8",
+  ],
+
   nodeMap: new Map(),
 
   animationTime: 0,
+};
+
+const edgePhysics = {
+  character: {
+    attraction: 0.018,
+    preferredDistance: 140,
+  },
+
+  tag: {
+    attraction: 0.004,
+    preferredDistance: 260,
+  },
+
+  timeline: {
+    attraction: 0.012,
+    preferredDistance: 180,
+  },
+
+  semantic: {
+    attraction: 0.006,
+    preferredDistance: 220,
+  },
 };
 
 // Cluster positioning system
@@ -217,36 +253,31 @@ function getGraphData() {
   const docs = getCurrentDocs();
 
   if (!docs) {
-    return {
-      nodes: [],
-      edges: [],
-    };
+    return { nodes: [], edges: [] };
   }
 
   const nodes = [];
   const edges = [];
-
   const addedTags = new Set();
 
   Object.values(docs).forEach((doc) => {
-    // MAIN DOCUMENT NODE
     nodes.push({
       id: String(doc.id),
       label: doc.title || "Untitled",
       type: doc.type,
     });
 
-    // CHAPTER -> CHARACTER RELATIONSHIPS
+    // CHARACTER RELATIONSHIPS
     if (doc.type === "chapter" && doc.relationships?.characters) {
       doc.relationships.characters.forEach((charId) => {
         edges.push({
           from: String(doc.id),
           to: String(charId),
 
-          strength: 2,
-
           relationshipType: "character",
-          direction: "outgoing",
+
+          strength: 1.4,
+          direction: true,
         });
       });
     }
@@ -256,7 +287,6 @@ function getGraphData() {
       doc.tags.forEach((tag) => {
         const tagId = `tag-${tag}`;
 
-        // CREATE TAG NODE ONCE
         if (!addedTags.has(tagId)) {
           addedTags.add(tagId);
 
@@ -267,24 +297,20 @@ function getGraphData() {
           });
         }
 
-        // DOC -> TAG EDGE
         edges.push({
           from: String(doc.id),
           to: tagId,
 
-          strength: 1,
-
           relationshipType: "tag",
-          direction: "outgoing",
+
+          strength: 0.7,
+          direction: false,
         });
       });
     }
   });
 
-  return {
-    nodes,
-    edges,
-  };
+  return { nodes, edges };
 }
 
 function getTooltipData(node) {
@@ -451,6 +477,120 @@ function getMinimapTransform() {
 
 function quadraticBezier(p0, p1, p2, t) {
   return (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * p1 + t * t * p2;
+}
+
+function getConnectedNeighbors(nodeId) {
+  const neighbors = [];
+
+  graphState.edges.forEach((edge) => {
+    if (edge.from === nodeId) {
+      const neighbor = graphState.nodeMap.get(edge.to);
+
+      if (neighbor) {
+        neighbors.push(neighbor);
+      }
+    }
+
+    if (edge.to === nodeId) {
+      const neighbor = graphState.nodeMap.get(edge.from);
+
+      if (neighbor) {
+        neighbors.push(neighbor);
+      }
+    }
+  });
+
+  return neighbors;
+}
+
+function detectCommunities() {
+  let currentCommunity = 0;
+
+  const visited = new Set();
+
+  graphState.nodes.forEach((node) => {
+    node.community = -1;
+  });
+
+  graphState.nodes.forEach((node) => {
+    if (visited.has(node.id)) return;
+
+    const queue = [node];
+
+    while (queue.length) {
+      const current = queue.shift();
+
+      if (!current || visited.has(current.id)) {
+        continue;
+      }
+
+      visited.add(current.id);
+
+      current.community = currentCommunity;
+      current.subcommunity = -1;
+
+      const neighbors = getConnectedNeighbors(current.id);
+
+      neighbors.forEach((neighbor) => {
+        if (!visited.has(neighbor.id)) {
+          queue.push(neighbor);
+        }
+      });
+    }
+
+    currentCommunity++;
+  });
+}
+
+function detectSubcommunities() {
+  const communities = new Map();
+
+  // GROUP NODES BY COMMUNITY
+  graphState.nodes.forEach((node) => {
+    if (!communities.has(node.community)) {
+      communities.set(node.community, []);
+    }
+
+    communities.get(node.community).push(node);
+  });
+
+  // PROCESS EACH COMMUNITY
+  communities.forEach((communityNodes) => {
+    let subId = 0;
+
+    const visited = new Set();
+
+    communityNodes.forEach((node) => {
+      if (visited.has(node.id)) return;
+
+      const queue = [node];
+
+      while (queue.length) {
+        const current = queue.shift();
+
+        if (!current || visited.has(current.id)) {
+          continue;
+        }
+
+        visited.add(current.id);
+
+        current.subcommunity = subId;
+
+        const neighbors = getConnectedNeighbors(current.id);
+
+        neighbors.forEach((neighbor) => {
+          if (
+            neighbor.community === current.community &&
+            !visited.has(neighbor.id)
+          ) {
+            queue.push(neighbor);
+          }
+        });
+      }
+
+      subId++;
+    });
+  });
 }
 
 // Formatting helpers
@@ -928,6 +1068,8 @@ function drawEdgePulses({
 
   const speed = 0.6 + strength * 0.25;
 
+  ctx.save();
+
   for (let i = 0; i < pulseCount; i++) {
     const offset = i / pulseCount;
 
@@ -954,9 +1096,7 @@ function drawEdgePulses({
     ctx.fill();
   }
 
-  ctx.shadowBlur = 0;
-
-  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 function drawEdgeArrow({
@@ -1013,6 +1153,15 @@ function drawEdges(ctx, renderState) {
 
   ctx.lineCap = "round";
 
+  // BUILD TRACED EDGE SET ONCE
+  const tracedEdges = new Set();
+
+  for (let i = 0; i < graphState.tracedPath.length - 1; i++) {
+    tracedEdges.add(
+      `${graphState.tracedPath[i]}-${graphState.tracedPath[i + 1]}`,
+    );
+  }
+
   graphState.edges.forEach((edge) => {
     const from = visibleNodeMap.get(edge.from);
 
@@ -1030,6 +1179,8 @@ function drawEdges(ctx, renderState) {
 
     const isConnected = edge.from === activeId || edge.to === activeId;
 
+    const isTraced = tracedEdges.has(`${edge.from}-${edge.to}`);
+
     const { controlX, controlY } = getEdgeCurve(fromX, fromY, toX, toY);
 
     ctx.beginPath();
@@ -1038,8 +1189,20 @@ function drawEdges(ctx, renderState) {
 
     ctx.quadraticCurveTo(controlX, controlY, toX, toY);
 
-    // DEFAULT
-    if (!activeId || !graphState.focusMode) {
+    // TRACED PATH
+    if (isTraced) {
+      ctx.strokeStyle = "#00d4ff";
+
+      ctx.lineWidth = 4;
+
+      ctx.globalAlpha = 1;
+
+      ctx.shadowColor = "#00d4ff";
+
+      ctx.shadowBlur = 18;
+
+      // DEFAULT
+    } else if (!activeId || !graphState.focusMode) {
       ctx.strokeStyle = "#666";
 
       ctx.lineWidth = Math.max(1.2, graphState.scale * 1.5);
@@ -1074,7 +1237,8 @@ function drawEdges(ctx, renderState) {
 
     ctx.stroke();
 
-    if (edge.direction && (!graphState.focusMode || isConnected)) {
+    // DIRECTIONAL ARROWS
+    if (edge.direction && (!graphState.focusMode || isConnected || isTraced)) {
       drawEdgeArrow({
         ctx,
         fromX,
@@ -1087,7 +1251,8 @@ function drawEdges(ctx, renderState) {
       });
     }
 
-    if (isConnected) {
+    // EDGE PULSES
+    if (isConnected || isTraced) {
       drawEdgePulses({
         ctx,
         fromX,
@@ -1136,24 +1301,24 @@ function drawNodes(ctx, renderState) {
     }
 
     // COLORING
-    if (!activeId || !graphState.focusMode) {
-      ctx.globalAlpha = 1;
+    const communityColor =
+      graphState.communityColors[
+        node.community % graphState.communityColors.length
+      ];
 
-      if (node.type === "character") {
-        ctx.fillStyle = "#2980b9";
-      } else if (node.type === "chapter") {
-        ctx.fillStyle = "#27ae60";
-      } else {
-        ctx.fillStyle = "#8e44ad";
-      }
+    const subPulse = (node.subcommunity || 0) * 0.08;
+
+    if (!activeId || !graphState.focusMode) {
+      ctx.globalAlpha = 0.82 + subPulse;
+      ctx.fillStyle = communityColor;
     } else if (isSelected || isHovered) {
       ctx.globalAlpha = 1;
       ctx.fillStyle = "#f39c12";
     } else if (isConnected) {
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = "#3498db";
+      ctx.globalAlpha = 0.82 + subPulse;
+      ctx.fillStyle = communityColor;
     } else {
-      ctx.globalAlpha = 0.3;
+      ctx.globalAlpha = 0.22;
       ctx.fillStyle = "#333";
     }
 
@@ -1268,6 +1433,33 @@ function applyForces() {
   // Smooth cooling (slower = nicer animation)
   graphState.temperature *= 0.96;
 
+  nodes.forEach((node) => {
+    if (node.fixed) return;
+
+    const neighbors = getConnectedNeighbors(node.id);
+
+    if (!neighbors.length) return;
+
+    let avgX = 0;
+    let avgY = 0;
+
+    neighbors.forEach((neighbor) => {
+      avgX += neighbor.x;
+      avgY += neighbor.y;
+    });
+
+    avgX /= neighbors.length;
+    avgY /= neighbors.length;
+
+    const dx = avgX - node.x;
+    const dy = avgY - node.y;
+
+    const cohesionStrength = 0.0025;
+
+    node.vx += dx * cohesionStrength;
+    node.vy += dy * cohesionStrength;
+  });
+
   // --- REPULSION + MIN DISTANCE (prevents overlap)
   const minDist = 140; //  about node size spacing
 
@@ -1308,18 +1500,32 @@ function applyForces() {
   // --- EDGE ATTRACTION (stronger so things cluster)
   edges.forEach((edge) => {
     const a = graphState.nodeMap.get(edge.from);
+
     const b = graphState.nodeMap.get(edge.to);
+
     if (!a || !b) return;
 
     const dx = b.x - a.x;
     const dy = b.y - a.y;
 
-    const strength = 0.01;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
 
-    a.vx += dx * strength;
-    a.vy += dy * strength;
-    b.vx -= dx * strength;
-    b.vy -= dy * strength;
+    const physics = edgePhysics[edge.relationshipType] || edgePhysics.character;
+
+    const preferred = physics.preferredDistance;
+
+    const attraction = physics.attraction;
+
+    const force = (dist - preferred) * attraction;
+
+    const fx = (dx / dist) * force;
+    const fy = (dy / dist) * force;
+
+    a.vx += fx;
+    a.vy += fy;
+
+    b.vx -= fx;
+    b.vy -= fy;
   });
 
   // SOFT CLUSTER GRAVITY
@@ -1557,13 +1763,32 @@ function navigateFromMinimap(x, y) {
 }
 
 // Graph interaction
-function handleGraphClick(x, y) {
+function handleGraphClick(x, y, event) {
   if (graphState.hasDragged) return;
 
   const { node, distance } = findClosestNode(x, y);
 
   if (node && distance <= CLICK_RADIUS) {
     if (graphTransitioning) return;
+
+    // PATH TRACING
+    if (event.shiftKey) {
+      if (graphState.traceStartNodeId) {
+        graphState.tracedPath = findShortestPath(
+          graphState.traceStartNodeId,
+          node.id,
+        );
+
+        graphState.traceStartNodeId = null;
+      } else {
+        graphState.traceStartNodeId = node.id;
+
+        graphState.tracedPath = [];
+      }
+    } else {
+      graphState.tracedPath = [];
+      graphState.traceStartNodeId = null;
+    }
 
     graphTransitioning = true;
 
@@ -1576,6 +1801,10 @@ function handleGraphClick(x, y) {
     }, 180);
   } else {
     graphState.selectedNodeId = null;
+
+    graphState.tracedPath = [];
+
+    graphState.traceStartNodeId = null;
 
     renderGraph();
   }
@@ -1605,6 +1834,42 @@ function findClosestNode(x, y) {
     node: closestNode,
     distance: closestDistance,
   };
+}
+
+function findShortestPath(startId, endId) {
+  if (!startId || !endId) {
+    return [];
+  }
+
+  const queue = [[startId]];
+
+  const visited = new Set();
+
+  visited.add(startId);
+
+  while (queue.length) {
+    const path = queue.shift();
+
+    const current = path[path.length - 1];
+
+    if (current === endId) {
+      return path;
+    }
+
+    const neighbors = graphState.edges
+      .filter((edge) => edge.from === current)
+      .map((edge) => edge.to);
+
+    for (const next of neighbors) {
+      if (!visited.has(next)) {
+        visited.add(next);
+
+        queue.push([...path, next]);
+      }
+    }
+  }
+
+  return [];
 }
 
 function positionGraphTooltip(mouseX, mouseY) {
@@ -1728,6 +1993,9 @@ function openGraph() {
   });
 
   graphState.edges = data.edges;
+
+  detectCommunities();
+  detectSubcommunities();
 
   // INITIAL CAMERA (centered)
   graphState.scale = 0.3;
@@ -1966,6 +2234,8 @@ function onGraphClick(e) {
     (mouseX - graphState.offsetX) / graphState.scale,
 
     (mouseY - graphState.offsetY) / graphState.scale,
+
+    e,
   );
 
   if (graphState.selectedNodeId) {
