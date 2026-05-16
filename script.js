@@ -620,6 +620,27 @@ function getCommunityCenters() {
   return centers;
 }
 
+function getCommunityRadii(centers) {
+  const radii = new Map();
+
+  graphState.nodes.forEach((node) => {
+    const center = centers.get(node.community);
+
+    if (!center) return;
+
+    const dx = node.x - center.x;
+    const dy = node.y - center.y;
+
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    const current = radii.get(node.community) || 0;
+
+    radii.set(node.community, Math.max(current, dist));
+  });
+
+  return radii;
+}
+
 // Formatting helpers
 function isInsideMarker(text, pos, marker) {
   const before = text.slice(0, pos);
@@ -1556,6 +1577,7 @@ function applyForces() {
   });
 
   const communityCenters = getCommunityCenters();
+  const communityRadii = getCommunityRadii(communityCenters);
 
   nodes.forEach((node) => {
     if (node.fixed) return;
@@ -1572,6 +1594,52 @@ function applyForces() {
     node.vx += dx * communityGravity;
     node.vy += dy * communityGravity;
   });
+
+  const communities = [...communityCenters.keys()];
+
+  for (let i = 0; i < communities.length; i++) {
+    for (let j = i + 1; j < communities.length; j++) {
+      const aId = communities[i];
+      const bId = communities[j];
+
+      const aCenter = communityCenters.get(aId);
+
+      const bCenter = communityCenters.get(bId);
+
+      const aRadius = communityRadii.get(aId) || 0;
+
+      const bRadius = communityRadii.get(bId) || 0;
+
+      const dx = bCenter.x - aCenter.x;
+
+      const dy = bCenter.y - aCenter.y;
+
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+      const minDist = aRadius + bRadius + 120;
+
+      if (dist >= minDist) continue;
+
+      const overlap = minDist - dist;
+
+      const nx = dx / dist;
+      const ny = dy / dist;
+
+      const push = overlap * 0.0025;
+
+      graphState.nodes.forEach((node) => {
+        if (node.community === aId) {
+          node.vx -= nx * push;
+          node.vy -= ny * push;
+        }
+
+        if (node.community === bId) {
+          node.vx += nx * push;
+          node.vy += ny * push;
+        }
+      });
+    }
+  }
 
   // SOFT CLUSTER GRAVITY
   nodes.forEach((node) => {
