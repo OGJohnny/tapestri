@@ -88,6 +88,8 @@ const graphState = {
     "#fd79a8",
   ],
 
+  communityLabels: {},
+
   nodeMap: new Map(),
 
   animationTime: 0,
@@ -239,6 +241,10 @@ function getDocumentById(id) {
 
 function getItems() {
   return document.querySelectorAll("li[data-id]");
+}
+
+function capitalize(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
 function getChaptersSorted() {
@@ -540,6 +546,9 @@ function detectCommunities() {
 
     currentCommunity++;
   });
+
+  detectSubcommunities();
+  generateCommunityLabels();
 }
 
 function detectSubcommunities() {
@@ -639,6 +648,10 @@ function getCommunityRadii(centers) {
   });
 
   return radii;
+}
+
+function incrementFrequency(map, key, amount = 1) {
+  map.set(key, (map.get(key) || 0) + amount);
 }
 
 // Formatting helpers
@@ -1431,7 +1444,78 @@ function drawLabels(ctx, renderState) {
   ctx.restore();
 }
 
-function drawOverlays(ctx, renderState) {}
+function generateCommunityLabels() {
+  const labels = {};
+
+  const communities = new Map();
+
+  graphState.nodes.forEach((node) => {
+    if (!communities.has(node.community)) {
+      communities.set(node.community, []);
+    }
+
+    communities.get(node.community).push(node);
+  });
+
+  communities.forEach((nodes, communityId) => {
+    const frequencies = new Map();
+
+    nodes.forEach((node) => {
+      // TYPE BOOST
+      incrementFrequency(frequencies, node.type, 2);
+
+      // LABEL WORDS
+      const words = node.label.toLowerCase().split(/\s+/);
+
+      words.forEach((word) => {
+        if (word.length < 4) return;
+
+        incrementFrequency(frequencies, word, 1);
+      });
+    });
+
+    const sorted = [...frequencies.entries()].sort((a, b) => b[1] - a[1]);
+
+    const best = sorted.slice(0, 2).map(([word]) => capitalize(word));
+
+    labels[communityId] = best.join(" • ");
+  });
+
+  graphState.communityLabels = labels;
+}
+
+function drawCommunityLabels(ctx) {
+  const centers = getCommunityCenters();
+
+  ctx.save();
+
+  centers.forEach((center, communityId) => {
+    const label = graphState.communityLabels[communityId];
+
+    if (!label) return;
+
+    const screenX = center.x * graphState.scale + graphState.offsetX;
+
+    const screenY = center.y * graphState.scale + graphState.offsetY;
+
+    // SCALE AWARE
+    const fontSize = Math.max(12, 18 * graphState.scale);
+
+    ctx.font = `bold ${fontSize}px sans-serif`;
+
+    ctx.textAlign = "center";
+
+    ctx.fillStyle = "rgba(255,255,255,0.16)";
+
+    ctx.fillText(label, screenX, screenY);
+  });
+
+  ctx.restore();
+}
+
+function drawOverlays(ctx, renderState) {
+  drawCommunityLabels(ctx);
+}
 
 function renderGraphTooltip(node, mouseX, mouseY) {
   const data = getTooltipData(node);
