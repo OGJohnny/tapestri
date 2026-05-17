@@ -82,14 +82,14 @@ const graphState = {
   },
 
   communityColors: [
-    "#e74c3c",
-    "#3498db",
-    "#2ecc71",
-    "#f1c40f",
-    "#9b59b6",
-    "#1abc9c",
-    "#e67e22",
-    "#fd79a8",
+    "#5B8CFF",
+    "#7A5CFF",
+    "#4FD1C5",
+    "#F6AD55",
+    "#F687B3",
+    "#68D391",
+    "#63B3ED",
+    "#B794F4",
   ],
 
   communityLabels: {},
@@ -1507,11 +1507,111 @@ function drawLabels(ctx, renderState) {
   ctx.restore();
 }
 
+function getConvexHull(points) {
+  if (points.length < 3) return points;
+
+  const sorted = [...points].sort((a, b) =>
+    a.x === b.x ? a.y - b.y : a.x - b.x,
+  );
+
+  const cross = (o, a, b) =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+  const lower = [];
+
+  for (const p of sorted) {
+    while (
+      lower.length >= 2 &&
+      cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0
+    ) {
+      lower.pop();
+    }
+    lower.push(p);
+  }
+
+  const upper = [];
+
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const p = sorted[i];
+
+    while (
+      upper.length >= 2 &&
+      cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0
+    ) {
+      upper.pop();
+    }
+
+    upper.push(p);
+  }
+
+  upper.pop();
+  lower.pop();
+
+  return lower.concat(upper);
+}
+
+function expandHull(points, padding = 60) {
+  let centerX = 0;
+  let centerY = 0;
+
+  points.forEach((p) => {
+    centerX += p.x;
+    centerY += p.y;
+  });
+
+  centerX /= points.length;
+  centerY /= points.length;
+
+  return points.map((p) => {
+    const dx = p.x - centerX;
+    const dy = p.y - centerY;
+
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+    return {
+      x: p.x + (dx / dist) * padding,
+      y: p.y + (dy / dist) * padding,
+    };
+  });
+}
+
+function drawSmoothHull(ctx, points) {
+  if (points.length < 3) return;
+
+  ctx.beginPath();
+
+  for (let i = 0; i < points.length; i++) {
+    const current = points[i];
+    const next = points[(i + 1) % points.length];
+
+    const midX = (current.x + next.x) / 2;
+    const midY = (current.y + next.y) / 2;
+
+    if (i === 0) {
+      ctx.moveTo(midX, midY);
+    } else {
+      ctx.quadraticCurveTo(current.x, current.y, midX, midY);
+    }
+  }
+
+  const first = points[0];
+  const last = points[points.length - 1];
+
+  const midX = (first.x + last.x) / 2;
+  const midY = (first.y + last.y) / 2;
+
+  ctx.quadraticCurveTo(last.x, last.y, midX, midY);
+
+  ctx.closePath();
+}
+
 function drawCommunityHulls(ctx) {
   const communities = new Map();
 
   graphState.nodes.forEach((node) => {
     if (node.community == null) return;
+
+    if (!graphState.filters[node.type]) return;
 
     if (!communities.has(node.community)) {
       communities.set(node.community, []);
@@ -1528,36 +1628,35 @@ function drawCommunityHulls(ctx) {
         communityId % graphState.communityColors.length
       ];
 
-    ctx.beginPath();
+    const screenPoints = nodes.map((node) => ({
+      x: node.x * graphState.scale + graphState.offsetX,
+      y: node.y * graphState.scale + graphState.offsetY,
+    }));
 
-    nodes.forEach((node, index) => {
-      const x = node.x * graphState.scale + graphState.offsetX;
-      const y = node.y * graphState.scale + graphState.offsetY;
+    // 1. BUILD CONVEX HULL
+    let hull = getConvexHull(screenPoints);
 
-      if (index === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    });
+    // 2. EXPAND HULL
+    hull = expandHull(hull, 55 * graphState.scale);
 
-    ctx.closePath();
+    // 3. DRAW SMOOTH REGION
+    drawSmoothHull(ctx, hull);
 
-    // MUCH SUBTLER
+    // ATMOSPHERIC FILL
     ctx.fillStyle = color;
-    ctx.globalAlpha = 0.025;
-
-    // REMOVE GLOW ENTIRELY
-    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 0.045;
 
     ctx.fill();
 
-    // OPTIONAL BORDER
-    ctx.strokeStyle = color;
-    ctx.globalAlpha = 0.12;
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    // VERY SOFT GLOW
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 25;
+    ctx.globalAlpha = 0.025;
 
+    ctx.fill();
+
+    // CLEAN RESET
+    ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
   });
 }
