@@ -54,6 +54,10 @@ const graphState = {
   filters: {
     chapter: true,
     character: true,
+    timeline: true,
+    world: true,
+    notes: true,
+    ideas: true,
     tag: true,
   },
 
@@ -274,18 +278,30 @@ function getGraphData() {
     });
 
     // CHARACTER RELATIONSHIPS
-    if (doc.type === "chapter" && doc.relationships?.characters) {
-      doc.relationships.characters.forEach((charId) => {
-        edges.push({
-          from: String(doc.id),
-          to: String(charId),
+    if (doc.relationships) {
+      Object.entries(doc.relationships).forEach(
+        ([relationshipType, relationshipIds]) => {
+          if (!Array.isArray(relationshipIds)) return;
 
-          relationshipType: "character",
+          relationshipIds.forEach((targetId) => {
+            edges.push({
+              from: String(doc.id),
+              to: String(targetId),
 
-          strength: 1.4,
-          direction: true,
-        });
-      });
+              relationshipType,
+
+              strength:
+                relationshipType === "characters"
+                  ? 2.2
+                  : relationshipType === "timeline"
+                    ? 1.7
+                    : relationshipType === "worldbuilding"
+                      ? 1.6
+                      : 1,
+            });
+          });
+        },
+      );
     }
 
     // TAG RELATIONSHIPS
@@ -970,14 +986,11 @@ function renderGraph() {
 
   const renderState = prepareGraphRenderState();
 
+  drawCommunityHulls(ctx);
   drawEdges(ctx, renderState);
-
   drawNodes(ctx, renderState);
-
   drawLabels(ctx, renderState);
-
-  drawOverlays(ctx, renderState);
-
+  drawCommunityLabels(ctx);
   renderMinimap();
 }
 
@@ -1048,13 +1061,7 @@ function renderMinimap() {
       Math.PI * 2,
     );
 
-    if (node.type === "chapter") {
-      ctx.fillStyle = "#27ae60";
-    } else if (node.type === "character") {
-      ctx.fillStyle = "#2980b9";
-    } else {
-      ctx.fillStyle = "#8e44ad";
-    }
+    ctx.fillStyle = getNodeTypeColor(node.type);
 
     ctx.fill();
   });
@@ -1332,15 +1339,41 @@ function drawEdges(ctx, renderState) {
   ctx.globalAlpha = 1;
 }
 
+function getNodeTypeColor(type) {
+  switch (type) {
+    case "chapter":
+      return "#27ae60";
+
+    case "character":
+      return "#2980b9";
+
+    case "timeline":
+      return "#f39c12";
+
+    case "world":
+      return "#8e44ad";
+
+    case "notes":
+      return "#16a085";
+
+    case "ideas":
+      return "#e74c3c";
+
+    case "tag":
+      return "#7f8c8d";
+
+    default:
+      return "#cccccc";
+  }
+}
+
 function drawNodes(ctx, renderState) {
   const { activeId, connectedIds, visibleNodes, selectedId, hoveredId } =
     renderState;
 
   visibleNodes.forEach((node) => {
     const isSelected = node.id === selectedId;
-
     const isHovered = node.id === hoveredId;
-
     const isConnected = connectedIds.has(node.id);
 
     const screenX = node.x * graphState.scale + graphState.offsetX;
@@ -1349,43 +1382,73 @@ function drawNodes(ctx, renderState) {
 
     const radius = Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7));
 
-    ctx.beginPath();
-
-    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
-
-    // GLOW
-    if (isSelected || isHovered) {
-      ctx.shadowColor = "#f39c12";
-      ctx.shadowBlur = 20;
-    } else {
-      ctx.shadowBlur = 0;
-    }
-
-    // COLORING
     const communityColor =
       graphState.communityColors[
         node.community % graphState.communityColors.length
       ];
 
-    const subPulse = (node.subcommunity || 0) * 0.08;
+    const typeColor = getNodeTypeColor(node.type);
 
-    if (!activeId || !graphState.focusMode) {
-      ctx.globalAlpha = 0.82 + subPulse;
-      ctx.fillStyle = communityColor;
-    } else if (isSelected || isHovered) {
-      ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+
+    /*
+     * RESET VISUAL STATE FIRST
+     */
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+    ctx.globalAlpha = 1;
+
+    /*
+     * ACTIVE NODE
+     */
+    if (isSelected || isHovered) {
       ctx.fillStyle = "#f39c12";
-    } else if (isConnected) {
-      ctx.globalAlpha = 0.82 + subPulse;
-      ctx.fillStyle = communityColor;
-    } else {
-      ctx.globalAlpha = 0.22;
+
+      ctx.shadowColor = "#f39c12";
+      ctx.shadowBlur = 20;
+
+      ctx.globalAlpha = 1;
+    } else if (activeId && graphState.focusMode && isConnected) {
+      /*
+       * CONNECTED NODE
+       */
+      ctx.fillStyle = typeColor;
+
+      /*
+       * subtle community accent only
+       */
+      ctx.shadowColor = communityColor;
+      ctx.shadowBlur = 6;
+
+      ctx.globalAlpha = 0.95;
+    } else if (activeId && graphState.focusMode) {
+      /*
+       * FADED NODE
+       */
       ctx.fillStyle = "#333";
+      ctx.globalAlpha = 0.18;
+    } else {
+      /*
+       * NORMAL VIEW
+       */
+      ctx.fillStyle = typeColor;
+      ctx.globalAlpha = 0.92;
+
+      /*
+       * IMPORTANT:
+       * no persistent glow here
+       */
+      ctx.shadowBlur = 0;
     }
 
     ctx.fill();
 
+    /*
+     * CLEAN RESET
+     */
     ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
     ctx.globalAlpha = 1;
   });
 }
@@ -1444,9 +1507,63 @@ function drawLabels(ctx, renderState) {
   ctx.restore();
 }
 
+function drawCommunityHulls(ctx) {
+  const communities = new Map();
+
+  graphState.nodes.forEach((node) => {
+    if (node.community == null) return;
+
+    if (!communities.has(node.community)) {
+      communities.set(node.community, []);
+    }
+
+    communities.get(node.community).push(node);
+  });
+
+  communities.forEach((nodes, communityId) => {
+    if (nodes.length < 3) return;
+
+    const color =
+      graphState.communityColors[
+        communityId % graphState.communityColors.length
+      ];
+
+    ctx.beginPath();
+
+    nodes.forEach((node, index) => {
+      const x = node.x * graphState.scale + graphState.offsetX;
+      const y = node.y * graphState.scale + graphState.offsetY;
+
+      if (index === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    });
+
+    ctx.closePath();
+
+    // MUCH SUBTLER
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.025;
+
+    // REMOVE GLOW ENTIRELY
+    ctx.shadowBlur = 0;
+
+    ctx.fill();
+
+    // OPTIONAL BORDER
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = 0.12;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.globalAlpha = 1;
+  });
+}
+
 function generateCommunityLabels() {
   const labels = {};
-
   const communities = new Map();
 
   graphState.nodes.forEach((node) => {
@@ -1461,14 +1578,27 @@ function generateCommunityLabels() {
     const frequencies = new Map();
 
     nodes.forEach((node) => {
-      // TYPE BOOST
+      /*
+       * Ignore tags for naming
+       */
+      if (node.type === "tag") {
+        return;
+      }
+
+      /*
+       * Type weighting
+       */
       incrementFrequency(frequencies, node.type, 2);
 
-      // LABEL WORDS
+      /*
+       * Label words
+       */
       const words = node.label.toLowerCase().split(/\s+/);
 
       words.forEach((word) => {
-        if (word.length < 4) return;
+        if (word.length < 4) {
+          return;
+        }
 
         incrementFrequency(frequencies, word, 1);
       });
@@ -1485,32 +1615,52 @@ function generateCommunityLabels() {
 }
 
 function drawCommunityLabels(ctx) {
-  const centers = getCommunityCenters();
+  const communities = new Map();
 
-  ctx.save();
+  graphState.nodes.forEach((node) => {
+    if (node.community == null) return;
 
-  centers.forEach((center, communityId) => {
+    if (!communities.has(node.community)) {
+      communities.set(node.community, []);
+    }
+
+    communities.get(node.community).push(node);
+  });
+
+  communities.forEach((nodes, communityId) => {
     const label = graphState.communityLabels[communityId];
 
     if (!label) return;
 
-    const screenX = center.x * graphState.scale + graphState.offsetX;
+    let avgX = 0;
+    let avgY = 0;
 
-    const screenY = center.y * graphState.scale + graphState.offsetY;
+    nodes.forEach((node) => {
+      avgX += node.x;
+      avgY += node.y;
+    });
 
-    // SCALE AWARE
-    const fontSize = Math.max(12, 18 * graphState.scale);
+    avgX /= nodes.length;
+    avgY /= nodes.length;
 
-    ctx.font = `bold ${fontSize}px sans-serif`;
+    const screenX = avgX * graphState.scale + graphState.offsetX;
 
+    const screenY = avgY * graphState.scale + graphState.offsetY;
+
+    ctx.save();
+
+    ctx.font = "bold 16px sans-serif";
     ctx.textAlign = "center";
 
-    ctx.fillStyle = "rgba(255,255,255,0.16)";
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
+
+    ctx.shadowColor = "#000";
+    ctx.shadowBlur = 8;
 
     ctx.fillText(label, screenX, screenY);
-  });
 
-  ctx.restore();
+    ctx.restore();
+  });
 }
 
 function drawOverlays(ctx, renderState) {
@@ -2115,6 +2265,10 @@ function openGraph() {
   graphState.filters = {
     chapter: true,
     character: true,
+    timeline: true,
+    world: true,
+    notes: true,
+    ideas: true,
     tag: true,
   };
 
@@ -2158,6 +2312,26 @@ function openGraph() {
 
   clusterCenters.tag = {
     x: canvas.width * 0.75,
+    y: canvas.height * 0.5,
+  };
+
+  clusterCenters.world = {
+    x: canvas.width * 0.72,
+    y: canvas.height * 0.35,
+  };
+
+  clusterCenters.timeline = {
+    x: canvas.width * 0.62,
+    y: canvas.height * 0.22,
+  };
+
+  clusterCenters.notes = {
+    x: canvas.width * 0.78,
+    y: canvas.height * 0.68,
+  };
+
+  clusterCenters.ideas = {
+    x: canvas.width * 0.88,
     y: canvas.height * 0.5,
   };
 
@@ -2215,6 +2389,8 @@ function openGraph() {
   }, 100);
 
   graphState.temperature = 1;
+
+  renderGraph();
   wakeGraphPhysics();
 }
 
