@@ -299,6 +299,15 @@ function getGraphData() {
                       ? 1.6
                       : 1,
               style: "explicit",
+
+              flowType:
+                relationshipType === "timeline"
+                  ? "temporal"
+                  : relationshipType === "characters"
+                    ? "character"
+                    : relationshipType === "worldbuilding"
+                      ? "lore"
+                      : "semantic",
             });
           });
         },
@@ -574,6 +583,38 @@ function edgeConnectionCount(nodeId) {
   });
 
   return count;
+}
+
+function getFlowSpeed(edge) {
+  switch (edge.flowType) {
+    case "temporal":
+      return 1.8;
+
+    case "character":
+      return 1.2;
+
+    case "lore":
+      return 0.7;
+
+    default:
+      return 1;
+  }
+}
+
+function getFlowColor(edge) {
+  switch (edge.flowType) {
+    case "temporal":
+      return "#00d4ff";
+
+    case "character":
+      return "#f39c12";
+
+    case "lore":
+      return "#9b59b6";
+
+    default:
+      return "#95a5a6";
+  }
 }
 
 function getSemanticImportance(node) {
@@ -1290,6 +1331,47 @@ function drawEdgePulses({
   ctx.restore();
 }
 
+function drawNarrativeFlow({
+  ctx,
+  fromX,
+  fromY,
+  toX,
+  toY,
+  controlX,
+  controlY,
+  edge,
+}) {
+  const time = graphState.animationTime * getFlowSpeed(edge);
+
+  const t = ((Math.sin(time) + 1) / 2) * 0.92 + 0.04;
+
+  const x =
+    (1 - t) * (1 - t) * fromX + 2 * (1 - t) * t * controlX + t * t * toX;
+
+  const y =
+    (1 - t) * (1 - t) * fromY + 2 * (1 - t) * t * controlY + t * t * toY;
+
+  const color = getFlowColor(edge);
+
+  ctx.beginPath();
+
+  const intensity = Math.min(1.4, edge.strength || 1);
+
+  ctx.arc(x, y, 2.2 + intensity, 0, Math.PI * 2);
+
+  ctx.fillStyle = color;
+
+  ctx.globalAlpha = 0.65;
+
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 12;
+
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = 1;
+}
+
 function drawEdgeArrow({
   ctx,
   fromX,
@@ -1454,9 +1536,29 @@ function drawEdges(ctx, renderState) {
     // RELATIONSHIP WEIGHTING
     if (edge.strength) {
       ctx.lineWidth *= edge.strength;
+
+      if (edge.flowType === "temporal") {
+        ctx.lineWidth *= 1.25;
+      }
     }
 
     ctx.stroke();
+
+    // NARRATIVE FLOW FIELDS
+
+    if (graphState.semanticZoomLevel >= 3 && edge.style !== "semantic") {
+      drawNarrativeFlow({
+        ctx,
+        fromX,
+        fromY,
+        toX,
+        toY,
+        controlX,
+        controlY,
+        edge,
+      });
+    }
+
     ctx.setLineDash([]);
 
     // DIRECTIONAL ARROWS
