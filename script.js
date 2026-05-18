@@ -574,6 +574,24 @@ function edgeConnectionCount(nodeId) {
   return count;
 }
 
+function getSemanticImportance(node) {
+  const connections = edgeConnectionCount(node.id);
+
+  const communityBonus = node.community != null ? 1.25 : 1;
+
+  const typeWeight = {
+    chapter: 2.2,
+    character: 1.9,
+    world: 1.5,
+    timeline: 1.4,
+    notes: 1.2,
+    ideas: 1.1,
+    tag: 0.6,
+  };
+
+  return connections * (typeWeight[node.type] || 1) * communityBonus;
+}
+
 function detectCommunities() {
   let currentCommunity = 0;
 
@@ -1522,7 +1540,9 @@ function drawNodes(ctx, renderState) {
        * NORMAL VIEW
        */
       ctx.fillStyle = typeColor;
-      ctx.globalAlpha = 0.92;
+      const importance = getSemanticImportance(node);
+
+      ctx.globalAlpha = Math.min(1, 0.45 + importance * 0.035);
 
       /*
        * IMPORTANT:
@@ -1572,24 +1592,36 @@ function drawLabels(ctx, renderState) {
 
   ctx.font = `${fontSize}px sans-serif`;
 
-  visibleNodes.forEach((node) => {
-    const isHovered = node.id === graphState.hoveredNodeId;
+  visibleNodes
+    .slice()
+    .sort((a, b) => getSemanticImportance(b) - getSemanticImportance(a))
+    .forEach((node) => {
+      const isHovered = node.id === graphState.hoveredNodeId;
 
-    const screenX = node.x * graphState.scale + graphState.offsetX;
+      const screenX = node.x * graphState.scale + graphState.offsetX;
 
-    const screenY = node.y * graphState.scale + graphState.offsetY;
+      const screenY = node.y * graphState.scale + graphState.offsetY;
 
-    const radius = Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7));
+      const radius = Math.max(
+        10,
+        NODE_RADIUS * Math.max(graphState.scale, 0.7),
+      );
 
-    ctx.shadowColor = "rgba(0,0,0,0.6)";
-    ctx.shadowBlur = 4;
+      ctx.shadowColor = "rgba(0,0,0,0.6)";
+      ctx.shadowBlur = 4;
 
-    if (alpha < 0.35 && node.type === "tag" && !isHovered) {
-      return;
-    }
+      if (alpha < 0.35 && node.type === "tag" && !isHovered) {
+        return;
+      }
 
-    ctx.fillText(node.label, screenX, screenY + radius + 18);
-  });
+      const importance = getSemanticImportance(node);
+
+      const densityFade = Math.min(1, importance / 10);
+
+      ctx.globalAlpha = alpha * (0.35 + densityFade * 0.65);
+
+      ctx.fillText(node.label, screenX, screenY + radius + 18);
+    });
 
   ctx.shadowBlur = 0;
 
@@ -2789,29 +2821,20 @@ function onGraphMouseDown(e) {
 
 function onGraphMouseMove(e) {
   const rect = canvas.getBoundingClientRect();
+
   const drag = graphState.dragging;
 
-  const worldX =
-    (e.clientX - rect.left - graphState.offsetX) / graphState.scale;
+  const localX = e.clientX - rect.left;
+  const localY = e.clientY - rect.top;
 
-  const worldY = (e.clientY - rect.top - graphState.offsetY) / graphState.scale;
+  const insideCanvas =
+    localX >= 0 && localY >= 0 && localX <= rect.width && localY <= rect.height;
 
-  // HOVER DETECTION
-  const hoveredNode = getNodeAtPosition(worldX, worldY);
+  const worldX = (localX - graphState.offsetX) / graphState.scale;
 
-  graphState.hoveredNodeId = hoveredNode ? hoveredNode.id : null;
+  const worldY = (localY - graphState.offsetY) / graphState.scale;
 
-  if (hoveredNode) {
-    renderGraphTooltip(
-      hoveredNode,
-      e.clientX - rect.left,
-      e.clientY - rect.top,
-    );
-  } else {
-    hideGraphTooltip();
-  }
-
-  // NODE DRAG
+  // NODE DRAGGING
   if (drag.draggedNode) {
     drag.hasDragged = true;
 
@@ -2821,15 +2844,17 @@ function onGraphMouseMove(e) {
 
     drag.draggedNode.vx = 0;
     drag.draggedNode.vy = 0;
+
     drag.draggedNode.fixed = true;
 
     wakeGraphPhysics();
 
     renderGraph();
+
     return;
   }
 
-  // GRAPH PAN
+  // GRAPH PANNING
   if (drag.isDraggingGraph) {
     drag.hasDragged = true;
 
@@ -2841,14 +2866,41 @@ function onGraphMouseMove(e) {
     graphState.offsetX += dx;
     graphState.offsetY += dy;
 
+    graphState.targetOffsetX = graphState.offsetX;
+
+    graphState.targetOffsetY = graphState.offsetY;
+
     drag.startX = e.clientX;
     drag.startY = e.clientY;
 
     renderGraph();
+
     return;
   }
 
-  // CURSOR FEEDBACK
+  // ONLY PROCESS HOVER INSIDE CANVAS
+  if (!insideCanvas) {
+    hideGraphTooltip();
+
+    graphState.hoveredNodeId = null;
+
+    canvas.style.cursor = "default";
+
+    return;
+  }
+
+  // HOVER DETECTION
+  const hoveredNode = getNodeAtPosition(worldX, worldY);
+
+  graphState.hoveredNodeId = hoveredNode ? hoveredNode.id : null;
+
+  if (hoveredNode) {
+    renderGraphTooltip(hoveredNode, localX, localY);
+  } else {
+    hideGraphTooltip();
+  }
+
+  // CURSOR
   canvas.style.cursor = hoveredNode ? "pointer" : "grab";
 
   renderGraph();
@@ -2858,11 +2910,26 @@ function onGraphMouseMove(e) {
 
 function onGraphMouseUp() {
   const drag = graphState.dragging;
-  drag.draggedNode = null;
+
+  // RELEASE NODE
+  if (drag.draggedNode) {
+    drag.draggedNode.fixed = false;
+    drag.draggedNode = null;
+  }
+
+  // RELEASE GRAPH
   drag.isDraggingGraph = false;
+
   canvas.style.cursor = "grab";
+
+  // SYNCHRONIZE CAMERA TARGETS
   graphState.targetOffsetX = graphState.offsetX;
   graphState.targetOffsetY = graphState.offsetY;
+  graphState.targetScale = graphState.scale;
+
+  // RESET DRAG STATE
+  drag.nodeOffsetX = 0;
+  drag.nodeOffsetY = 0;
 }
 
 function onGraphMouseLeave() {
@@ -2967,14 +3034,19 @@ function initGraphEvents() {
 function initGraphCanvasEvent() {
   const canvas = document.getElementById("graph-canvas");
 
-  canvas.addEventListener("mouseup", onGraphMouseUp);
-  canvas.addEventListener("mouseleave", onGraphMouseUp);
+  // CANVAS-BOUND EVENTS
   canvas.addEventListener("mousedown", onGraphMouseDown);
-  canvas.addEventListener("mousemove", onGraphMouseMove);
   canvas.addEventListener("mouseleave", onGraphMouseLeave);
-  canvas.addEventListener("wheel", onGraphWheel, { passive: false });
+  canvas.addEventListener("wheel", onGraphWheel, {
+    passive: false,
+  });
+
   canvas.addEventListener("click", onGraphClick);
   canvas.addEventListener("dblclick", onGraphDoubleClick);
+
+  // WINDOW-BOUND DRAG EVENTS
+  window.addEventListener("mousemove", onGraphMouseMove);
+  window.addEventListener("mouseup", onGraphMouseUp);
 }
 
 function initGraphUIEvents() {
