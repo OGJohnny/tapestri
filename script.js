@@ -1145,31 +1145,58 @@ function renderMinimapViewport({ minimapScale, offsetX, offsetY }) {
   );
 }
 
-function getEdgeCurve(fromX, fromY, toX, toY) {
-  const midX = (fromX + toX) / 2;
-
-  const midY = (fromY + toY) / 2;
-
+function getEdgeCurve(fromX, fromY, toX, toY, edge) {
   const dx = toX - fromX;
   const dy = toY - fromY;
 
-  const distance = Math.sqrt(dx * dx + dy * dy);
+  const dist = Math.sqrt(dx * dx + dy * dy) || 1;
 
-  // perpendicular offset
-  const curveStrength = Math.min(80, distance * 0.18);
+  // NORMAL
+  const nx = -dy / dist;
+  const ny = dx / dist;
 
-  const normalX = -dy / distance;
+  // BASE CURVE
+  let curveStrength = Math.min(140, dist * 0.22);
 
-  const normalY = dx / distance;
+  // SEMANTIC EDGES = softer wider arcs
+  if (edge.style === "semantic") {
+    curveStrength *= 1.45;
+  }
 
-  const controlX = midX + normalX * curveStrength;
+  // INTER-COMMUNITY EDGES
+  const fromNode = graphState.nodeMap.get(edge.from);
+  const toNode = graphState.nodeMap.get(edge.to);
 
-  const controlY = midY + normalY * curveStrength;
+  if (fromNode && toNode && fromNode.community !== toNode.community) {
+    curveStrength *= 1.35;
+  }
+
+  // DIRECTIONAL OFFSET
+  const directionOffset = hashEdge(edge.from, edge.to) % 2 === 0 ? 1 : -1;
+
+  curveStrength *= directionOffset;
+
+  const midX = (fromX + toX) / 2;
+  const midY = (fromY + toY) / 2;
 
   return {
-    controlX,
-    controlY,
+    controlX: midX + nx * curveStrength,
+    controlY: midY + ny * curveStrength,
   };
+}
+
+function hashEdge(a, b) {
+  let hash = 0;
+
+  const str = `${a}-${b}`;
+
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+
+    hash |= 0;
+  }
+
+  return Math.abs(hash);
 }
 
 function drawEdgePulses({
@@ -1295,7 +1322,7 @@ function drawEdges(ctx, renderState) {
     const isConnected = edge.from === activeId || edge.to === activeId;
     const isTraced = tracedEdges.has(`${edge.from}-${edge.to}`);
 
-    const { controlX, controlY } = getEdgeCurve(fromX, fromY, toX, toY);
+    const { controlX, controlY } = getEdgeCurve(fromX, fromY, toX, toY, edge);
 
     ctx.beginPath();
     ctx.moveTo(fromX, fromY);
