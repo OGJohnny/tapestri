@@ -562,6 +562,18 @@ function getConnectedNeighbors(nodeId) {
   return neighbors;
 }
 
+function edgeConnectionCount(nodeId) {
+  let count = 0;
+
+  graphState.edges.forEach((edge) => {
+    if (edge.from === nodeId || edge.to === nodeId) {
+      count++;
+    }
+  });
+
+  return count;
+}
+
 function detectCommunities() {
   let currentCommunity = 0;
 
@@ -1023,6 +1035,7 @@ function renderGraph() {
 
   const renderState = prepareGraphRenderState();
 
+  drawSemanticInfluenceFields(ctx);
   drawCommunityHulls(ctx);
   drawEdges(ctx, renderState);
   drawNodes(ctx, renderState);
@@ -1302,6 +1315,12 @@ function drawEdges(ctx, renderState) {
         (toX - fromX) * (toX - fromX) + (toY - fromY) * (toY - fromY),
       );
 
+      const sameCommunity = from.community === to.community;
+
+      if (!sameCommunity) {
+        ctx.globalAlpha *= 0.45;
+      }
+
       const depthFade = Math.max(0.08, 1 - dist / 1400);
 
       // SEMANTIC EDGES
@@ -1309,7 +1328,9 @@ function drawEdges(ctx, renderState) {
         ctx.strokeStyle = "#6f7d91";
         ctx.lineWidth = Math.max(0.7, graphState.scale * 0.9) * depthFade;
 
-        ctx.globalAlpha = 0.16 * depthFade;
+        const semanticStrength = Math.min(1, (edge.strength || 1) / 2.5);
+
+        ctx.globalAlpha = (0.08 + semanticStrength * 0.18) * depthFade;
 
         ctx.setLineDash([5, 8]);
       } else {
@@ -1460,7 +1481,7 @@ function drawNodes(ctx, renderState) {
        * subtle community accent only
        */
       ctx.shadowColor = communityColor;
-      ctx.shadowBlur = 6;
+      ctx.shadowBlur = 10 + edgeConnectionCount(node.id) * 0.35;
 
       ctx.globalAlpha = 0.95;
     } else if (activeId && graphState.focusMode) {
@@ -1644,6 +1665,70 @@ function drawSmoothHull(ctx, points) {
   ctx.quadraticCurveTo(last.x, last.y, midX, midY);
 
   ctx.closePath();
+}
+
+function drawSemanticInfluenceFields(ctx) {
+  const communityCenters = getCommunityCenters();
+  const communityRadii = getCommunityRadii(communityCenters);
+
+  communityCenters.forEach((center, communityId) => {
+    const radius = communityRadii.get(communityId);
+
+    if (!radius) return;
+
+    const color =
+      graphState.communityColors[
+        communityId % graphState.communityColors.length
+      ];
+
+    const screenX = center.x * graphState.scale + graphState.offsetX;
+
+    const screenY = center.y * graphState.scale + graphState.offsetY;
+
+    const scaledRadius = radius * graphState.scale * 1.15;
+
+    // OUTER FIELD
+    const gradient = ctx.createRadialGradient(
+      screenX,
+      screenY,
+      0,
+      screenX,
+      screenY,
+      scaledRadius,
+    );
+
+    gradient.addColorStop(0, `${color}10`);
+    gradient.addColorStop(0.4, `${color}08`);
+    gradient.addColorStop(1, `${color}00`);
+
+    const hotspotGradient = ctx.createRadialGradient(
+      screenX,
+      screenY,
+      0,
+      screenX,
+      screenY,
+      scaledRadius * 0.45,
+    );
+
+    hotspotGradient.addColorStop(0, `${color}14`);
+    hotspotGradient.addColorStop(1, `${color}00`);
+
+    ctx.fillStyle = hotspotGradient;
+
+    ctx.beginPath();
+
+    ctx.arc(screenX, screenY, scaledRadius * 0.45, 0, Math.PI * 2);
+
+    ctx.fill();
+
+    ctx.fillStyle = gradient;
+
+    ctx.beginPath();
+
+    ctx.arc(screenX, screenY, scaledRadius, 0, Math.PI * 2);
+
+    ctx.fill();
+  });
 }
 
 function drawCommunityHulls(ctx) {
@@ -2130,6 +2215,10 @@ function animateGraph() {
 
 // Camera system
 function updateGraphCamera() {
+  if (graphState.dragging.isDraggingGraph) {
+    return;
+  }
+
   const cameraLerp = 0.14;
   const zoomLerp = 0.12;
 
@@ -2745,6 +2834,8 @@ function onGraphMouseUp() {
   drag.draggedNode = null;
   drag.isDraggingGraph = false;
   canvas.style.cursor = "grab";
+  graphState.targetOffsetX = graphState.offsetX;
+  graphState.targetOffsetY = graphState.offsetY;
 }
 
 function onGraphMouseLeave() {
