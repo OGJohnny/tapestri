@@ -97,6 +97,7 @@ const graphState = {
   tensionMap: new Map(),
   nodeMap: new Map(),
   arcMap: new Map(),
+  characterDynamics: new Map(),
 
   animationTime: 0,
   semanticZoomLevel: 2,
@@ -637,6 +638,22 @@ function getArcColor(phase) {
   }
 }
 
+function getCharacterRoleColor(role) {
+  switch (role) {
+    case "protagonist":
+      return "rgba(241,196,15";
+
+    case "major":
+      return "rgba(230,126,34";
+
+    case "secondary":
+      return "rgba(52,152,219";
+
+    default:
+      return "rgba(127,140,141";
+  }
+}
+
 function getSemanticImportance(node) {
   const connections = edgeConnectionCount(node.id);
 
@@ -735,6 +752,69 @@ function detectNarrativeArcs() {
   });
 
   graphState.arcMap = arcMap;
+}
+
+function analyzeCharacterDynamics() {
+  const dynamics = new Map();
+
+  const timelineNodes = graphState.nodes.filter(
+    (node) => node.type === "timeline",
+  );
+
+  graphState.nodes.forEach((node) => {
+    if (node.type !== "character") {
+      return;
+    }
+
+    const neighbors = getConnectedNeighbors(node.id);
+
+    const tension = graphState.tensionMap.get(node.id) || 0;
+
+    const arc = graphState.arcMap.get(node.id);
+
+    let temporalInfluence = 0;
+    let chapterInfluence = 0;
+    let crossCommunityInfluence = 0;
+
+    neighbors.forEach((neighbor) => {
+      if (neighbor.type === "timeline") {
+        temporalInfluence += 2.5;
+      }
+
+      if (neighbor.type === "chapter") {
+        chapterInfluence += 1.4;
+      }
+
+      if (neighbor.community !== node.community) {
+        crossCommunityInfluence += 1.8;
+      }
+    });
+
+    const influence =
+      temporalInfluence +
+      chapterInfluence +
+      crossCommunityInfluence +
+      tension * 0.8 +
+      neighbors.length * 0.45;
+
+    let role = "supporting";
+
+    if (influence > 24) {
+      role = "protagonist";
+    } else if (influence > 16) {
+      role = "major";
+    } else if (influence > 10) {
+      role = "secondary";
+    }
+
+    dynamics.set(node.id, {
+      influence,
+      role,
+      arcPhase: arc?.phase || "setup",
+    });
+  });
+
+  graphState.characterDynamics = dynamics;
 }
 
 function detectCommunities() {
@@ -1227,6 +1307,7 @@ function renderGraph() {
   drawSemanticInfluenceFields(ctx);
   drawNarrativeTensionFields(ctx);
   drawNarrativeArcFields(ctx);
+  drawCharacterInfluenceFields(ctx);
   drawCommunityHulls(ctx);
   drawEdges(ctx, renderState);
   drawNodes(ctx, renderState);
@@ -1763,6 +1844,8 @@ function drawNodes(ctx, renderState) {
 
     const arc = graphState.arcMap.get(node.id);
 
+    const characterData = graphState.characterDynamics.get(node.id);
+
     const zoomLevel = graphState.semanticZoomLevel;
 
     // SEMANTIC NODE LOD
@@ -1823,6 +1906,17 @@ function drawNodes(ctx, renderState) {
       ctx.shadowColor = tension > 5 ? "rgba(255,120,80,0.8)" : "transparent";
 
       ctx.shadowBlur = tension > 5 ? 10 + tension * 1.5 : 0;
+    }
+
+    if (node.type === "character" && characterData) {
+      ctx.shadowColor = getCharacterRoleColor(characterData.role) + ",0.9)";
+
+      ctx.shadowBlur +=
+        characterData.role === "protagonist"
+          ? 26
+          : characterData.role === "major"
+            ? 16
+            : 8;
     }
 
     // ARC EMPHASIS
@@ -1895,6 +1989,7 @@ function drawLabels(ctx, renderState) {
 
       const importance = getSemanticImportance(node);
       const arc = graphState.arcMap.get(node.id);
+      const characterData = graphState.characterDynamics.get(node.id);
       const zoomLevel = graphState.semanticZoomLevel;
       const densityFade = Math.min(1, importance / 10);
 
@@ -1915,9 +2010,13 @@ function drawLabels(ctx, renderState) {
       }
 
       const label =
-        arc && graphState.semanticZoomLevel >= 3
-          ? `${node.label} • ${arc.phase}`
-          : node.label;
+        node.type === "character" &&
+        characterData &&
+        graphState.semanticZoomLevel >= 3
+          ? `${node.label} • ${characterData.role}`
+          : arc && graphState.semanticZoomLevel >= 3
+            ? `${node.label} • ${arc.phase}`
+            : node.label;
 
       ctx.fillText(label, screenX, screenY + radius + 18);
     });
@@ -2173,6 +2272,43 @@ function drawNarrativeArcFields(ctx) {
     ctx.fill();
 
     ctx.globalAlpha = 1;
+  });
+}
+
+function drawCharacterInfluenceFields(ctx) {
+  graphState.characterDynamics.forEach((data, nodeId) => {
+    const node = graphState.nodeMap.get(nodeId);
+
+    if (!node) return;
+
+    const screenX = node.x * graphState.scale + graphState.offsetX;
+
+    const screenY = node.y * graphState.scale + graphState.offsetY;
+
+    const radius = Math.min(260, 60 + data.influence * 4) * graphState.scale;
+
+    const gradient = ctx.createRadialGradient(
+      screenX,
+      screenY,
+      0,
+      screenX,
+      screenY,
+      radius,
+    );
+
+    const color = getCharacterRoleColor(data.role);
+
+    gradient.addColorStop(0, color.replace(")", ",0.18)"));
+
+    gradient.addColorStop(1, "rgba(0,0,0,0)");
+
+    ctx.fillStyle = gradient;
+
+    ctx.beginPath();
+
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+
+    ctx.fill();
   });
 }
 
@@ -2702,6 +2838,7 @@ function animateGraph() {
   updateSemanticZoomLevel();
   calculateNarrativeTension();
   detectNarrativeArcs();
+  analyzeCharacterDynamics();
 
   graphState.animationTime += 0.016;
 
