@@ -94,7 +94,7 @@ const graphState = {
 
   communityLabels: {},
   communityAnchors: new Map(),
-
+  tensionMap: new Map(),
   nodeMap: new Map(),
 
   animationTime: 0,
@@ -635,6 +635,42 @@ function getSemanticImportance(node) {
   return connections * (typeWeight[node.type] || 1) * communityBonus;
 }
 
+function calculateNarrativeTension() {
+  const tensionMap = new Map();
+
+  graphState.nodes.forEach((node) => {
+    const importance = getSemanticImportance(node);
+
+    const neighbors = getConnectedNeighbors(node.id);
+
+    const connectionCount = neighbors.length;
+
+    let crossCommunityCount = 0;
+
+    neighbors.forEach((neighbor) => {
+      if (neighbor.community !== node.community) {
+        crossCommunityCount++;
+      }
+    });
+
+    // ISOLATION PRESSURE
+    const isolation = importance / Math.max(1, connectionCount);
+
+    // CROSS-COMMUNITY PRESSURE
+    const bridgeStress = crossCommunityCount * 1.4;
+
+    // COMMUNITY CENTRALIZATION
+    const centralization = Math.max(0, importance - connectionCount) * 0.45;
+
+    // FINAL SCORE
+    const tension = isolation * 0.35 + bridgeStress + centralization;
+
+    tensionMap.set(node.id, tension);
+  });
+
+  graphState.tensionMap = tensionMap;
+}
+
 function detectCommunities() {
   let currentCommunity = 0;
 
@@ -1123,6 +1159,7 @@ function renderGraph() {
   const renderState = prepareGraphRenderState();
 
   drawSemanticInfluenceFields(ctx);
+  drawNarrativeTensionFields(ctx);
   drawCommunityHulls(ctx);
   drawEdges(ctx, renderState);
   drawNodes(ctx, renderState);
@@ -1467,6 +1504,11 @@ function drawEdges(ctx, renderState) {
     const toY = to.y * graphState.scale + graphState.offsetY;
 
     const isConnected = edge.from === activeId || edge.to === activeId;
+
+    const fromTension = graphState.tensionMap.get(edge.from) || 0;
+    const toTension = graphState.tensionMap.get(edge.to) || 0;
+    const edgeTension = (fromTension + toTension) / 2;
+
     const isTraced = tracedEdges.has(`${edge.from}-${edge.to}`);
 
     const { controlX, controlY } = getEdgeCurve(fromX, fromY, toX, toY, edge);
@@ -1535,7 +1577,7 @@ function drawEdges(ctx, renderState) {
 
     // RELATIONSHIP WEIGHTING
     if (edge.strength) {
-      ctx.lineWidth *= edge.strength;
+      ctx.lineWidth *= edge.strength * Math.min(1.8, 1 + edgeTension * 0.06);
 
       if (edge.flowType === "temporal") {
         ctx.lineWidth *= 1.25;
@@ -1691,6 +1733,7 @@ function drawNodes(ctx, renderState) {
       ctx.fillStyle = typeColor;
 
       const importance = getSemanticImportance(node);
+      const tension = graphState.tensionMap.get(node.id) || 0;
       const zoomLevel = graphState.semanticZoomLevel;
 
       // SEMANTIC NODE LOD
@@ -1713,7 +1756,9 @@ function drawNodes(ctx, renderState) {
        * IMPORTANT:
        * no persistent glow here
        */
-      ctx.shadowBlur = 0;
+      ctx.shadowColor = tension > 5 ? "rgba(255,120,80,0.8)" : "transparent";
+
+      ctx.shadowBlur = tension > 5 ? 10 + tension * 1.5 : 0;
     }
 
     ctx.fill();
@@ -1966,6 +2011,45 @@ function drawSemanticInfluenceFields(ctx) {
     ctx.beginPath();
 
     ctx.arc(screenX, screenY, scaledRadius, 0, Math.PI * 2);
+
+    ctx.fill();
+  });
+}
+
+function drawNarrativeTensionFields(ctx) {
+  graphState.nodes.forEach((node) => {
+    const tension = graphState.tensionMap.get(node.id);
+
+    if (!tension || tension < 4) {
+      return;
+    }
+
+    const screenX = node.x * graphState.scale + graphState.offsetX;
+
+    const screenY = node.y * graphState.scale + graphState.offsetY;
+
+    const radius = Math.min(180, 40 + tension * 12) * graphState.scale;
+
+    const gradient = ctx.createRadialGradient(
+      screenX,
+      screenY,
+      0,
+      screenX,
+      screenY,
+      radius,
+    );
+
+    gradient.addColorStop(0, "rgba(255,80,80,0.14)");
+
+    gradient.addColorStop(0.4, "rgba(255,120,80,0.08)");
+
+    gradient.addColorStop(1, "rgba(255,0,0,0)");
+
+    ctx.fillStyle = gradient;
+
+    ctx.beginPath();
+
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
 
     ctx.fill();
   });
@@ -2452,6 +2536,7 @@ function animateGraph() {
   updateGraphPhysics();
   updateGraphCamera();
   updateSemanticZoomLevel();
+  calculateNarrativeTension();
 
   graphState.animationTime += 0.016;
 
