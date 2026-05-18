@@ -98,6 +98,7 @@ const graphState = {
   nodeMap: new Map(),
 
   animationTime: 0,
+  semanticZoomLevel: 2,
 };
 
 const edgePhysics = {
@@ -1353,8 +1354,27 @@ function drawEdges(ctx, renderState) {
   }
 
   graphState.edges.forEach((edge) => {
+    const zoomLevel = graphState.semanticZoomLevel;
     const from = visibleNodeMap.get(edge.from);
     const to = visibleNodeMap.get(edge.to);
+
+    // SEMANTIC LOD FILTERING
+    if (zoomLevel === 1) {
+      // MACRO VIEW:
+      // only strongest explicit edges
+
+      if (edge.style === "semantic" || (edge.strength || 0) < 2) {
+        return;
+      }
+    }
+
+    if (zoomLevel === 2) {
+      // COMMUNITY VIEW:
+      // reduce weak semantic edges
+      if (edge.style === "semantic" && (edge.strength || 0) < 1.4) {
+        return;
+      }
+    }
 
     if (!from || !to) return;
 
@@ -1567,7 +1587,23 @@ function drawNodes(ctx, renderState) {
        * NORMAL VIEW
        */
       ctx.fillStyle = typeColor;
+
       const importance = getSemanticImportance(node);
+      const zoomLevel = graphState.semanticZoomLevel;
+
+      // SEMANTIC NODE LOD
+
+      if (zoomLevel === 1) {
+        if (importance < 5 && node.type === "tag") {
+          return;
+        }
+      }
+
+      if (zoomLevel === 2) {
+        if (importance < 2 && node.type === "tag") {
+          return;
+        }
+      }
 
       ctx.globalAlpha = Math.min(1, 0.45 + importance * 0.035);
 
@@ -1626,7 +1662,6 @@ function drawLabels(ctx, renderState) {
       const isHovered = node.id === graphState.hoveredNodeId;
 
       const screenX = node.x * graphState.scale + graphState.offsetX;
-
       const screenY = node.y * graphState.scale + graphState.offsetY;
 
       const radius = Math.max(
@@ -1642,10 +1677,24 @@ function drawLabels(ctx, renderState) {
       }
 
       const importance = getSemanticImportance(node);
-
+      const zoomLevel = graphState.semanticZoomLevel;
       const densityFade = Math.min(1, importance / 10);
 
       ctx.globalAlpha = alpha * (0.35 + densityFade * 0.65);
+
+      // SEMANTIC LABEL LOD
+
+      if (zoomLevel === 1) {
+        if (importance < 14) {
+          return;
+        }
+      }
+
+      if (zoomLevel === 2) {
+        if (importance < 8) {
+          return;
+        }
+      }
 
       ctx.fillText(node.label, screenX, screenY + radius + 18);
     });
@@ -1756,6 +1805,7 @@ function drawSmoothHull(ctx, points) {
 function drawSemanticInfluenceFields(ctx) {
   const communityCenters = getCommunityCenters();
   const communityRadii = getCommunityRadii(communityCenters);
+  const zoomLevel = graphState.semanticZoomLevel;
 
   communityCenters.forEach((center, communityId) => {
     const radius = communityRadii.get(communityId);
@@ -1771,7 +1821,9 @@ function drawSemanticInfluenceFields(ctx) {
 
     const screenY = center.y * graphState.scale + graphState.offsetY;
 
-    const scaledRadius = radius * graphState.scale * 1.15;
+    const zoomMultiplier = zoomLevel === 1 ? 1.5 : zoomLevel === 2 ? 1.2 : 1;
+
+    const scaledRadius = radius * graphState.scale * 1.15 * zoomMultiplier;
 
     // OUTER FIELD
     const gradient = ctx.createRadialGradient(
@@ -2296,8 +2348,8 @@ function animateGraph() {
   if (!graphAnimating) return;
 
   updateGraphPhysics();
-
   updateGraphCamera();
+  updateSemanticZoomLevel();
 
   graphState.animationTime += 0.016;
 
@@ -2464,6 +2516,20 @@ function clampGraphCamera() {
     minOffsetY,
     Math.min(maxOffsetY, graphState.offsetY),
   );
+}
+
+function updateSemanticZoomLevel() {
+  const scale = graphState.scale;
+
+  if (scale < 0.28) {
+    graphState.semanticZoomLevel = 1;
+  } else if (scale < 0.5) {
+    graphState.semanticZoomLevel = 2;
+  } else if (scale < 0.9) {
+    graphState.semanticZoomLevel = 3;
+  } else {
+    graphState.semanticZoomLevel = 4;
+  }
 }
 
 function navigateFromMinimap(x, y) {
