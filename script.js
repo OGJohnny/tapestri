@@ -99,6 +99,7 @@ const graphState = {
   arcMap: new Map(),
   characterDynamics: new Map(),
   emotionMap: new Map(),
+  relationshipDynamics: new Map(),
 
   animationTime: 0,
   semanticZoomLevel: 2,
@@ -671,6 +672,14 @@ function getEmotionColor(state) {
   }
 }
 
+function getRelationshipColor(relationship) {
+  if (!relationship) {
+    return "#666";
+  }
+
+  return relationship.polarity === "alliance" ? "#2ecc71" : "#e74c3c";
+}
+
 function getSemanticImportance(node) {
   const connections = edgeConnectionCount(node.id);
 
@@ -898,6 +907,67 @@ function analyzeEmotionalTrajectories() {
   });
 
   graphState.emotionMap = emotionMap;
+}
+
+function analyzeRelationshipDynamics() {
+  const dynamics = new Map();
+
+  graphState.edges.forEach((edge) => {
+    const from = graphState.nodeMap.get(edge.from);
+
+    const to = graphState.nodeMap.get(edge.to);
+
+    if (!from || !to) return;
+
+    // CHARACTER-ONLY EVOLUTION
+    if (from.type !== "character" && to.type !== "character") {
+      return;
+    }
+
+    const fromEmotion = graphState.emotionMap.get(from.id);
+
+    const toEmotion = graphState.emotionMap.get(to.id);
+
+    const fromArc = graphState.arcMap.get(from.id);
+
+    const toArc = graphState.arcMap.get(to.id);
+
+    let affinity = 0;
+    let volatility = 0;
+
+    // COMMUNITY COHESION
+    if (from.community === to.community) {
+      affinity += 8;
+    } else {
+      volatility += 6;
+    }
+
+    // EMOTIONAL TURBULENCE
+    if (fromEmotion?.state === "chaotic" || toEmotion?.state === "chaotic") {
+      volatility += 10;
+    }
+
+    // ARC ESCALATION
+    if (fromArc?.phase === "climax" || toArc?.phase === "climax") {
+      volatility += 8;
+    }
+
+    // STRUCTURAL STABILITY
+    affinity += (edge.strength || 1) * 3;
+
+    const polarity = affinity >= volatility ? "alliance" : "rivalry";
+
+    const stability = Math.max(0, affinity - volatility);
+
+    dynamics.set(`${edge.from}-${edge.to}`, {
+      affinity,
+      volatility,
+      polarity,
+      stability,
+    });
+  });
+
+  graphState.relationshipDynamics = dynamics;
 }
 
 function detectCommunities() {
@@ -1392,6 +1462,7 @@ function renderGraph() {
   drawNarrativeArcFields(ctx);
   drawCharacterInfluenceFields(ctx);
   drawEmotionalFields(ctx);
+  drawRelationshipFields(ctx);
   drawCommunityHulls(ctx);
   drawEdges(ctx, renderState);
   drawNodes(ctx, renderState);
@@ -1705,6 +1776,9 @@ function drawEdges(ctx, renderState) {
   }
 
   graphState.edges.forEach((edge) => {
+    const relationship = graphState.relationshipDynamics.get(
+      `${edge.from}-${edge.to}`,
+    );
     const zoomLevel = graphState.semanticZoomLevel;
     const from = visibleNodeMap.get(edge.from);
     const to = visibleNodeMap.get(edge.to);
@@ -1814,6 +1888,19 @@ function drawEdges(ctx, renderState) {
       if (edge.flowType === "temporal") {
         ctx.lineWidth *= 1.25;
       }
+    }
+
+    if (relationship) {
+      ctx.strokeStyle = getRelationshipColor(relationship);
+
+      ctx.globalAlpha *= relationship.polarity === "alliance" ? 0.9 : 0.75;
+
+      ctx.shadowColor = ctx.strokeStyle;
+
+      ctx.shadowBlur += relationship.volatility * 0.45;
+
+      // VOLATILE RELATIONSHIPS THICKEN
+      ctx.lineWidth += relationship.volatility * 0.05;
     }
 
     ctx.stroke();
@@ -2048,8 +2135,6 @@ function drawLabels(ctx, renderState) {
 
   ctx.save();
 
-  ctx.globalAlpha = alpha;
-
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -2066,6 +2151,7 @@ function drawLabels(ctx, renderState) {
       const isHovered = node.id === graphState.hoveredNodeId;
 
       const screenX = node.x * graphState.scale + graphState.offsetX;
+
       const screenY = node.y * graphState.scale + graphState.offsetY;
 
       const radius = Math.max(
@@ -2073,24 +2159,17 @@ function drawLabels(ctx, renderState) {
         NODE_RADIUS * Math.max(graphState.scale, 0.7),
       );
 
-      ctx.shadowColor = "rgba(0,0,0,0.6)";
-      ctx.shadowBlur = 4;
-
-      if (alpha < 0.35 && node.type === "tag" && !isHovered) {
-        return;
-      }
-
       const importance = getSemanticImportance(node);
-      const arc = graphState.arcMap.get(node.id);
-      const characterData = graphState.characterDynamics.get(node.id);
-      const emotion = graphState.emotionMap.get(node.id);
-      const zoomLevel = graphState.semanticZoomLevel;
-      const densityFade = Math.min(1, importance / 10);
 
-      ctx.globalAlpha = alpha * (0.35 + densityFade * 0.65);
+      const arc = graphState.arcMap.get(node.id);
+
+      const characterData = graphState.characterDynamics.get(node.id);
+
+      const emotion = graphState.emotionMap.get(node.id);
+
+      const zoomLevel = graphState.semanticZoomLevel;
 
       // SEMANTIC LABEL LOD
-
       if (zoomLevel === 1) {
         if (importance < 14) {
           return;
@@ -2102,6 +2181,20 @@ function drawLabels(ctx, renderState) {
           return;
         }
       }
+
+      // TAG DENSITY REDUCTION
+      if (alpha < 0.35 && node.type === "tag" && !isHovered) {
+        return;
+      }
+
+      const densityFade = Math.min(1, importance / 10);
+
+      // RESET PER LABEL
+      ctx.globalAlpha = alpha * (0.35 + densityFade * 0.65);
+
+      ctx.shadowColor = "rgba(0,0,0,0.6)";
+
+      ctx.shadowBlur = 4;
 
       const label =
         node.type === "character" &&
@@ -2446,6 +2539,58 @@ function drawEmotionalFields(ctx) {
     ctx.beginPath();
 
     ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+
+    ctx.fill();
+  });
+}
+
+function drawRelationshipFields(ctx) {
+  graphState.relationshipDynamics.forEach((relationship, key) => {
+    const [fromId, toId] = key.split("-");
+
+    const from = graphState.nodeMap.get(fromId);
+
+    const to = graphState.nodeMap.get(toId);
+
+    if (!from || !to) return;
+
+    const fromX = from.x * graphState.scale + graphState.offsetX;
+
+    const fromY = from.y * graphState.scale + graphState.offsetY;
+
+    const toX = to.x * graphState.scale + graphState.offsetX;
+
+    const toY = to.y * graphState.scale + graphState.offsetY;
+
+    const midX = (fromX + toX) * 0.5;
+
+    const midY = (fromY + toY) * 0.5;
+
+    const radius = Math.min(180, 40 + relationship.volatility * 5);
+
+    const gradient = ctx.createRadialGradient(
+      midX,
+      midY,
+      0,
+      midX,
+      midY,
+      radius,
+    );
+
+    const color =
+      relationship.polarity === "alliance"
+        ? "rgba(46,204,113"
+        : "rgba(231,76,60";
+
+    gradient.addColorStop(0, color + ",0.12)");
+
+    gradient.addColorStop(1, "rgba(0,0,0,0)");
+
+    ctx.fillStyle = gradient;
+
+    ctx.beginPath();
+
+    ctx.arc(midX, midY, radius, 0, Math.PI * 2);
 
     ctx.fill();
   });
@@ -2979,6 +3124,7 @@ function animateGraph() {
   detectNarrativeArcs();
   analyzeCharacterDynamics();
   analyzeEmotionalTrajectories();
+  analyzeRelationshipDynamics();
 
   graphState.animationTime += 0.016;
 
