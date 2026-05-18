@@ -93,6 +93,7 @@ const graphState = {
   ],
 
   communityLabels: {},
+  communityAnchors: new Map(),
 
   nodeMap: new Map(),
 
@@ -632,6 +633,7 @@ function detectCommunities() {
 
   detectSubcommunities();
   generateCommunityLabels();
+  initializeCommunityAnchors();
 }
 
 function detectSubcommunities() {
@@ -712,10 +714,33 @@ function getCommunityCenters() {
   return centers;
 }
 
+function initializeCommunityAnchors() {
+  const centers = getCommunityCenters();
+
+  centers.forEach((center, communityId) => {
+    if (graphState.communityAnchors.has(communityId)) {
+      return;
+    }
+
+    const angle = (communityId * Math.PI * 2) / 12;
+
+    const radius = 600;
+
+    graphState.communityAnchors.set(communityId, {
+      x: canvas.width / 2 + Math.cos(angle) * radius,
+
+      y: canvas.height / 2 + Math.sin(angle) * radius,
+    });
+  });
+}
+
 function getCommunityRadii(centers) {
   const radii = new Map();
+  const massMap = new Map();
 
   graphState.nodes.forEach((node) => {
+    massMap.set(node.community, (massMap.get(node.community) || 0) + 1);
+
     const center = centers.get(node.community);
 
     if (!center) return;
@@ -728,6 +753,8 @@ function getCommunityRadii(centers) {
     const current = radii.get(node.community) || 0;
 
     radii.set(node.community, Math.max(current, dist));
+
+    graphState.communityMass = massMap;
   });
 
   return radii;
@@ -2149,10 +2176,28 @@ function applyForces() {
     const dx = center.x - node.x;
     const dy = center.y - node.y;
 
-    const communityGravity = 0.0035;
+    const communityGravity =
+      0.0022 + Math.min(0.002, edgeConnectionCount(node.id) * 0.00004);
 
     node.vx += dx * communityGravity;
     node.vy += dy * communityGravity;
+  });
+
+  // TOPOLOGY MEMORY FIELDS
+  nodes.forEach((node) => {
+    if (node.fixed) return;
+
+    const anchor = graphState.communityAnchors.get(node.community);
+
+    if (!anchor) return;
+
+    const dx = anchor.x - node.x;
+    const dy = anchor.y - node.y;
+
+    const memoryStrength = 0.00045;
+
+    node.vx += dx * memoryStrength;
+    node.vy += dy * memoryStrength;
   });
 
   const communities = [...communityCenters.keys()];
