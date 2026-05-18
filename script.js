@@ -287,9 +287,7 @@ function getGraphData() {
             edges.push({
               from: String(doc.id),
               to: String(targetId),
-
               relationshipType,
-
               strength:
                 relationshipType === "characters"
                   ? 2.2
@@ -298,6 +296,7 @@ function getGraphData() {
                     : relationshipType === "worldbuilding"
                       ? 1.6
                       : 1,
+              style: "explicit",
             });
           });
         },
@@ -322,17 +321,55 @@ function getGraphData() {
         edges.push({
           from: String(doc.id),
           to: tagId,
-
           relationshipType: "tag",
-
           strength: 0.7,
           direction: false,
+          style: "explicit",
         });
       });
     }
   });
 
+  buildSemanticEdges(nodes, edges, docs);
+
   return { nodes, edges };
+}
+
+function buildSemanticEdges(nodes, edges, docs) {
+  const docsArray = Object.values(docs);
+
+  for (let i = 0; i < docsArray.length; i++) {
+    for (let j = i + 1; j < docsArray.length; j++) {
+      const a = docsArray[i];
+      const b = docsArray[j];
+
+      if (!a.tags || !b.tags) continue;
+
+      const sharedTags = a.tags.filter((tag) => b.tags.includes(tag));
+
+      if (sharedTags.length === 0) continue;
+
+      // avoid duplicate explicit links
+      const alreadyLinked = edges.some(
+        (edge) =>
+          (edge.from === String(a.id) && edge.to === String(b.id)) ||
+          (edge.from === String(b.id) && edge.to === String(a.id)),
+      );
+
+      if (alreadyLinked) continue;
+
+      edges.push({
+        from: String(a.id),
+        to: String(b.id),
+        relationshipType: "semantic",
+        strength: Math.min(2.5, 0.6 + sharedTags.length * 0.35),
+        direction: false,
+        kind: "semantic",
+        style: "semantic",
+        sharedTags,
+      });
+    }
+  }
 }
 
 function getTooltipData(node) {
@@ -1232,69 +1269,72 @@ function drawEdges(ctx, renderState) {
 
   graphState.edges.forEach((edge) => {
     const from = visibleNodeMap.get(edge.from);
-
     const to = visibleNodeMap.get(edge.to);
 
     if (!from || !to) return;
 
     const fromX = from.x * graphState.scale + graphState.offsetX;
-
     const fromY = from.y * graphState.scale + graphState.offsetY;
 
     const toX = to.x * graphState.scale + graphState.offsetX;
-
     const toY = to.y * graphState.scale + graphState.offsetY;
 
     const isConnected = edge.from === activeId || edge.to === activeId;
-
     const isTraced = tracedEdges.has(`${edge.from}-${edge.to}`);
 
     const { controlX, controlY } = getEdgeCurve(fromX, fromY, toX, toY);
 
     ctx.beginPath();
-
     ctx.moveTo(fromX, fromY);
-
     ctx.quadraticCurveTo(controlX, controlY, toX, toY);
 
     // TRACED PATH
     if (isTraced) {
       ctx.strokeStyle = "#00d4ff";
-
       ctx.lineWidth = 4;
-
       ctx.globalAlpha = 1;
-
       ctx.shadowColor = "#00d4ff";
-
       ctx.shadowBlur = 18;
 
       // DEFAULT
     } else if (!activeId || !graphState.focusMode) {
-      ctx.strokeStyle = "#666";
+      const dist = Math.sqrt(
+        (toX - fromX) * (toX - fromX) + (toY - fromY) * (toY - fromY),
+      );
 
-      ctx.lineWidth = Math.max(1.2, graphState.scale * 1.5);
+      const depthFade = Math.max(0.08, 1 - dist / 1400);
 
-      ctx.globalAlpha = 0.75;
+      // SEMANTIC EDGES
+      if (edge.style === "semantic") {
+        ctx.strokeStyle = "#6f7d91";
+        ctx.lineWidth = Math.max(0.7, graphState.scale * 0.9) * depthFade;
+
+        ctx.globalAlpha = 0.16 * depthFade;
+
+        ctx.setLineDash([5, 8]);
+      } else {
+        // EXPLICIT EDGES
+        ctx.strokeStyle = "#7f8794";
+
+        ctx.lineWidth = Math.max(1, graphState.scale * 1.3) * depthFade;
+
+        ctx.globalAlpha = 0.42 * depthFade;
+
+        ctx.setLineDash([]);
+      }
 
       // CONNECTED
     } else if (isConnected) {
       ctx.strokeStyle = "#f39c12";
-
       ctx.lineWidth = Math.max(1.8, graphState.scale * 2.2);
-
       ctx.globalAlpha = 0.95;
-
       ctx.shadowColor = "#f39c12";
-
       ctx.shadowBlur = 12;
 
       // FADED
     } else {
       ctx.strokeStyle = "#222";
-
       ctx.lineWidth = 1;
-
       ctx.globalAlpha = 0.12;
     }
 
@@ -1304,6 +1344,7 @@ function drawEdges(ctx, renderState) {
     }
 
     ctx.stroke();
+    ctx.setLineDash([]);
 
     // DIRECTIONAL ARROWS
     if (edge.direction && (!graphState.focusMode || isConnected || isTraced)) {
@@ -1661,6 +1702,31 @@ function drawCommunityHulls(ctx) {
   });
 }
 
+function getNodeTypeDisplayName(type) {
+  switch (type) {
+    case "notes":
+      return "Research";
+
+    case "world":
+      return "Worldbuilding";
+
+    case "timeline":
+      return "Timeline";
+
+    case "ideas":
+      return "Ideas";
+
+    case "chapter":
+      return "Chapters";
+
+    case "character":
+      return "Characters";
+
+    default:
+      return capitalize(type);
+  }
+}
+
 function generateCommunityLabels() {
   const labels = {};
   const communities = new Map();
@@ -1687,12 +1753,19 @@ function generateCommunityLabels() {
       /*
        * Type weighting
        */
-      incrementFrequency(frequencies, node.type, 2);
+      incrementFrequency(frequencies, getNodeTypeDisplayName(node.type), 2);
 
       /*
        * Label words
        */
-      const words = node.label.toLowerCase().split(/\s+/);
+      const words = node.label
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(
+          (word) =>
+            word !== node.type.toLowerCase() &&
+            word !== getNodeTypeDisplayName(node.type).toLowerCase(),
+        );
 
       words.forEach((word) => {
         if (word.length < 4) {
@@ -1705,7 +1778,17 @@ function generateCommunityLabels() {
 
     const sorted = [...frequencies.entries()].sort((a, b) => b[1] - a[1]);
 
-    const best = sorted.slice(0, 2).map(([word]) => capitalize(word));
+    const unique = [];
+
+    sorted.forEach(([word]) => {
+      const normalized = word.toLowerCase();
+
+      if (!unique.some((existing) => existing.toLowerCase() === normalized)) {
+        unique.push(word);
+      }
+    });
+
+    const best = unique.slice(0, 2).map(capitalize);
 
     labels[communityId] = best.join(" • ");
   });
