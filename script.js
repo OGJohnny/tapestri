@@ -96,6 +96,7 @@ const graphState = {
   communityAnchors: new Map(),
   tensionMap: new Map(),
   nodeMap: new Map(),
+  arcMap: new Map(),
 
   animationTime: 0,
   semanticZoomLevel: 2,
@@ -617,6 +618,25 @@ function getFlowColor(edge) {
   }
 }
 
+function getArcColor(phase) {
+  switch (phase) {
+    case "setup":
+      return "rgba(52,152,219,0.7)";
+
+    case "development":
+      return "rgba(46,204,113,0.7)";
+
+    case "escalation":
+      return "rgba(243,156,18,0.8)";
+
+    case "climax":
+      return "rgba(231,76,60,0.9)";
+
+    default:
+      return "rgba(255,255,255,0.4)";
+  }
+}
+
 function getSemanticImportance(node) {
   const connections = edgeConnectionCount(node.id);
 
@@ -669,6 +689,52 @@ function calculateNarrativeTension() {
   });
 
   graphState.tensionMap = tensionMap;
+}
+
+function detectNarrativeArcs() {
+  const arcMap = new Map();
+
+  graphState.nodes.forEach((node) => {
+    const neighbors = getConnectedNeighbors(node.id);
+
+    const tension = graphState.tensionMap.get(node.id) || 0;
+
+    const importance = getSemanticImportance(node);
+
+    let temporalConnections = 0;
+
+    graphState.edges.forEach((edge) => {
+      if (
+        edge.flowType === "temporal" &&
+        (edge.from === node.id || edge.to === node.id)
+      ) {
+        temporalConnections++;
+      }
+    });
+
+    const progressionScore =
+      neighbors.length * 0.45 +
+      tension * 1.2 +
+      importance * 0.35 +
+      temporalConnections * 2;
+
+    let arcPhase = "setup";
+
+    if (progressionScore > 20) {
+      arcPhase = "climax";
+    } else if (progressionScore > 13) {
+      arcPhase = "escalation";
+    } else if (progressionScore > 7) {
+      arcPhase = "development";
+    }
+
+    arcMap.set(node.id, {
+      phase: arcPhase,
+      score: progressionScore,
+    });
+  });
+
+  graphState.arcMap = arcMap;
 }
 
 function detectCommunities() {
@@ -1160,6 +1226,7 @@ function renderGraph() {
 
   drawSemanticInfluenceFields(ctx);
   drawNarrativeTensionFields(ctx);
+  drawNarrativeArcFields(ctx);
   drawCommunityHulls(ctx);
   drawEdges(ctx, renderState);
   drawNodes(ctx, renderState);
@@ -1671,7 +1738,9 @@ function drawNodes(ctx, renderState) {
 
   visibleNodes.forEach((node) => {
     const isSelected = node.id === selectedId;
+
     const isHovered = node.id === hoveredId;
+
     const isConnected = connectedIds.has(node.id);
 
     const screenX = node.x * graphState.scale + graphState.offsetX;
@@ -1687,12 +1756,33 @@ function drawNodes(ctx, renderState) {
 
     const typeColor = getNodeTypeColor(node.type);
 
+    // GLOBAL SEMANTIC VALUES
+    const importance = getSemanticImportance(node);
+
+    const tension = graphState.tensionMap.get(node.id) || 0;
+
+    const arc = graphState.arcMap.get(node.id);
+
+    const zoomLevel = graphState.semanticZoomLevel;
+
+    // SEMANTIC NODE LOD
+    if (zoomLevel === 1) {
+      if (importance < 5 && node.type === "tag") {
+        return;
+      }
+    }
+
+    if (zoomLevel === 2) {
+      if (importance < 2 && node.type === "tag") {
+        return;
+      }
+    }
+
     ctx.beginPath();
+
     ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
 
-    /*
-     * RESET VISUAL STATE FIRST
-     */
+    // RESET
     ctx.shadowBlur = 0;
     ctx.shadowColor = "transparent";
     ctx.globalAlpha = 1;
@@ -1702,10 +1792,8 @@ function drawNodes(ctx, renderState) {
      */
     if (isSelected || isHovered) {
       ctx.fillStyle = "#f39c12";
-
       ctx.shadowColor = "#f39c12";
       ctx.shadowBlur = 20;
-
       ctx.globalAlpha = 1;
     } else if (activeId && graphState.focusMode && isConnected) {
       /*
@@ -1713,10 +1801,8 @@ function drawNodes(ctx, renderState) {
        */
       ctx.fillStyle = typeColor;
 
-      /*
-       * subtle community accent only
-       */
       ctx.shadowColor = communityColor;
+
       ctx.shadowBlur = 10 + edgeConnectionCount(node.id) * 0.35;
 
       ctx.globalAlpha = 0.95;
@@ -1732,40 +1818,24 @@ function drawNodes(ctx, renderState) {
        */
       ctx.fillStyle = typeColor;
 
-      const importance = getSemanticImportance(node);
-      const tension = graphState.tensionMap.get(node.id) || 0;
-      const zoomLevel = graphState.semanticZoomLevel;
-
-      // SEMANTIC NODE LOD
-
-      if (zoomLevel === 1) {
-        if (importance < 5 && node.type === "tag") {
-          return;
-        }
-      }
-
-      if (zoomLevel === 2) {
-        if (importance < 2 && node.type === "tag") {
-          return;
-        }
-      }
-
       ctx.globalAlpha = Math.min(1, 0.45 + importance * 0.035);
 
-      /*
-       * IMPORTANT:
-       * no persistent glow here
-       */
       ctx.shadowColor = tension > 5 ? "rgba(255,120,80,0.8)" : "transparent";
 
       ctx.shadowBlur = tension > 5 ? 10 + tension * 1.5 : 0;
     }
 
+    // ARC EMPHASIS
+    if (arc) {
+      ctx.shadowColor = getArcColor(arc.phase);
+
+      ctx.shadowBlur +=
+        arc.phase === "climax" ? 18 : arc.phase === "escalation" ? 10 : 4;
+    }
+
     ctx.fill();
 
-    /*
-     * CLEAN RESET
-     */
+    // CLEAN RESET
     ctx.shadowBlur = 0;
     ctx.shadowColor = "transparent";
     ctx.globalAlpha = 1;
@@ -1824,6 +1894,7 @@ function drawLabels(ctx, renderState) {
       }
 
       const importance = getSemanticImportance(node);
+      const arc = graphState.arcMap.get(node.id);
       const zoomLevel = graphState.semanticZoomLevel;
       const densityFade = Math.min(1, importance / 10);
 
@@ -1843,7 +1914,12 @@ function drawLabels(ctx, renderState) {
         }
       }
 
-      ctx.fillText(node.label, screenX, screenY + radius + 18);
+      const label =
+        arc && graphState.semanticZoomLevel >= 3
+          ? `${node.label} • ${arc.phase}`
+          : node.label;
+
+      ctx.fillText(label, screenX, screenY + radius + 18);
     });
 
   ctx.shadowBlur = 0;
@@ -2052,6 +2128,51 @@ function drawNarrativeTensionFields(ctx) {
     ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
 
     ctx.fill();
+  });
+}
+
+function drawNarrativeArcFields(ctx) {
+  graphState.nodes.forEach((node) => {
+    const arc = graphState.arcMap.get(node.id);
+
+    if (!arc) return;
+
+    if (arc.phase === "setup") {
+      return;
+    }
+
+    const screenX = node.x * graphState.scale + graphState.offsetX;
+
+    const screenY = node.y * graphState.scale + graphState.offsetY;
+
+    const radius = Math.min(220, 50 + arc.score * 5) * graphState.scale;
+
+    const gradient = ctx.createRadialGradient(
+      screenX,
+      screenY,
+      0,
+      screenX,
+      screenY,
+      radius,
+    );
+
+    const color = getArcColor(arc.phase);
+
+    gradient.addColorStop(0, color);
+
+    gradient.addColorStop(1, "rgba(0,0,0,0)");
+
+    ctx.fillStyle = gradient;
+
+    ctx.globalAlpha = 0.16;
+
+    ctx.beginPath();
+
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+
+    ctx.fill();
+
+    ctx.globalAlpha = 1;
   });
 }
 
@@ -2497,6 +2618,49 @@ function applyForces() {
     node.vy += dy * 0.0008;
   });
 
+  // MIGRATION ESCAPE FORCES
+  nodes.forEach((node) => {
+    if (node.fixed) return;
+
+    const anchor = graphState.communityAnchors.get(node.community);
+
+    if (!anchor) return;
+
+    let blockingForceX = 0;
+    let blockingForceY = 0;
+
+    nodes.forEach((other) => {
+      if (other.id === node.id || other.community === node.community) {
+        return;
+      }
+
+      const dx = other.x - node.x;
+      const dy = other.y - node.y;
+
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+      // ONLY VERY CLOSE INTERFERENCE
+      if (dist > 120) return;
+
+      blockingForceX -= (dx / dist) * (120 - dist) * 0.012;
+
+      blockingForceY -= (dy / dist) * (120 - dist) * 0.012;
+    });
+
+    // DIRECTION TO TARGET COMMUNITY
+    const targetDX = anchor.x - node.x;
+
+    const targetDY = anchor.y - node.y;
+
+    const targetDist =
+      Math.sqrt(targetDX * targetDX + targetDY * targetDY) || 1;
+
+    // ESCAPE VECTOR
+    node.vx += blockingForceX + (targetDX / targetDist) * 0.08;
+
+    node.vy += blockingForceY + (targetDY / targetDist) * 0.08;
+  });
+
   // --- APPLY MOVEMENT
   const padding = 60;
 
@@ -2537,6 +2701,7 @@ function animateGraph() {
   updateGraphCamera();
   updateSemanticZoomLevel();
   calculateNarrativeTension();
+  detectNarrativeArcs();
 
   graphState.animationTime += 0.016;
 
