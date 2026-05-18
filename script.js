@@ -98,6 +98,7 @@ const graphState = {
   nodeMap: new Map(),
   arcMap: new Map(),
   characterDynamics: new Map(),
+  emotionMap: new Map(),
 
   animationTime: 0,
   semanticZoomLevel: 2,
@@ -654,6 +655,22 @@ function getCharacterRoleColor(role) {
   }
 }
 
+function getEmotionColor(state) {
+  switch (state) {
+    case "chaotic":
+      return "rgba(231,76,60";
+
+    case "intense":
+      return "rgba(243,156,18";
+
+    case "elevated":
+      return "rgba(155,89,182";
+
+    default:
+      return "rgba(52,152,219";
+  }
+}
+
 function getSemanticImportance(node) {
   const connections = edgeConnectionCount(node.id);
 
@@ -815,6 +832,72 @@ function analyzeCharacterDynamics() {
   });
 
   graphState.characterDynamics = dynamics;
+}
+
+function analyzeEmotionalTrajectories() {
+  const emotionMap = new Map();
+
+  graphState.nodes.forEach((node) => {
+    const neighbors = getConnectedNeighbors(node.id);
+
+    const tension = graphState.tensionMap.get(node.id) || 0;
+
+    const arc = graphState.arcMap.get(node.id);
+
+    const characterData = graphState.characterDynamics.get(node.id);
+
+    let emotionalPressure = 0;
+
+    // TENSION CONTRIBUTION
+    emotionalPressure += tension * 1.4;
+
+    // ARC PHASE CONTRIBUTION
+    if (arc) {
+      if (arc.phase === "climax") {
+        emotionalPressure += 14;
+      } else if (arc.phase === "escalation") {
+        emotionalPressure += 8;
+      } else if (arc.phase === "development") {
+        emotionalPressure += 4;
+      }
+    }
+
+    // CHARACTER CONTRIBUTION
+    if (characterData) {
+      if (characterData.role === "protagonist") {
+        emotionalPressure += 10;
+      } else if (characterData.role === "major") {
+        emotionalPressure += 6;
+      }
+    }
+
+    // CROSS-COMMUNITY TURBULENCE
+    neighbors.forEach((neighbor) => {
+      if (neighbor.community !== node.community) {
+        emotionalPressure += 1.8;
+      }
+    });
+
+    // DENSITY CONTRIBUTION
+    emotionalPressure += neighbors.length * 0.55;
+
+    let emotionalState = "calm";
+
+    if (emotionalPressure > 34) {
+      emotionalState = "chaotic";
+    } else if (emotionalPressure > 24) {
+      emotionalState = "intense";
+    } else if (emotionalPressure > 14) {
+      emotionalState = "elevated";
+    }
+
+    emotionMap.set(node.id, {
+      pressure: emotionalPressure,
+      state: emotionalState,
+    });
+  });
+
+  graphState.emotionMap = emotionMap;
 }
 
 function detectCommunities() {
@@ -1308,6 +1391,7 @@ function renderGraph() {
   drawNarrativeTensionFields(ctx);
   drawNarrativeArcFields(ctx);
   drawCharacterInfluenceFields(ctx);
+  drawEmotionalFields(ctx);
   drawCommunityHulls(ctx);
   drawEdges(ctx, renderState);
   drawNodes(ctx, renderState);
@@ -1846,6 +1930,8 @@ function drawNodes(ctx, renderState) {
 
     const characterData = graphState.characterDynamics.get(node.id);
 
+    const emotion = graphState.emotionMap.get(node.id);
+
     const zoomLevel = graphState.semanticZoomLevel;
 
     // SEMANTIC NODE LOD
@@ -1919,6 +2005,13 @@ function drawNodes(ctx, renderState) {
             : 8;
     }
 
+    if (emotion) {
+      ctx.shadowColor = getEmotionColor(emotion.state) + ",0.85)";
+
+      ctx.shadowBlur +=
+        emotion.state === "chaotic" ? 24 : emotion.state === "intense" ? 14 : 8;
+    }
+
     // ARC EMPHASIS
     if (arc) {
       ctx.shadowColor = getArcColor(arc.phase);
@@ -1990,6 +2083,7 @@ function drawLabels(ctx, renderState) {
       const importance = getSemanticImportance(node);
       const arc = graphState.arcMap.get(node.id);
       const characterData = graphState.characterDynamics.get(node.id);
+      const emotion = graphState.emotionMap.get(node.id);
       const zoomLevel = graphState.semanticZoomLevel;
       const densityFade = Math.min(1, importance / 10);
 
@@ -2014,9 +2108,11 @@ function drawLabels(ctx, renderState) {
         characterData &&
         graphState.semanticZoomLevel >= 3
           ? `${node.label} • ${characterData.role}`
-          : arc && graphState.semanticZoomLevel >= 3
-            ? `${node.label} • ${arc.phase}`
-            : node.label;
+          : emotion && graphState.semanticZoomLevel >= 4
+            ? `${node.label} • ${emotion.state}`
+            : arc && graphState.semanticZoomLevel >= 3
+              ? `${node.label} • ${arc.phase}`
+              : node.label;
 
       ctx.fillText(label, screenX, screenY + radius + 18);
     });
@@ -2299,6 +2395,49 @@ function drawCharacterInfluenceFields(ctx) {
     const color = getCharacterRoleColor(data.role);
 
     gradient.addColorStop(0, color.replace(")", ",0.18)"));
+
+    gradient.addColorStop(1, "rgba(0,0,0,0)");
+
+    ctx.fillStyle = gradient;
+
+    ctx.beginPath();
+
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+
+    ctx.fill();
+  });
+}
+
+function drawEmotionalFields(ctx) {
+  graphState.emotionMap.forEach((emotion, nodeId) => {
+    const node = graphState.nodeMap.get(nodeId);
+
+    if (!node) return;
+
+    if (emotion.state === "calm") {
+      return;
+    }
+
+    const screenX = node.x * graphState.scale + graphState.offsetX;
+
+    const screenY = node.y * graphState.scale + graphState.offsetY;
+
+    const radius = Math.min(320, 70 + emotion.pressure * 4) * graphState.scale;
+
+    const gradient = ctx.createRadialGradient(
+      screenX,
+      screenY,
+      0,
+      screenX,
+      screenY,
+      radius,
+    );
+
+    const color = getEmotionColor(emotion.state);
+
+    gradient.addColorStop(0, color + ",0.16)");
+
+    gradient.addColorStop(0.45, color + ",0.06)");
 
     gradient.addColorStop(1, "rgba(0,0,0,0)");
 
@@ -2839,6 +2978,7 @@ function animateGraph() {
   calculateNarrativeTension();
   detectNarrativeArcs();
   analyzeCharacterDynamics();
+  analyzeEmotionalTrajectories();
 
   graphState.animationTime += 0.016;
 
