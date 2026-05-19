@@ -1702,15 +1702,94 @@ function initializeAgents() {
   });
 }
 
-function createAgentTask({ type, nodeId, priority, description }) {
+function createAgentTask({
+  agent,
+  type,
+  nodeId,
+  priority,
+  description,
+  payload = {},
+}) {
   graphState.agentSystem.tasks.push({
     id: crypto.randomUUID(),
+
+    agent,
+
     type,
+
     nodeId,
+
     priority,
+
     description,
+
+    payload,
+
+    status: "pending",
+
     created: performance.now(),
+
+    completed: null,
   });
+}
+
+function sortAgentTasks() {
+  graphState.agentSystem.tasks.sort((a, b) => {
+    return b.priority - a.priority;
+  });
+}
+
+function executeAgentTasks() {
+  const tasks = graphState.agentSystem.tasks;
+
+  tasks.forEach((task) => {
+    if (task.status !== "pending") {
+      return;
+    }
+
+    switch (task.agent) {
+      case AGENT_TYPES.CONTINUITY:
+        executeContinuityTask(task);
+        break;
+
+      case AGENT_TYPES.PSYCHOLOGIST:
+        executePsychologyTask(task);
+        break;
+
+      case AGENT_TYPES.READER:
+        executeReaderTask(task);
+        break;
+
+      case AGENT_TYPES.LOREKEEPER:
+        executeLoreTask(task);
+        break;
+
+      case AGENT_TYPES.WRITER:
+        executeWriterTask(task);
+        break;
+
+      case AGENT_TYPES.EDITOR:
+        executeEditorTask(task);
+        break;
+
+      case AGENT_TYPES.RESEARCH:
+        executeResearchTask(task);
+        break;
+
+      case AGENT_TYPES.MARKETING:
+        executeMarketingTask(task);
+        break;
+    }
+
+    task.status = "completed";
+
+    task.completed = performance.now();
+  });
+
+  // PREVENT INFINITE GROWTH
+  if (tasks.length > 500) {
+    graphState.agentSystem.tasks = tasks.slice(-300);
+  }
 }
 
 function addAgentInsight({ agent, nodeId, severity, message }) {
@@ -1837,6 +1916,8 @@ function runAgentSystem() {
   runReaderAgent();
 
   runManagerAgent();
+
+  executeAgentTasks();
 }
 
 function runManagerAgent() {
@@ -1885,6 +1966,167 @@ function runManagerAgent() {
   })[0];
 
   graphState.agentSystem.activeAgent = highest?.agent || null;
+
+  generateAgentTasks();
+}
+
+function generateAgentTasks() {
+  graphState.nodes.forEach((node) => {
+    const tension = graphState.tensionMap.get(node.id) || 0;
+
+    const importance = getSemanticImportance(node);
+
+    const neighbors = getConnectedNeighbors(node.id);
+
+    // CONTINUITY TASK
+    if (tension > 9 && neighbors.length < 2) {
+      createAgentTask({
+        agent: AGENT_TYPES.CONTINUITY,
+
+        type: "continuity-review",
+
+        nodeId: node.id,
+
+        priority: 10,
+
+        description: "Review narrative isolation during high tension.",
+      });
+    }
+
+    // PSYCHOLOGY TASK
+    if (node.type === "character") {
+      const emotion = graphState.emotionMap.get(node.id);
+
+      if (emotion && emotion.intensity > 8) {
+        createAgentTask({
+          agent: AGENT_TYPES.PSYCHOLOGIST,
+
+          type: "emotion-analysis",
+
+          nodeId: node.id,
+
+          priority: 9,
+
+          description: "Analyze emotional instability.",
+        });
+      }
+    }
+
+    // READER TASK
+    if (importance > 18 && neighbors.length > 16) {
+      createAgentTask({
+        agent: AGENT_TYPES.READER,
+
+        type: "reader-overload",
+
+        nodeId: node.id,
+
+        priority: 7,
+
+        description: "Evaluate reader cognitive load.",
+      });
+    }
+  });
+
+  sortAgentTasks();
+}
+
+function executeContinuityTask(task) {
+  addAgentInsight({
+    agent: AGENT_TYPES.CONTINUITY,
+
+    nodeId: task.nodeId,
+
+    severity: "warning",
+
+    message: "Continuity Agent reviewed narrative structural consistency.",
+  });
+}
+
+function executePsychologyTask(task) {
+  addAgentInsight({
+    agent: AGENT_TYPES.PSYCHOLOGIST,
+
+    nodeId: task.nodeId,
+
+    severity: "critical",
+
+    message: "Psychologist Agent detected emotional instability.",
+  });
+}
+
+function executeReaderTask(task) {
+  addAgentInsight({
+    agent: AGENT_TYPES.READER,
+
+    nodeId: task.nodeId,
+
+    severity: "info",
+
+    message: "Reader Simulator evaluated cognitive narrative density.",
+  });
+}
+
+function executeWriterTask(task) {
+  addAgentInsight({
+    agent: AGENT_TYPES.WRITER,
+
+    nodeId: task.nodeId,
+
+    severity: "info",
+
+    message:
+      "Writer Agent identified potential narrative enhancement opportunity.",
+  });
+}
+
+function executeEditorTask(task) {
+  addAgentInsight({
+    agent: AGENT_TYPES.EDITOR,
+
+    nodeId: task.nodeId,
+
+    severity: "warning",
+
+    message: "Editor Agent detected possible clarity issue.",
+  });
+}
+
+function executeResearchTask(task) {
+  addAgentInsight({
+    agent: AGENT_TYPES.RESEARCH,
+
+    nodeId: task.nodeId,
+
+    severity: "info",
+
+    message: "Research Agent identified possible expansion area.",
+  });
+}
+
+function executeMarketingTask(task) {
+  addAgentInsight({
+    agent: AGENT_TYPES.MARKETING,
+
+    nodeId: task.nodeId,
+
+    severity: "info",
+
+    message:
+      "Marketing Agent identified potential audience engagement hotspot.",
+  });
+}
+
+function executeLoreTask(task) {
+  addAgentInsight({
+    agent: AGENT_TYPES.LOREKEEPER,
+
+    nodeId: task.nodeId,
+
+    severity: "warning",
+
+    message: "Lorekeeper Agent reviewing world consistency.",
+  });
 }
 
 // =====================================================
