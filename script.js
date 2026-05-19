@@ -110,6 +110,10 @@ const graphState = {
   temporalStateMap: new Map(),
   timelinePlaying: false,
   timelineSpeed: 1,
+
+  semanticInferenceMap: new Map(),
+  semanticMotifMap: new Map(),
+  semanticAnomalyMap: new Map(),
 };
 
 const edgePhysics = {
@@ -371,6 +375,43 @@ function extractChapterNumber(label) {
   const match = label.match(/\d+/);
 
   return match ? Number(match[0]) : 9999;
+}
+
+const SEMANTIC_STOP_WORDS = new Set([
+  "this",
+  "that",
+  "with",
+  "from",
+  "they",
+  "them",
+  "were",
+  "have",
+  "there",
+  "their",
+  "about",
+  "which",
+  "would",
+  "could",
+  "should",
+  "into",
+  "through",
+  "after",
+  "before",
+  "because",
+  "while",
+  "where",
+  "when",
+  "been",
+]);
+
+function tokenizeNarrativeText(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s]/g, "")
+    .split(/\s+/)
+    .filter((word) => {
+      return word.length > 3 && !SEMANTIC_STOP_WORDS.has(word);
+    });
 }
 
 function buildSemanticEdges(nodes, edges, docs) {
@@ -1170,6 +1211,123 @@ function analyzeTemporalNarrativeState() {
   graphState.temporalStateMap = temporalMap;
 }
 
+function analyzeSemanticInference() {
+  const inferenceMap = new Map();
+
+  const nodes = graphState.nodes.filter((node) => node.type !== "tag");
+
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i];
+      const b = nodes[j];
+
+      const aTokens = tokenizeNarrativeText(a.label);
+
+      const bTokens = tokenizeNarrativeText(b.label);
+
+      const shared = aTokens.filter((token) => bTokens.includes(token));
+
+      let semanticScore = 0;
+
+      // SHARED TOKENS
+      semanticScore += shared.length * 8;
+
+      // COMMUNITY PROXIMITY
+      if (a.community === b.community) {
+        semanticScore += 4;
+      }
+
+      // EMOTIONAL SIMILARITY
+      const aEmotion = graphState.emotionMap.get(a.id);
+
+      const bEmotion = graphState.emotionMap.get(b.id);
+
+      if (aEmotion && bEmotion && aEmotion.state === bEmotion.state) {
+        semanticScore += 6;
+      }
+
+      // ARC SIMILARITY
+      const aArc = graphState.arcMap.get(a.id);
+
+      const bArc = graphState.arcMap.get(b.id);
+
+      if (aArc && bArc && aArc.phase === bArc.phase) {
+        semanticScore += 5;
+      }
+
+      // TEMPORAL PROXIMITY
+      const aTemporal = graphState.temporalStateMap.get(a.id);
+
+      const bTemporal = graphState.temporalStateMap.get(b.id);
+
+      if (
+        aTemporal &&
+        bTemporal &&
+        Math.abs(aTemporal.chapter - bTemporal.chapter) <= 2
+      ) {
+        semanticScore += 4;
+      }
+
+      if (semanticScore < 14) {
+        continue;
+      }
+
+      inferenceMap.set(`${a.id}-${b.id}`, {
+        score: semanticScore,
+        sharedTokens: shared,
+      });
+    }
+  }
+
+  graphState.semanticInferenceMap = inferenceMap;
+}
+
+function analyzeSemanticMotifs() {
+  const motifMap = new Map();
+
+  graphState.nodes.forEach((node) => {
+    const tokens = tokenizeNarrativeText(node.label);
+
+    tokens.forEach((token) => {
+      if (!motifMap.has(token)) {
+        motifMap.set(token, []);
+      }
+
+      motifMap.get(token).push(node.id);
+    });
+  });
+
+  graphState.semanticMotifMap = motifMap;
+}
+
+function analyzeNarrativeAnomalies() {
+  const anomalyMap = new Map();
+
+  graphState.nodes.forEach((node) => {
+    const neighbors = getConnectedNeighbors(node.id);
+
+    const importance = getSemanticImportance(node);
+
+    // ISOLATED IMPORTANT NODE
+    if (importance > 18 && neighbors.length <= 1) {
+      anomalyMap.set(node.id, {
+        type: "isolated-significance",
+      });
+    }
+
+    // HIGH TENSION BUT LOW CONNECTION
+    const tension = graphState.tensionMap.get(node.id);
+
+    if (tension > 10 && neighbors.length <= 2) {
+      anomalyMap.set(node.id, {
+        type: "unstable-isolation",
+      });
+    }
+  });
+
+  graphState.semanticAnomalyMap = anomalyMap;
+}
+
 function updateNarrativeTimeline() {
   if (!graphState.timelinePlaying) {
     return;
@@ -1690,6 +1848,8 @@ function renderGraph() {
   drawRelationshipFields(ctx);
   drawNarrativePropagationFields(ctx);
   drawTemporalNarrativeFields(ctx);
+  drawSemanticInferenceEdges(ctx);
+  drawNarrativeAnomalies(ctx);
   drawCommunityHulls(ctx);
   drawEdges(ctx, renderState);
   drawNodes(ctx, renderState);
@@ -1799,43 +1959,34 @@ function renderMinimapViewport({ minimapScale, offsetX, offsetY }) {
   );
 }
 
-function getEdgeCurve(fromX, fromY, toX, toY, edge) {
+function getEdgeCurve(fromX, fromY, toX, toY, edge = null) {
   const dx = toX - fromX;
   const dy = toY - fromY;
 
-  const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+  const distance = Math.sqrt(dx * dx + dy * dy);
 
-  // NORMAL
-  const nx = -dy / dist;
-  const ny = dx / dist;
+  const midX = (fromX + toX) * 0.5;
+  const midY = (fromY + toY) * 0.5;
 
-  // BASE CURVE
-  let curveStrength = Math.min(140, dist * 0.22);
+  const normalX = -dy / distance;
+  const normalY = dx / distance;
 
-  // SEMANTIC EDGES = softer wider arcs
-  if (edge.style === "semantic") {
-    curveStrength *= 1.45;
+  let curveStrength = Math.min(120, distance * 0.18);
+
+  // OPTIONAL EDGE STYLING
+  if (edge?.style === "semantic") {
+    curveStrength *= 1.4;
+  } else if (edge?.style === "relationship") {
+    curveStrength *= 0.9;
   }
 
-  // INTER-COMMUNITY EDGES
-  const fromNode = graphState.nodeMap.get(edge.from);
-  const toNode = graphState.nodeMap.get(edge.to);
+  const controlX = midX + normalX * curveStrength;
 
-  if (fromNode && toNode && fromNode.community !== toNode.community) {
-    curveStrength *= 1.35;
-  }
-
-  // DIRECTIONAL OFFSET
-  const directionOffset = hashEdge(edge.from, edge.to) % 2 === 0 ? 1 : -1;
-
-  curveStrength *= directionOffset;
-
-  const midX = (fromX + toX) / 2;
-  const midY = (fromY + toY) / 2;
+  const controlY = midY + normalY * curveStrength;
 
   return {
-    controlX: midX + nx * curveStrength,
-    controlY: midY + ny * curveStrength,
+    controlX,
+    controlY,
   };
 }
 
@@ -2894,6 +3045,82 @@ function drawNarrativePropagationFields(ctx) {
   });
 }
 
+function drawSemanticInferenceEdges(ctx) {
+  graphState.semanticInferenceMap.forEach((inference, key) => {
+    const [fromId, toId] = key.split("-");
+
+    const from = graphState.nodeMap.get(fromId);
+
+    const to = graphState.nodeMap.get(toId);
+
+    if (!from || !to) return;
+
+    const fromX = from.x * graphState.scale + graphState.offsetX;
+
+    const fromY = from.y * graphState.scale + graphState.offsetY;
+
+    const toX = to.x * graphState.scale + graphState.offsetX;
+
+    const toY = to.y * graphState.scale + graphState.offsetY;
+
+    const { controlX, controlY } = getEdgeCurve(fromX, fromY, toX, toY);
+
+    ctx.beginPath();
+
+    ctx.moveTo(fromX, fromY);
+
+    ctx.quadraticCurveTo(controlX, controlY, toX, toY);
+
+    const pulse = Math.sin(graphState.animationTime * 2) * 0.5 + 0.5;
+
+    ctx.strokeStyle = `rgba(120,180,255,${0.08 + pulse * 0.06})`;
+
+    ctx.lineWidth = 0.5 + inference.score * 0.03;
+
+    ctx.setLineDash([6, 10]);
+
+    ctx.shadowColor = "rgba(120,180,255,0.35)";
+
+    ctx.shadowBlur = 8;
+
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+
+    ctx.shadowBlur = 0;
+  });
+}
+
+function drawNarrativeAnomalies(ctx) {
+  graphState.semanticAnomalyMap.forEach((anomaly, nodeId) => {
+    const node = graphState.nodeMap.get(nodeId);
+
+    if (!node) return;
+
+    const screenX = node.x * graphState.scale + graphState.offsetX;
+
+    const screenY = node.y * graphState.scale + graphState.offsetY;
+
+    const pulse = Math.sin(graphState.animationTime * 4) * 0.5 + 0.5;
+
+    const radius = (28 + pulse * 8) * graphState.scale;
+
+    ctx.beginPath();
+
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+
+    ctx.strokeStyle = "rgba(255,80,80,0.8)";
+
+    ctx.lineWidth = 2;
+
+    ctx.setLineDash([4, 6]);
+
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+  });
+}
+
 function drawTemporalNarrativeFields(ctx) {
   graphState.temporalStateMap.forEach((temporal, nodeId) => {
     if (temporal.state === "background") {
@@ -3470,6 +3697,9 @@ function animateGraph() {
   analyzeRelationshipDynamics();
   analyzeNarrativePropagation();
   analyzeTemporalNarrativeState();
+  analyzeSemanticInference();
+  analyzeSemanticMotifs();
+  analyzeNarrativeAnomalies();
   updateNarrativeTimeline();
 
   graphState.animationTime += 0.016;
