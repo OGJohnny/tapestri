@@ -102,9 +102,14 @@ const graphState = {
   relationshipDynamics: new Map(),
   eventPropagationMap: new Map(),
   eventPulseTime: 0,
-
   animationTime: 0,
   semanticZoomLevel: 2,
+
+  timelineIndex: 0,
+  timelineNodes: [],
+  temporalStateMap: new Map(),
+  timelinePlaying: false,
+  timelineSpeed: 1,
 };
 
 const edgePhysics = {
@@ -350,6 +355,22 @@ function getGraphData() {
   buildSemanticEdges(nodes, edges, docs);
 
   return { nodes, edges };
+}
+
+function buildNarrativeTimeline() {
+  const chapters = graphState.nodes
+    .filter((node) => node.type === "chapter")
+    .sort((a, b) => {
+      return extractChapterNumber(a.label) - extractChapterNumber(b.label);
+    });
+
+  graphState.timelineNodes = chapters;
+}
+
+function extractChapterNumber(label) {
+  const match = label.match(/\d+/);
+
+  return match ? Number(match[0]) : 9999;
 }
 
 function buildSemanticEdges(nodes, edges, docs) {
@@ -695,6 +716,22 @@ function getPropagationColor(type) {
 
     default:
       return "rgba(52,152,219";
+  }
+}
+
+function getTemporalColor(state) {
+  switch (state) {
+    case "dominant":
+      return "rgba(241,196,15";
+
+    case "active":
+      return "rgba(52,152,219";
+
+    case "emerging":
+      return "rgba(155,89,182";
+
+    default:
+      return "rgba(120,120,120";
   }
 }
 
@@ -1052,6 +1089,110 @@ function analyzeNarrativePropagation() {
   });
 
   graphState.eventPropagationMap = propagation;
+}
+
+function analyzeTemporalNarrativeState() {
+  const temporalMap = new Map();
+
+  const currentChapter = graphState.timelineNodes[graphState.timelineIndex];
+
+  if (!currentChapter) {
+    graphState.temporalStateMap = temporalMap;
+
+    return;
+  }
+
+  const chapterNumber = extractChapterNumber(currentChapter.label);
+
+  graphState.nodes.forEach((node) => {
+    let temporalWeight = 0;
+
+    // CHAPTER SELF
+    if (node.id === currentChapter.id) {
+      temporalWeight += 30;
+    }
+
+    // CONNECTED NODES
+    graphState.edges.forEach((edge) => {
+      if (edge.from === currentChapter.id && edge.to === node.id) {
+        temporalWeight += 12;
+      }
+
+      if (edge.to === currentChapter.id && edge.from === node.id) {
+        temporalWeight += 12;
+      }
+    });
+
+    // EMOTIONAL INHERITANCE
+    const emotion = graphState.emotionMap.get(node.id);
+
+    if (emotion) {
+      temporalWeight += emotion.pressure * 0.25;
+    }
+
+    // ARC ESCALATION
+    const arc = graphState.arcMap.get(node.id);
+
+    if (arc) {
+      if (arc.phase === "climax") {
+        temporalWeight += 14;
+      } else if (arc.phase === "escalation") {
+        temporalWeight += 8;
+      }
+    }
+
+    // RELATIONSHIP INFLUENCE
+    graphState.relationshipDynamics.forEach((relationship, key) => {
+      if (key.includes(node.id)) {
+        temporalWeight += relationship.affinity * 0.2;
+
+        temporalWeight += relationship.volatility * 0.35;
+      }
+    });
+
+    let temporalState = "background";
+
+    if (temporalWeight > 40) {
+      temporalState = "dominant";
+    } else if (temporalWeight > 22) {
+      temporalState = "active";
+    } else if (temporalWeight > 10) {
+      temporalState = "emerging";
+    }
+
+    temporalMap.set(node.id, {
+      weight: temporalWeight,
+      state: temporalState,
+      chapter: chapterNumber,
+    });
+  });
+
+  graphState.temporalStateMap = temporalMap;
+}
+
+function updateNarrativeTimeline() {
+  if (!graphState.timelinePlaying) {
+    return;
+  }
+
+  if (graphState.timelineNodes.length === 0) {
+    return;
+  }
+
+  graphState.timelineTimer =
+    (graphState.timelineTimer || 0) + graphState.timelineSpeed;
+
+  if (graphState.timelineTimer < 120) {
+    return;
+  }
+
+  graphState.timelineTimer = 0;
+
+  graphState.timelineIndex++;
+
+  if (graphState.timelineIndex >= graphState.timelineNodes.length) {
+    graphState.timelineIndex = 0;
+  }
 }
 
 function detectCommunities() {
@@ -1548,6 +1689,7 @@ function renderGraph() {
   drawEmotionalFields(ctx);
   drawRelationshipFields(ctx);
   drawNarrativePropagationFields(ctx);
+  drawTemporalNarrativeFields(ctx);
   drawCommunityHulls(ctx);
   drawEdges(ctx, renderState);
   drawNodes(ctx, renderState);
@@ -2106,6 +2248,8 @@ function drawNodes(ctx, renderState) {
 
     const propagation = graphState.eventPropagationMap.get(node.id);
 
+    const temporal = graphState.temporalStateMap.get(node.id);
+
     const zoomLevel = graphState.semanticZoomLevel;
 
     // SEMANTIC NODE LOD
@@ -2195,6 +2339,17 @@ function drawNodes(ctx, renderState) {
           : propagation.type === "volatile"
             ? 18
             : 10;
+    }
+
+    if (temporal) {
+      ctx.shadowColor = getTemporalColor(temporal.state) + ",0.75)";
+
+      ctx.shadowBlur +=
+        temporal.state === "dominant"
+          ? 32
+          : temporal.state === "active"
+            ? 18
+            : 8;
     }
 
     // ARC EMPHASIS
@@ -2739,6 +2894,51 @@ function drawNarrativePropagationFields(ctx) {
   });
 }
 
+function drawTemporalNarrativeFields(ctx) {
+  graphState.temporalStateMap.forEach((temporal, nodeId) => {
+    if (temporal.state === "background") {
+      return;
+    }
+
+    const node = graphState.nodeMap.get(nodeId);
+
+    if (!node) return;
+
+    const screenX = node.x * graphState.scale + graphState.offsetX;
+
+    const screenY = node.y * graphState.scale + graphState.offsetY;
+
+    const pulse = Math.sin(graphState.animationTime * 2) * 0.5 + 0.5;
+
+    const radius = (40 + temporal.weight * 2 + pulse * 12) * graphState.scale;
+
+    const gradient = ctx.createRadialGradient(
+      screenX,
+      screenY,
+      0,
+      screenX,
+      screenY,
+      radius,
+    );
+
+    const color = getTemporalColor(temporal.state);
+
+    gradient.addColorStop(0, color + ",0.14)");
+
+    gradient.addColorStop(0.5, color + ",0.05)");
+
+    gradient.addColorStop(1, "rgba(0,0,0,0)");
+
+    ctx.fillStyle = gradient;
+
+    ctx.beginPath();
+
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+
+    ctx.fill();
+  });
+}
+
 function drawCommunityHulls(ctx) {
   const communities = new Map();
 
@@ -3269,6 +3469,8 @@ function animateGraph() {
   analyzeEmotionalTrajectories();
   analyzeRelationshipDynamics();
   analyzeNarrativePropagation();
+  analyzeTemporalNarrativeState();
+  updateNarrativeTimeline();
 
   graphState.animationTime += 0.016;
   graphState.eventPulseTime += 0.045;
