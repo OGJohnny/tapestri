@@ -114,6 +114,27 @@ const graphState = {
   semanticInferenceMap: new Map(),
   semanticMotifMap: new Map(),
   semanticAnomalyMap: new Map(),
+
+  agentSystem: {
+    active: true,
+    agents: new Map(),
+    tasks: [],
+    insights: [],
+    conflicts: [],
+    activeAgent: null,
+  },
+};
+
+const AGENT_TYPES = {
+  MANAGER: "manager",
+  RESEARCH: "research",
+  MARKETING: "marketing",
+  WRITER: "writer",
+  CONTINUITY: "continuity",
+  LOREKEEPER: "lorekeeper",
+  PSYCHOLOGIST: "psychologist",
+  EDITOR: "editor",
+  READER: "reader",
 };
 
 const edgePhysics = {
@@ -1609,6 +1630,264 @@ function convertToPlainText(markdown) {
 }
 
 // =====================================================
+// AI Agents
+// =====================================================
+
+function initializeAgents() {
+  const agents = graphState.agentSystem.agents;
+
+  agents.clear();
+
+  agents.set(AGENT_TYPES.MANAGER, {
+    id: AGENT_TYPES.MANAGER,
+    color: "#ffffff",
+    priority: 100,
+    focus: ["coordination", "routing", "prioritization"],
+  });
+
+  agents.set(AGENT_TYPES.RESEARCH, {
+    id: AGENT_TYPES.RESEARCH,
+    color: "#16a085",
+    priority: 7,
+    focus: ["facts", "references", "accuracy"],
+  });
+
+  agents.set(AGENT_TYPES.MARKETING, {
+    id: AGENT_TYPES.MARKETING,
+    color: "#ff66cc",
+    priority: 5,
+    focus: ["marketability", "hooks", "audience"],
+  });
+
+  agents.set(AGENT_TYPES.WRITER, {
+    id: AGENT_TYPES.WRITER,
+    color: "#3498db",
+    priority: 8,
+    focus: ["pacing", "structure", "flow"],
+  });
+
+  agents.set(AGENT_TYPES.CONTINUITY, {
+    id: AGENT_TYPES.CONTINUITY,
+    color: "#e67e22",
+    priority: 10,
+    focus: ["timeline", "consistency", "logic"],
+  });
+
+  agents.set(AGENT_TYPES.LOREKEEPER, {
+    id: AGENT_TYPES.LOREKEEPER,
+    color: "#9b59b6",
+    priority: 7,
+    focus: ["worldbuilding", "history", "rules"],
+  });
+
+  agents.set(AGENT_TYPES.PSYCHOLOGIST, {
+    id: AGENT_TYPES.PSYCHOLOGIST,
+    color: "#e74c3c",
+    priority: 9,
+    focus: ["emotion", "motivation", "behavior"],
+  });
+
+  agents.set(AGENT_TYPES.EDITOR, {
+    id: AGENT_TYPES.EDITOR,
+    color: "#2ecc71",
+    priority: 9,
+    focus: ["clarity", "redundancy", "readability"],
+  });
+
+  agents.set(AGENT_TYPES.READER, {
+    id: AGENT_TYPES.READER,
+    color: "#f1c40f",
+    priority: 6,
+    focus: ["engagement", "confusion", "interest"],
+  });
+}
+
+function createAgentTask({ type, nodeId, priority, description }) {
+  graphState.agentSystem.tasks.push({
+    id: crypto.randomUUID(),
+    type,
+    nodeId,
+    priority,
+    description,
+    created: performance.now(),
+  });
+}
+
+function addAgentInsight({ agent, nodeId, severity, message }) {
+  graphState.agentSystem.insights.push({
+    id: crypto.randomUUID(),
+    agent,
+    nodeId,
+    severity,
+    message,
+    created: performance.now(),
+  });
+
+  // PREVENT UNBOUNDED GROWTH
+  if (graphState.agentSystem.insights.length > 300) {
+    graphState.agentSystem.insights.shift();
+  }
+}
+
+function runContinuityAgent() {
+  graphState.nodes.forEach((node) => {
+    const temporal = graphState.temporalStateMap.get(node.id);
+
+    const arc = graphState.arcMap.get(node.id);
+
+    if (!temporal || !arc) return;
+
+    // CLIMAX TOO EARLY
+    if (arc.phase === "climax" && temporal.progress < 0.35) {
+      addAgentInsight({
+        agent: AGENT_TYPES.CONTINUITY,
+        nodeId: node.id,
+        severity: "warning",
+        message: "Major climax occurring unusually early.",
+      });
+    }
+
+    // RESOLUTION TOO EARLY
+    if (arc.phase === "resolution" && temporal.progress < 0.6) {
+      addAgentInsight({
+        agent: AGENT_TYPES.CONTINUITY,
+        nodeId: node.id,
+        severity: "warning",
+        message: "Narrative resolution occurring prematurely.",
+      });
+    }
+  });
+}
+
+function runPsychologyAgent() {
+  graphState.nodes.forEach((node) => {
+    if (node.type !== "character") {
+      return;
+    }
+
+    const emotion = graphState.emotionMap.get(node.id);
+
+    const dynamics = graphState.characterDynamics.get(node.id);
+
+    if (!emotion || !dynamics) {
+      return;
+    }
+
+    // EXTREME EMOTION INSTABILITY
+    if (emotion.intensity > 8 && dynamics.stability < 3) {
+      addAgentInsight({
+        agent: AGENT_TYPES.PSYCHOLOGIST,
+        nodeId: node.id,
+        severity: "critical",
+        message: "Character displaying unstable emotional trajectory.",
+      });
+    }
+
+    // STATIC CHARACTER
+    if (dynamics.growth < 2) {
+      addAgentInsight({
+        agent: AGENT_TYPES.PSYCHOLOGIST,
+        nodeId: node.id,
+        severity: "info",
+        message: "Character may lack meaningful development.",
+      });
+    }
+  });
+}
+
+function runReaderAgent() {
+  graphState.nodes.forEach((node) => {
+    const neighbors = getConnectedNeighbors(node.id);
+
+    const importance = getSemanticImportance(node);
+
+    // IMPORTANT BUT ISOLATED
+    if (importance > 12 && neighbors.length <= 1) {
+      addAgentInsight({
+        agent: AGENT_TYPES.READER,
+        nodeId: node.id,
+        severity: "warning",
+        message: "Reader may struggle to contextualize this narrative element.",
+      });
+    }
+
+    // TOO MANY CONNECTIONS
+    if (neighbors.length > 18) {
+      addAgentInsight({
+        agent: AGENT_TYPES.READER,
+        nodeId: node.id,
+        severity: "info",
+        message: "High narrative density may overwhelm readers.",
+      });
+    }
+  });
+}
+
+function runAgentSystem() {
+  if (!graphState.agentSystem.active) {
+    return;
+  }
+
+  graphState.agentSystem.insights = [];
+
+  runContinuityAgent();
+
+  runPsychologyAgent();
+
+  runReaderAgent();
+
+  runManagerAgent();
+}
+
+function runManagerAgent() {
+  const insights = graphState.agentSystem.insights;
+
+  const conflicts = [];
+
+  // GROUP INSIGHTS BY NODE
+  const grouped = new Map();
+
+  insights.forEach((insight) => {
+    if (!grouped.has(insight.nodeId)) {
+      grouped.set(insight.nodeId, []);
+    }
+
+    grouped.get(insight.nodeId).push(insight);
+  });
+
+  // DETECT AGENT CONFLICTS
+  grouped.forEach((nodeInsights, nodeId) => {
+    const severities = nodeInsights.map((i) => i.severity);
+
+    const hasCritical = severities.includes("critical");
+
+    const hasInfo = severities.includes("info");
+
+    if (hasCritical && hasInfo) {
+      conflicts.push({
+        nodeId,
+        type: "priority-conflict",
+      });
+    }
+  });
+
+  graphState.agentSystem.conflicts = conflicts;
+
+  // ACTIVE AGENT FOCUS
+  const highest = insights.sort((a, b) => {
+    const score = {
+      critical: 3,
+      warning: 2,
+      info: 1,
+    };
+
+    return score[b.severity] - score[a.severity];
+  })[0];
+
+  graphState.agentSystem.activeAgent = highest?.agent || null;
+}
+
+// =====================================================
 // LOCAL STORAGE / PERSISTENCE
 // =====================================================
 
@@ -1850,6 +2129,7 @@ function renderGraph() {
   drawTemporalNarrativeFields(ctx);
   drawSemanticInferenceEdges(ctx);
   drawNarrativeAnomalies(ctx);
+  drawAgentInsights(ctx);
   drawCommunityHulls(ctx);
   drawEdges(ctx, renderState);
   drawNodes(ctx, renderState);
@@ -3121,6 +3401,49 @@ function drawNarrativeAnomalies(ctx) {
   });
 }
 
+function drawAgentInsights(ctx) {
+  graphState.agentSystem.insights.forEach((insight) => {
+    const node = graphState.nodeMap.get(insight.nodeId);
+
+    if (!node) return;
+
+    const screenX = node.x * graphState.scale + graphState.offsetX;
+
+    const screenY = node.y * graphState.scale + graphState.offsetY;
+
+    const pulse = Math.sin(graphState.animationTime * 5) * 0.5 + 0.5;
+
+    const severityScale =
+      insight.severity === "critical"
+        ? 1.4
+        : insight.severity === "warning"
+          ? 1
+          : 0.7;
+
+    const radius = (36 + pulse * 10) * severityScale * graphState.scale;
+
+    const agent = graphState.agentSystem.agents.get(insight.agent);
+
+    ctx.beginPath();
+
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+
+    ctx.strokeStyle = agent?.color || "#ffffff";
+
+    ctx.lineWidth = 2;
+
+    ctx.globalAlpha = 0.35;
+
+    ctx.setLineDash([5, 8]);
+
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+
+    ctx.globalAlpha = 1;
+  });
+}
+
 function drawTemporalNarrativeFields(ctx) {
   graphState.temporalStateMap.forEach((temporal, nodeId) => {
     if (temporal.state === "background") {
@@ -3700,6 +4023,7 @@ function animateGraph() {
   analyzeSemanticInference();
   analyzeSemanticMotifs();
   analyzeNarrativeAnomalies();
+  runAgentSystem();
   updateNarrativeTimeline();
 
   graphState.animationTime += 0.016;
@@ -6201,6 +6525,7 @@ function initApp() {
   initSidebarEvents();
   initKeyboardShortcuts();
   initGraphEvents();
+  initializeAgents();
   initModalEvents();
   initEventListeners();
 
