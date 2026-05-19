@@ -100,6 +100,8 @@ const graphState = {
   characterDynamics: new Map(),
   emotionMap: new Map(),
   relationshipDynamics: new Map(),
+  eventPropagationMap: new Map(),
+  eventPulseTime: 0,
 
   animationTime: 0,
   semanticZoomLevel: 2,
@@ -680,6 +682,22 @@ function getRelationshipColor(relationship) {
   return relationship.polarity === "alliance" ? "#2ecc71" : "#e74c3c";
 }
 
+function getPropagationColor(type) {
+  switch (type) {
+    case "catastrophic":
+      return "rgba(231,76,60";
+
+    case "volatile":
+      return "rgba(243,156,18";
+
+    case "active":
+      return "rgba(155,89,182";
+
+    default:
+      return "rgba(52,152,219";
+  }
+}
+
 function getSemanticImportance(node) {
   const connections = edgeConnectionCount(node.id);
 
@@ -968,6 +986,72 @@ function analyzeRelationshipDynamics() {
   });
 
   graphState.relationshipDynamics = dynamics;
+}
+
+function analyzeNarrativePropagation() {
+  const propagation = new Map();
+
+  graphState.nodes.forEach((node) => {
+    const neighbors = getConnectedNeighbors(node.id);
+
+    const tension = graphState.tensionMap.get(node.id) || 0;
+
+    const emotion = graphState.emotionMap.get(node.id);
+
+    const arc = graphState.arcMap.get(node.id);
+
+    let propagationStrength = 0;
+
+    // TENSION
+    propagationStrength += tension * 1.2;
+
+    // EMOTIONAL STATE
+    if (emotion) {
+      if (emotion.state === "chaotic") {
+        propagationStrength += 18;
+      } else if (emotion.state === "intense") {
+        propagationStrength += 10;
+      } else if (emotion.state === "elevated") {
+        propagationStrength += 4;
+      }
+    }
+
+    // ARC CONTRIBUTION
+    if (arc) {
+      if (arc.phase === "climax") {
+        propagationStrength += 12;
+      } else if (arc.phase === "escalation") {
+        propagationStrength += 6;
+      }
+    }
+
+    // NETWORK CENTRALITY
+    propagationStrength += neighbors.length * 0.9;
+
+    // CROSS-COMMUNITY SPREAD
+    neighbors.forEach((neighbor) => {
+      if (neighbor.community !== node.community) {
+        propagationStrength += 2.5;
+      }
+    });
+
+    let propagationType = "stable";
+
+    if (propagationStrength > 42) {
+      propagationType = "catastrophic";
+    } else if (propagationStrength > 28) {
+      propagationType = "volatile";
+    } else if (propagationStrength > 14) {
+      propagationType = "active";
+    }
+
+    propagation.set(node.id, {
+      strength: propagationStrength,
+      type: propagationType,
+    });
+  });
+
+  graphState.eventPropagationMap = propagation;
 }
 
 function detectCommunities() {
@@ -1463,6 +1547,7 @@ function renderGraph() {
   drawCharacterInfluenceFields(ctx);
   drawEmotionalFields(ctx);
   drawRelationshipFields(ctx);
+  drawNarrativePropagationFields(ctx);
   drawCommunityHulls(ctx);
   drawEdges(ctx, renderState);
   drawNodes(ctx, renderState);
@@ -2019,6 +2104,8 @@ function drawNodes(ctx, renderState) {
 
     const emotion = graphState.emotionMap.get(node.id);
 
+    const propagation = graphState.eventPropagationMap.get(node.id);
+
     const zoomLevel = graphState.semanticZoomLevel;
 
     // SEMANTIC NODE LOD
@@ -2097,6 +2184,17 @@ function drawNodes(ctx, renderState) {
 
       ctx.shadowBlur +=
         emotion.state === "chaotic" ? 24 : emotion.state === "intense" ? 14 : 8;
+    }
+
+    if (propagation) {
+      ctx.shadowColor = getPropagationColor(propagation.type) + ",0.75)";
+
+      ctx.shadowBlur +=
+        propagation.type === "catastrophic"
+          ? 30
+          : propagation.type === "volatile"
+            ? 18
+            : 10;
     }
 
     // ARC EMPHASIS
@@ -2591,6 +2689,51 @@ function drawRelationshipFields(ctx) {
     ctx.beginPath();
 
     ctx.arc(midX, midY, radius, 0, Math.PI * 2);
+
+    ctx.fill();
+  });
+}
+
+function drawNarrativePropagationFields(ctx) {
+  graphState.eventPropagationMap.forEach((event, nodeId) => {
+    if (event.type === "stable") {
+      return;
+    }
+
+    const node = graphState.nodeMap.get(nodeId);
+
+    if (!node) return;
+
+    const screenX = node.x * graphState.scale + graphState.offsetX;
+
+    const screenY = node.y * graphState.scale + graphState.offsetY;
+
+    const pulse = Math.sin(graphState.eventPulseTime) * 0.5 + 0.5;
+
+    const radius = (60 + event.strength * 3 + pulse * 24) * graphState.scale;
+
+    const gradient = ctx.createRadialGradient(
+      screenX,
+      screenY,
+      0,
+      screenX,
+      screenY,
+      radius,
+    );
+
+    const color = getPropagationColor(event.type);
+
+    gradient.addColorStop(0, color + ",0.16)");
+
+    gradient.addColorStop(0.5, color + ",0.06)");
+
+    gradient.addColorStop(1, "rgba(0,0,0,0)");
+
+    ctx.fillStyle = gradient;
+
+    ctx.beginPath();
+
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
 
     ctx.fill();
   });
@@ -3125,8 +3268,10 @@ function animateGraph() {
   analyzeCharacterDynamics();
   analyzeEmotionalTrajectories();
   analyzeRelationshipDynamics();
+  analyzeNarrativePropagation();
 
   graphState.animationTime += 0.016;
+  graphState.eventPulseTime += 0.045;
 
   renderGraph();
 
