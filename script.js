@@ -129,6 +129,12 @@ const graphState = {
     maxNodes: 12,
     maxDepth: 2,
     summary: "",
+
+    localMemory: [],
+    communityMemory: [],
+    projectMemory: [],
+    loreMemory: [],
+    episodicMemory: [],
   },
 };
 
@@ -719,7 +725,95 @@ function buildCognitiveContextWindow(startNodeId) {
 
   graphState.cognitiveContext.activeWindow = collected;
 
+  graphState.cognitiveContext.localMemory = collected;
+
   buildContextSummary(collected);
+}
+
+function buildCommunityMemory(sourceNode) {
+  const memory = graphState.nodes.filter((node) => {
+    return node.community === sourceNode.community;
+  });
+
+  memory.sort((a, b) => {
+    return getSemanticImportance(b) - getSemanticImportance(a);
+  });
+
+  graphState.cognitiveContext.communityMemory = memory.slice(0, 30);
+}
+
+function buildProjectMemory() {
+  const memory = graphState.nodes.slice().sort((a, b) => {
+    return getSemanticImportance(b) - getSemanticImportance(a);
+  });
+
+  graphState.cognitiveContext.projectMemory = memory.slice(0, 50);
+}
+
+function buildLoreMemory() {
+  const loreNodes = graphState.nodes.filter((node) => {
+    return node.type === "world" || node.type === "research";
+  });
+
+  loreNodes.sort((a, b) => {
+    return getSemanticImportance(b) - getSemanticImportance(a);
+  });
+
+  graphState.cognitiveContext.loreMemory = loreNodes.slice(0, 40);
+}
+
+function buildEpisodicMemory() {
+  const episodes = [];
+
+  graphState.nodes.forEach((node) => {
+    const tension = graphState.tensionMap.get(node.id) || 0;
+
+    const arc = graphState.arcMap.get(node.id);
+
+    if (tension > 7 || arc?.phase === "climax") {
+      episodes.push(node);
+    }
+  });
+
+  episodes.sort((a, b) => {
+    const ta = graphState.tensionMap.get(a.id) || 0;
+
+    const tb = graphState.tensionMap.get(b.id) || 0;
+
+    return tb - ta;
+  });
+
+  graphState.cognitiveContext.episodicMemory = episodes.slice(0, 25);
+}
+
+function buildHierarchicalMemory(sourceNodeId) {
+  const sourceNode = graphState.nodeMap.get(sourceNodeId);
+
+  if (!sourceNode) return;
+
+  buildCognitiveContextWindow(sourceNode.id);
+
+  buildCommunityMemory(sourceNode);
+
+  buildProjectMemory();
+
+  buildLoreMemory();
+
+  buildEpisodicMemory();
+}
+
+function buildAIMemoryPacket() {
+  return {
+    local: graphState.cognitiveContext.localMemory,
+
+    community: graphState.cognitiveContext.communityMemory,
+
+    project: graphState.cognitiveContext.projectMemory,
+
+    lore: graphState.cognitiveContext.loreMemory,
+
+    episodic: graphState.cognitiveContext.episodicMemory,
+  };
 }
 
 function buildContextSummary(nodes) {
@@ -4632,7 +4726,7 @@ function handleGraphClick(x, y, event) {
     graphState.selectedNodeId = node.id;
 
     // COGNITIVE CONTEXT
-    buildCognitiveContextWindow(node.id);
+    buildHierarchicalMemory(node.id);
 
     renderGraph();
 
