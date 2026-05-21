@@ -123,6 +123,13 @@ const graphState = {
     conflicts: [],
     activeAgent: null,
   },
+
+  cognitiveContext: {
+    activeWindow: [],
+    maxNodes: 12,
+    maxDepth: 2,
+    summary: "",
+  },
 };
 
 const AGENT_TYPES = {
@@ -662,6 +669,89 @@ function getConnectedNeighbors(nodeId) {
   return neighbors;
 }
 
+function buildCognitiveContextWindow(startNodeId) {
+  const visited = new Set();
+
+  const queue = [
+    {
+      id: startNodeId,
+      depth: 0,
+    },
+  ];
+
+  const collected = [];
+
+  while (
+    queue.length &&
+    collected.length < graphState.cognitiveContext.maxNodes
+  ) {
+    const current = queue.shift();
+
+    if (!current || visited.has(current.id)) {
+      continue;
+    }
+
+    visited.add(current.id);
+
+    const node = graphState.nodeMap.get(current.id);
+
+    if (!node) continue;
+
+    collected.push(node);
+
+    if (current.depth >= graphState.cognitiveContext.maxDepth) {
+      continue;
+    }
+
+    const neighbors = getConnectedNeighbors(node.id);
+
+    neighbors
+      .sort((a, b) => {
+        return getContextRelevance(b, node) - getContextRelevance(a, node);
+      })
+      .forEach((neighbor) => {
+        queue.push({
+          id: neighbor.id,
+          depth: current.depth + 1,
+        });
+      });
+  }
+
+  graphState.cognitiveContext.activeWindow = collected;
+
+  buildContextSummary(collected);
+}
+
+function buildContextSummary(nodes) {
+  const summary = [];
+
+  nodes.forEach((node) => {
+    const arc = graphState.arcMap.get(node.id);
+
+    const emotion = graphState.emotionMap.get(node.id);
+
+    const dynamics = graphState.characterDynamics.get(node.id);
+
+    summary.push({
+      id: node.id,
+
+      label: node.label,
+
+      type: node.type,
+
+      arc: arc?.phase || null,
+
+      emotion: emotion?.state || null,
+
+      role: dynamics?.role || null,
+
+      importance: getSemanticImportance(node),
+    });
+  });
+
+  graphState.cognitiveContext.summary = JSON.stringify(summary, null, 2);
+}
+
 function edgeConnectionCount(nodeId) {
   let count = 0;
 
@@ -813,6 +903,34 @@ function getSemanticImportance(node) {
   };
 
   return connections * (typeWeight[node.type] || 1) * communityBonus;
+}
+
+function getContextRelevance(node, sourceNode) {
+  let score = 0;
+
+  if (node.community === sourceNode.community) {
+    score += 8;
+  }
+
+  if (node.type === sourceNode.type) {
+    score += 5;
+  }
+
+  const emotion = graphState.emotionMap.get(node.id);
+
+  if (emotion?.intensity > 7) {
+    score += 6;
+  }
+
+  const arc = graphState.arcMap.get(node.id);
+
+  if (arc?.phase === "climax") {
+    score += 10;
+  }
+
+  score += getSemanticImportance(node) * 0.35;
+
+  return score;
 }
 
 function calculateNarrativeTension() {
@@ -2925,6 +3043,10 @@ function drawNodes(ctx, renderState) {
 
     const zoomLevel = graphState.semanticZoomLevel;
 
+    const inContextWindow = graphState.cognitiveContext.activeWindow.some(
+      (n) => n.id === node.id,
+    );
+
     // SEMANTIC NODE LOD
     if (zoomLevel === 1) {
       if (importance < 5 && node.type === "tag") {
@@ -2983,6 +3105,14 @@ function drawNodes(ctx, renderState) {
       ctx.shadowColor = tension > 5 ? "rgba(255,120,80,0.8)" : "transparent";
 
       ctx.shadowBlur = tension > 5 ? 10 + tension * 1.5 : 0;
+    }
+
+    if (inContextWindow) {
+      ctx.lineWidth = 2;
+
+      ctx.strokeStyle = "rgba(255,255,255,0.35)";
+
+      ctx.stroke();
     }
 
     if (node.type === "character" && characterData) {
@@ -4493,12 +4623,16 @@ function handleGraphClick(x, y, event) {
       }
     } else {
       graphState.tracedPath = [];
+
       graphState.traceStartNodeId = null;
     }
 
     graphTransitioning = true;
 
     graphState.selectedNodeId = node.id;
+
+    // COGNITIVE CONTEXT
+    buildCognitiveContextWindow(node.id);
 
     renderGraph();
 
@@ -4511,6 +4645,8 @@ function handleGraphClick(x, y, event) {
     graphState.tracedPath = [];
 
     graphState.traceStartNodeId = null;
+
+    graphState.cognitiveContext.activeWindow = [];
 
     renderGraph();
   }
