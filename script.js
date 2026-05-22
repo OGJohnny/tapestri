@@ -1,142 +1,49 @@
 // =====================================================
 // TAPESTRI
+// AI-Enhanced Narrative Intelligence System
 // Main Application Script
 // =====================================================
 
 // =====================================================
-// GLOBAL APPLICATION STATE
+// GLOBAL CONSTANTS
 // =====================================================
 
-// Core app/project state
-const appState = {
-  currentProjectId: null,
-  currentDocumentId: null,
-};
+const NODE_RADIUS = 20;
+const CLICK_RADIUS = 25;
 
-// Editor state/history/selection
-const editorState = {
-  history: [],
-  historyIndex: -1,
+const MIN_SCALE = 0.4;
+const MAX_SCALE = 2.5;
 
-  savedSelection: {
-    start: 0,
-    end: 0,
-  },
+const SEMANTIC_STOP_WORDS = new Set([
+  "this",
+  "that",
+  "with",
+  "from",
+  "they",
+  "them",
+  "were",
+  "have",
+  "there",
+  "their",
+  "about",
+  "which",
+  "would",
+  "could",
+  "should",
+  "into",
+  "through",
+  "after",
+  "before",
+  "because",
+  "while",
+  "where",
+  "when",
+  "been",
+]);
 
-  lastSelectionStart: 0,
-  lastSelectionEnd: 0,
-
-  isRestoring: false,
-  isProgrammaticEdit: false,
-};
-
-// Graph visualization state
-const graphState = {
-  nodes: [],
-  edges: [],
-  selectedNodeId: null,
-  hoveredNodeId: null,
-
-  tracedPath: [],
-  traceStartNodeId: null,
-
-  scale: 1,
-  offsetX: 0,
-  offsetY: 0,
-
-  targetOffsetX: 0,
-  targetOffsetY: 0,
-  targetScale: 1,
-
-  temperature: 1,
-  isOpen: false,
-
-  filters: {
-    chapter: true,
-    character: true,
-    timeline: true,
-    world: true,
-    notes: true,
-    ideas: true,
-    tag: true,
-  },
-
-  focusMode: true,
-
-  dragging: {
-    isDraggingGraph: false,
-    hasDragged: false,
-    draggedNode: null,
-    startX: 0,
-    startY: 0,
-    nodeOffsetX: 0,
-    nodeOffsetY: 0,
-  },
-
-  tooltip: {
-    nodeId: null,
-  },
-
-  minimap: {
-    dragging: false,
-  },
-
-  communityColors: [
-    "#5B8CFF",
-    "#7A5CFF",
-    "#4FD1C5",
-    "#F6AD55",
-    "#F687B3",
-    "#68D391",
-    "#63B3ED",
-    "#B794F4",
-  ],
-
-  communityLabels: {},
-  communityAnchors: new Map(),
-  tensionMap: new Map(),
-  nodeMap: new Map(),
-  arcMap: new Map(),
-  characterDynamics: new Map(),
-  emotionMap: new Map(),
-  relationshipDynamics: new Map(),
-  eventPropagationMap: new Map(),
-  eventPulseTime: 0,
-  animationTime: 0,
-  semanticZoomLevel: 2,
-
-  timelineIndex: 0,
-  timelineNodes: [],
-  temporalStateMap: new Map(),
-  timelinePlaying: false,
-  timelineSpeed: 1,
-
-  semanticInferenceMap: new Map(),
-  semanticMotifMap: new Map(),
-  semanticAnomalyMap: new Map(),
-
-  agentSystem: {
-    active: true,
-    agents: new Map(),
-    tasks: [],
-    insights: [],
-    conflicts: [],
-    activeAgent: null,
-  },
-
-  cognitiveContext: {
-    activeWindow: [],
-    maxNodes: 12,
-    maxDepth: 2,
-    summary: "",
-
-    localMemory: [],
-    communityMemory: [],
-    projectMemory: [],
-    loreMemory: [],
-    episodicMemory: [],
-  },
-};
+// =====================================================
+// AI AGENT DEFINITIONS
+// =====================================================
 
 const AGENT_TYPES = {
   MANAGER: "manager",
@@ -149,6 +56,10 @@ const AGENT_TYPES = {
   EDITOR: "editor",
   READER: "reader",
 };
+
+// =====================================================
+// GRAPH PHYSICS CONFIGURATION
+// =====================================================
 
 const edgePhysics = {
   character: {
@@ -172,14 +83,244 @@ const edgePhysics = {
   },
 };
 
-// Cluster positioning system
 const clusterCenters = {
   chapter: { x: 0, y: 0 },
   character: { x: 0, y: 0 },
   tag: { x: 0, y: 0 },
 };
 
-// Menu system state
+// =====================================================
+// CORE APPLICATION STATE
+// =====================================================
+
+const appState = {
+  currentProjectId: null,
+  currentDocumentId: null,
+};
+
+// =====================================================
+// EDITOR STATE
+// =====================================================
+
+const editorState = {
+  history: [],
+  historyIndex: -1,
+
+  savedSelection: {
+    start: 0,
+    end: 0,
+  },
+
+  lastSelectionStart: 0,
+  lastSelectionEnd: 0,
+
+  isRestoring: false,
+  isProgrammaticEdit: false,
+};
+
+// =====================================================
+// GRAPH VISUALIZATION STATE
+// =====================================================
+
+const graphState = {
+  // ---------------------------------
+  // Core Graph Data
+  // ---------------------------------
+
+  nodes: [],
+  edges: [],
+
+  nodeMap: new Map(),
+
+  // ---------------------------------
+  // Selection / Interaction
+  // ---------------------------------
+
+  selectedNodeId: null,
+  hoveredNodeId: null,
+
+  tracedPath: [],
+  traceStartNodeId: null,
+
+  focusMode: true,
+  isOpen: false,
+
+  // ---------------------------------
+  // Camera State
+  // ---------------------------------
+
+  scale: 1,
+  targetScale: 1,
+
+  offsetX: 0,
+  offsetY: 0,
+
+  targetOffsetX: 0,
+  targetOffsetY: 0,
+
+  // ---------------------------------
+  // Physics State
+  // ---------------------------------
+
+  temperature: 1,
+
+  // ---------------------------------
+  // Rendering State
+  // ---------------------------------
+
+  semanticZoomLevel: 2,
+
+  animationTime: 0,
+  eventPulseTime: 0,
+
+  // ---------------------------------
+  // Filtering
+  // ---------------------------------
+
+  filters: {
+    chapter: true,
+    character: true,
+    timeline: true,
+    world: true,
+    notes: true,
+    ideas: true,
+    tag: true,
+  },
+
+  // ---------------------------------
+  // Dragging
+  // ---------------------------------
+
+  dragging: {
+    isDraggingGraph: false,
+    hasDragged: false,
+
+    draggedNode: null,
+
+    startX: 0,
+    startY: 0,
+
+    nodeOffsetX: 0,
+    nodeOffsetY: 0,
+  },
+
+  // ---------------------------------
+  // Tooltip State
+  // ---------------------------------
+
+  tooltip: {
+    nodeId: null,
+  },
+
+  // ---------------------------------
+  // Minimap State
+  // ---------------------------------
+
+  minimap: {
+    dragging: false,
+  },
+
+  // ---------------------------------
+  // Community Detection
+  // ---------------------------------
+
+  communityColors: [
+    "#5B8CFF",
+    "#7A5CFF",
+    "#4FD1C5",
+    "#F6AD55",
+    "#F687B3",
+    "#68D391",
+    "#63B3ED",
+    "#B794F4",
+  ],
+
+  communityLabels: {},
+  communityAnchors: new Map(),
+
+  // ---------------------------------
+  // Narrative Systems
+  // ---------------------------------
+
+  tensionMap: new Map(),
+  arcMap: new Map(),
+
+  characterDynamics: new Map(),
+  emotionMap: new Map(),
+  relationshipDynamics: new Map(),
+
+  eventPropagationMap: new Map(),
+
+  temporalStateMap: new Map(),
+
+  semanticInferenceMap: new Map(),
+  semanticMotifMap: new Map(),
+  semanticAnomalyMap: new Map(),
+
+  // ---------------------------------
+  // Timeline State
+  // ---------------------------------
+
+  timelineIndex: 0,
+  timelineNodes: [],
+
+  timelinePlaying: false,
+  timelineSpeed: 1,
+
+  // ---------------------------------
+  // AI Agent System
+  // ---------------------------------
+
+  agentSystem: {
+    active: true,
+
+    agents: new Map(),
+
+    tasks: [],
+    insights: [],
+    conflicts: [],
+
+    activeAgent: null,
+  },
+
+  // ---------------------------------
+  // Cognitive Context System
+  // ---------------------------------
+
+  cognitiveContext: {
+    activeWindow: [],
+
+    maxNodes: 12,
+    maxDepth: 2,
+
+    summary: "",
+
+    localMemory: [],
+    communityMemory: [],
+    projectMemory: [],
+    loreMemory: [],
+    episodicMemory: [],
+  },
+
+  // ---------------------------------
+  // Attention System
+  // ---------------------------------
+
+  attentionState: {
+    activeTargets: [],
+
+    weights: new Map(),
+
+    dominantTheme: null,
+    dominantEmotion: null,
+    dominantArc: null,
+  },
+};
+
+// =====================================================
+// MENU SYSTEM STATE
+// =====================================================
+
 const menuState = {
   activeMenu: null,
   isLocked: false,
@@ -193,17 +334,7 @@ const menus = {
 };
 
 // =====================================================
-// GLOBAL CONSTANTS
-// =====================================================
-
-const NODE_RADIUS = 20;
-const CLICK_RADIUS = 25;
-
-const MIN_SCALE = 0.4;
-const MAX_SCALE = 2.5;
-
-// =====================================================
-// GLOBAL VARIABLES
+// GLOBAL RUNTIME VARIABLES
 // =====================================================
 
 let historyDebounceTimer = null;
@@ -224,6 +355,7 @@ let searchQuery = "";
 
 let isFocusMode = false;
 let isPreviewMode = false;
+
 let isTogglingPreview = false;
 
 let exportMode = "project";
@@ -271,10 +403,41 @@ canvas.width = canvas.clientWidth;
 canvas.height = canvas.clientHeight;
 
 // =====================================================
-// CORE DATA HELPERS
+// PURE UTILITY FUNCTIONS
 // =====================================================
 
-// Project/document retrieval
+// General Utilities
+function capitalize(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function snap(value, target, epsilon = 0.01) {
+  return Math.abs(value - target) < epsilon ? target : value;
+}
+
+function hashEdge(a, b) {
+  let hash = 0;
+
+  const str = `${a}-${b}`;
+
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+
+    hash |= 0;
+  }
+
+  return Math.abs(hash);
+}
+
+function incrementFrequency(map, key, amount = 1) {
+  map.set(key, (map.get(key) || 0) + amount);
+}
+
+// Data Access
 function getCurrentDocs() {
   if (
     !projects ||
@@ -298,10 +461,6 @@ function getItems() {
   return document.querySelectorAll("li[data-id]");
 }
 
-function capitalize(str) {
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
-
 function getChaptersSorted() {
   const docs = getCurrentDocs();
 
@@ -309,6 +468,70 @@ function getChaptersSorted() {
     .filter((doc) => doc.type === "chapter")
     .sort((a, b) => a.title.localeCompare(b.title));
 }
+
+function extractChapterNumber(label) {
+  const match = label.match(/\d+/);
+
+  return match ? Number(match[0]) : 9999;
+}
+
+// Text Processing
+function tokenizeNarrativeText(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s]/g, "")
+    .split(/\s+/)
+    .filter((word) => {
+      return word.length > 3 && !SEMANTIC_STOP_WORDS.has(word);
+    });
+}
+
+function getWordCount(text) {
+  if (!text) return 0;
+
+  return text
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length > 0).length;
+}
+
+function renderMarkdown(text) {
+  if (!text) return "";
+
+  let html = text
+    .replace(/^## (.*$)/gim, "<h2>$1</h2>")
+    .replace(/^# (.*$)/gim, "<h1>$1</h1>")
+    .replace(/\*\*(.*?)\*\*/gim, "<b>$1</b>")
+    .replace(/\*(.*?)\*/gim, "<i>$1</i>")
+    .replace(/__(.*?)__/gim, "<u>$1</u>")
+    .replace(/\n/gim, "<br>");
+
+  if (currentSearchQuery && currentSearchQuery.length > 0) {
+    try {
+      const safeQuery = escapeRegex(currentSearchQuery);
+      const regex = new RegExp(`(${safeQuery})`, "gi");
+      html = html.replace(regex, `<mark>$1</mark>`);
+    } catch (err) {
+      console.error("Search highlight error:", err);
+    }
+  }
+
+  return html;
+}
+
+function convertToPlainText(markdown) {
+  return markdown
+    .replace(/^# /gm, "")
+    .replace(/^## /gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/__/g, "")
+    .replace(/<u>|<\/u>/g, "");
+}
+
+// =====================================================
+// GRAPH DATA BUILDERS
+// =====================================================
 
 function getGraphData() {
   const docs = getCurrentDocs();
@@ -395,59 +618,6 @@ function getGraphData() {
   return { nodes, edges };
 }
 
-function buildNarrativeTimeline() {
-  const chapters = graphState.nodes
-    .filter((node) => node.type === "chapter")
-    .sort((a, b) => {
-      return extractChapterNumber(a.label) - extractChapterNumber(b.label);
-    });
-
-  graphState.timelineNodes = chapters;
-}
-
-function extractChapterNumber(label) {
-  const match = label.match(/\d+/);
-
-  return match ? Number(match[0]) : 9999;
-}
-
-const SEMANTIC_STOP_WORDS = new Set([
-  "this",
-  "that",
-  "with",
-  "from",
-  "they",
-  "them",
-  "were",
-  "have",
-  "there",
-  "their",
-  "about",
-  "which",
-  "would",
-  "could",
-  "should",
-  "into",
-  "through",
-  "after",
-  "before",
-  "because",
-  "while",
-  "where",
-  "when",
-  "been",
-]);
-
-function tokenizeNarrativeText(text) {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\s]/g, "")
-    .split(/\s+/)
-    .filter((word) => {
-      return word.length > 3 && !SEMANTIC_STOP_WORDS.has(word);
-    });
-}
-
 function buildSemanticEdges(nodes, edges, docs) {
   const docsArray = Object.values(docs);
 
@@ -485,195 +655,202 @@ function buildSemanticEdges(nodes, edges, docs) {
   }
 }
 
-function getTooltipData(node) {
-  const docs = getCurrentDocs();
+function buildNarrativeTimeline() {
+  const chapters = graphState.nodes
+    .filter((node) => node.type === "chapter")
+    .sort((a, b) => {
+      return extractChapterNumber(a.label) - extractChapterNumber(b.label);
+    });
 
-  if (!node || !docs) return null;
-
-  // TAG NODE
-  if (node.type === "tag") {
-    const connectedCount = graphState.edges.filter(
-      (edge) => edge.to === node.id,
-    ).length;
-
-    return {
-      title: node.label,
-      type: "tag",
-      excerpt: `${connectedCount} connected documents`,
-      meta: [`${connectedCount} relationships`],
-    };
-  }
-
-  const doc = docs[node.id];
-
-  if (!doc) return null;
-
-  const excerpt =
-    (doc.content || "").replace(/\n/g, " ").trim().slice(0, 140) ||
-    "No content";
-
-  const relationshipCount = graphState.edges.filter(
-    (edge) => edge.from === node.id || edge.to === node.id,
-  ).length;
-
-  return {
-    title: doc.title || "Untitled",
-    type: doc.type,
-    excerpt,
-    meta: [
-      `${relationshipCount} relationships`,
-      ...(doc.tags || []).slice(0, 3),
-    ],
-  };
+  graphState.timelineNodes = chapters;
 }
 
-// Utility helpers
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+function detectCommunities() {
+  let currentCommunity = 0;
 
-function debounceSave() {
-  clearTimeout(saveTimeout);
+  const visited = new Set();
 
-  saveTimeout = setTimeout(() => {
-    saveToLocalStorage();
-  }, 300);
-}
-
-function snap(value, target, epsilon = 0.01) {
-  return Math.abs(value - target) < epsilon ? target : value;
-}
-
-function getWordCount(text) {
-  if (!text) return 0;
-
-  return text
-    .trim()
-    .split(/\s+/)
-    .filter((word) => word.length > 0).length;
-}
-
-function scrollToFirstMatch() {
-  const match = document.querySelector("#preview-pane mark");
-  if (match) {
-    match.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
-}
-
-// Graph helpers
-function getConnectedNodeIds(nodeId) {
-  const connected = new Set();
-
-  graphState.edges.forEach((edge) => {
-    if (edge.from === nodeId) connected.add(edge.to);
-    if (edge.to === nodeId) connected.add(edge.from);
+  graphState.nodes.forEach((node) => {
+    node.community = -1;
   });
 
-  return connected;
-}
+  graphState.nodes.forEach((node) => {
+    if (visited.has(node.id)) return;
 
-function getGraphBounds() {
-  const nodes = graphState.nodes;
-  if (!nodes.length) return null;
+    const queue = [node];
 
-  let minX = Infinity,
-    maxX = -Infinity;
-  let minY = Infinity,
-    maxY = -Infinity;
+    while (queue.length) {
+      const current = queue.shift();
 
-  nodes.forEach((n) => {
-    minX = Math.min(minX, n.x);
-    maxX = Math.max(maxX, n.x);
-    minY = Math.min(minY, n.y);
-    maxY = Math.max(maxY, n.y);
-  });
-
-  return {
-    minX,
-    maxX,
-    minY,
-    maxY,
-    centerX: (minX + maxX) / 2,
-    centerY: (minY + maxY) / 2,
-    width: maxX - minX,
-    height: maxY - minY,
-  };
-}
-
-function getNodeAtPosition(x, y) {
-  const visibleNodes = graphState.nodes.filter(
-    (node) => graphState.filters[node.type],
-  );
-
-  for (let i = visibleNodes.length - 1; i >= 0; i--) {
-    const node = visibleNodes[i];
-
-    const dx = node.x - x;
-    const dy = node.y - y;
-
-    const radius =
-      Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7)) /
-      graphState.scale;
-
-    if (Math.sqrt(dx * dx + dy * dy) <= radius) {
-      return node;
-    }
-  }
-
-  return null;
-}
-
-function getMinimapTransform() {
-  const bounds = getGraphBounds();
-
-  if (!bounds) return null;
-
-  const padding = 20;
-
-  const scaleX = (minimapCanvas.width - padding * 2) / bounds.width;
-
-  const scaleY = (minimapCanvas.height - padding * 2) / bounds.height;
-
-  const minimapScale = Math.min(scaleX, scaleY);
-
-  const offsetX = minimapCanvas.width / 2 - bounds.centerX * minimapScale;
-
-  const offsetY = minimapCanvas.height / 2 - bounds.centerY * minimapScale;
-
-  return {
-    minimapScale,
-    offsetX,
-    offsetY,
-  };
-}
-
-function quadraticBezier(p0, p1, p2, t) {
-  return (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * p1 + t * t * p2;
-}
-
-function getConnectedNeighbors(nodeId) {
-  const neighbors = [];
-
-  graphState.edges.forEach((edge) => {
-    if (edge.from === nodeId) {
-      const neighbor = graphState.nodeMap.get(edge.to);
-
-      if (neighbor) {
-        neighbors.push(neighbor);
+      if (!current || visited.has(current.id)) {
+        continue;
       }
+
+      visited.add(current.id);
+
+      current.community = currentCommunity;
+      current.subcommunity = -1;
+
+      const neighbors = getConnectedNeighbors(current.id);
+
+      neighbors.forEach((neighbor) => {
+        if (!visited.has(neighbor.id)) {
+          queue.push(neighbor);
+        }
+      });
     }
 
-    if (edge.to === nodeId) {
-      const neighbor = graphState.nodeMap.get(edge.from);
-
-      if (neighbor) {
-        neighbors.push(neighbor);
-      }
-    }
+    currentCommunity++;
   });
 
-  return neighbors;
+  detectSubcommunities();
+  generateCommunityLabels();
+  initializeCommunityAnchors();
 }
+
+function detectSubcommunities() {
+  const communities = new Map();
+
+  // GROUP NODES BY COMMUNITY
+  graphState.nodes.forEach((node) => {
+    if (!communities.has(node.community)) {
+      communities.set(node.community, []);
+    }
+
+    communities.get(node.community).push(node);
+  });
+
+  // PROCESS EACH COMMUNITY
+  communities.forEach((communityNodes) => {
+    let subId = 0;
+
+    const visited = new Set();
+
+    communityNodes.forEach((node) => {
+      if (visited.has(node.id)) return;
+
+      const queue = [node];
+
+      while (queue.length) {
+        const current = queue.shift();
+
+        if (!current || visited.has(current.id)) {
+          continue;
+        }
+
+        visited.add(current.id);
+
+        current.subcommunity = subId;
+
+        const neighbors = getConnectedNeighbors(current.id);
+
+        neighbors.forEach((neighbor) => {
+          if (
+            neighbor.community === current.community &&
+            !visited.has(neighbor.id)
+          ) {
+            queue.push(neighbor);
+          }
+        });
+      }
+
+      subId++;
+    });
+  });
+}
+
+function generateCommunityLabels() {
+  const labels = {};
+  const communities = new Map();
+
+  graphState.nodes.forEach((node) => {
+    if (!communities.has(node.community)) {
+      communities.set(node.community, []);
+    }
+
+    communities.get(node.community).push(node);
+  });
+
+  communities.forEach((nodes, communityId) => {
+    const frequencies = new Map();
+
+    nodes.forEach((node) => {
+      /*
+       * Ignore tags for naming
+       */
+      if (node.type === "tag") {
+        return;
+      }
+
+      /*
+       * Type weighting
+       */
+      incrementFrequency(frequencies, getNodeTypeDisplayName(node.type), 2);
+
+      /*
+       * Label words
+       */
+      const words = node.label
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(
+          (word) =>
+            word !== node.type.toLowerCase() &&
+            word !== getNodeTypeDisplayName(node.type).toLowerCase(),
+        );
+
+      words.forEach((word) => {
+        if (word.length < 4) {
+          return;
+        }
+
+        incrementFrequency(frequencies, word, 1);
+      });
+    });
+
+    const sorted = [...frequencies.entries()].sort((a, b) => b[1] - a[1]);
+
+    const unique = [];
+
+    sorted.forEach(([word]) => {
+      const normalized = word.toLowerCase();
+
+      if (!unique.some((existing) => existing.toLowerCase() === normalized)) {
+        unique.push(word);
+      }
+    });
+
+    const best = unique.slice(0, 2).map(capitalize);
+
+    labels[communityId] = best.join(" • ");
+  });
+
+  graphState.communityLabels = labels;
+}
+
+function initializeCommunityAnchors() {
+  const centers = getCommunityCenters();
+
+  centers.forEach((center, communityId) => {
+    if (graphState.communityAnchors.has(communityId)) {
+      return;
+    }
+
+    const angle = (communityId * Math.PI * 2) / 12;
+
+    const radius = 600;
+
+    graphState.communityAnchors.set(communityId, {
+      x: canvas.width / 2 + Math.cos(angle) * radius,
+
+      y: canvas.height / 2 + Math.sin(angle) * radius,
+    });
+  });
+}
+
+// =====================================================
+// COGNITIVE / AI MEMORY SYSTEMS
+// =====================================================
 
 function buildCognitiveContextWindow(startNodeId) {
   const visited = new Set();
@@ -800,6 +977,57 @@ function buildHierarchicalMemory(sourceNodeId) {
   buildLoreMemory();
 
   buildEpisodicMemory();
+
+  buildAttentionMap(sourceNode.id);
+}
+
+function buildAttentionMap(sourceNodeId) {
+  const sourceNode = graphState.nodeMap.get(sourceNodeId);
+
+  if (!sourceNode) return;
+
+  const weights = new Map();
+
+  graphState.nodes.forEach((node) => {
+    const score = getAttentionScore(node, sourceNode);
+
+    weights.set(node.id, score);
+  });
+
+  graphState.attentionState.weights = weights;
+
+  graphState.attentionState.activeTargets = [...weights.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 15)
+    .map(([id]) => graphState.nodeMap.get(id));
+
+  detectDominantAttentionStates();
+}
+
+function detectDominantAttentionStates() {
+  const emotions = new Map();
+
+  const arcs = new Map();
+
+  graphState.attentionState.activeTargets.forEach((node) => {
+    const emotion = graphState.emotionMap.get(node.id);
+
+    const arc = graphState.arcMap.get(node.id);
+
+    if (emotion?.state) {
+      incrementFrequency(emotions, emotion.state, emotion.intensity || 1);
+    }
+
+    if (arc?.phase) {
+      incrementFrequency(arcs, arc.phase, 1);
+    }
+  });
+
+  graphState.attentionState.dominantEmotion =
+    [...emotions.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
+  graphState.attentionState.dominantArc =
+    [...arcs.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
 }
 
 function buildAIMemoryPacket() {
@@ -813,6 +1041,24 @@ function buildAIMemoryPacket() {
     lore: graphState.cognitiveContext.loreMemory,
 
     episodic: graphState.cognitiveContext.episodicMemory,
+  };
+}
+
+function buildAttentionPacket() {
+  return {
+    dominantEmotion: graphState.attentionState.dominantEmotion,
+
+    dominantArc: graphState.attentionState.dominantArc,
+
+    activeTargets: graphState.attentionState.activeTargets.map((node) => ({
+      id: node.id,
+
+      label: node.label,
+
+      type: node.type,
+
+      attention: graphState.attentionState.weights.get(node.id),
+    })),
   };
 }
 
@@ -846,186 +1092,9 @@ function buildContextSummary(nodes) {
   graphState.cognitiveContext.summary = JSON.stringify(summary, null, 2);
 }
 
-function edgeConnectionCount(nodeId) {
-  let count = 0;
-
-  graphState.edges.forEach((edge) => {
-    if (edge.from === nodeId || edge.to === nodeId) {
-      count++;
-    }
-  });
-
-  return count;
-}
-
-function getFlowSpeed(edge) {
-  switch (edge.flowType) {
-    case "temporal":
-      return 1.8;
-
-    case "character":
-      return 1.2;
-
-    case "lore":
-      return 0.7;
-
-    default:
-      return 1;
-  }
-}
-
-function getFlowColor(edge) {
-  switch (edge.flowType) {
-    case "temporal":
-      return "#00d4ff";
-
-    case "character":
-      return "#f39c12";
-
-    case "lore":
-      return "#9b59b6";
-
-    default:
-      return "#95a5a6";
-  }
-}
-
-function getArcColor(phase) {
-  switch (phase) {
-    case "setup":
-      return "rgba(52,152,219,0.7)";
-
-    case "development":
-      return "rgba(46,204,113,0.7)";
-
-    case "escalation":
-      return "rgba(243,156,18,0.8)";
-
-    case "climax":
-      return "rgba(231,76,60,0.9)";
-
-    default:
-      return "rgba(255,255,255,0.4)";
-  }
-}
-
-function getCharacterRoleColor(role) {
-  switch (role) {
-    case "protagonist":
-      return "rgba(241,196,15";
-
-    case "major":
-      return "rgba(230,126,34";
-
-    case "secondary":
-      return "rgba(52,152,219";
-
-    default:
-      return "rgba(127,140,141";
-  }
-}
-
-function getEmotionColor(state) {
-  switch (state) {
-    case "chaotic":
-      return "rgba(231,76,60";
-
-    case "intense":
-      return "rgba(243,156,18";
-
-    case "elevated":
-      return "rgba(155,89,182";
-
-    default:
-      return "rgba(52,152,219";
-  }
-}
-
-function getRelationshipColor(relationship) {
-  if (!relationship) {
-    return "#666";
-  }
-
-  return relationship.polarity === "alliance" ? "#2ecc71" : "#e74c3c";
-}
-
-function getPropagationColor(type) {
-  switch (type) {
-    case "catastrophic":
-      return "rgba(231,76,60";
-
-    case "volatile":
-      return "rgba(243,156,18";
-
-    case "active":
-      return "rgba(155,89,182";
-
-    default:
-      return "rgba(52,152,219";
-  }
-}
-
-function getTemporalColor(state) {
-  switch (state) {
-    case "dominant":
-      return "rgba(241,196,15";
-
-    case "active":
-      return "rgba(52,152,219";
-
-    case "emerging":
-      return "rgba(155,89,182";
-
-    default:
-      return "rgba(120,120,120";
-  }
-}
-
-function getSemanticImportance(node) {
-  const connections = edgeConnectionCount(node.id);
-
-  const communityBonus = node.community != null ? 1.25 : 1;
-
-  const typeWeight = {
-    chapter: 2.2,
-    character: 1.9,
-    world: 1.5,
-    timeline: 1.4,
-    notes: 1.2,
-    ideas: 1.1,
-    tag: 0.6,
-  };
-
-  return connections * (typeWeight[node.type] || 1) * communityBonus;
-}
-
-function getContextRelevance(node, sourceNode) {
-  let score = 0;
-
-  if (node.community === sourceNode.community) {
-    score += 8;
-  }
-
-  if (node.type === sourceNode.type) {
-    score += 5;
-  }
-
-  const emotion = graphState.emotionMap.get(node.id);
-
-  if (emotion?.intensity > 7) {
-    score += 6;
-  }
-
-  const arc = graphState.arcMap.get(node.id);
-
-  if (arc?.phase === "climax") {
-    score += 10;
-  }
-
-  score += getSemanticImportance(node) * 0.35;
-
-  return score;
-}
+// =====================================================
+// NARRATIVE ANALYSIS SYSTEMS
+// =====================================================
 
 function calculateNarrativeTension() {
   const tensionMap = new Map();
@@ -1561,288 +1630,8 @@ function analyzeNarrativeAnomalies() {
   graphState.semanticAnomalyMap = anomalyMap;
 }
 
-function updateNarrativeTimeline() {
-  if (!graphState.timelinePlaying) {
-    return;
-  }
-
-  if (graphState.timelineNodes.length === 0) {
-    return;
-  }
-
-  graphState.timelineTimer =
-    (graphState.timelineTimer || 0) + graphState.timelineSpeed;
-
-  if (graphState.timelineTimer < 120) {
-    return;
-  }
-
-  graphState.timelineTimer = 0;
-
-  graphState.timelineIndex++;
-
-  if (graphState.timelineIndex >= graphState.timelineNodes.length) {
-    graphState.timelineIndex = 0;
-  }
-}
-
-function detectCommunities() {
-  let currentCommunity = 0;
-
-  const visited = new Set();
-
-  graphState.nodes.forEach((node) => {
-    node.community = -1;
-  });
-
-  graphState.nodes.forEach((node) => {
-    if (visited.has(node.id)) return;
-
-    const queue = [node];
-
-    while (queue.length) {
-      const current = queue.shift();
-
-      if (!current || visited.has(current.id)) {
-        continue;
-      }
-
-      visited.add(current.id);
-
-      current.community = currentCommunity;
-      current.subcommunity = -1;
-
-      const neighbors = getConnectedNeighbors(current.id);
-
-      neighbors.forEach((neighbor) => {
-        if (!visited.has(neighbor.id)) {
-          queue.push(neighbor);
-        }
-      });
-    }
-
-    currentCommunity++;
-  });
-
-  detectSubcommunities();
-  generateCommunityLabels();
-  initializeCommunityAnchors();
-}
-
-function detectSubcommunities() {
-  const communities = new Map();
-
-  // GROUP NODES BY COMMUNITY
-  graphState.nodes.forEach((node) => {
-    if (!communities.has(node.community)) {
-      communities.set(node.community, []);
-    }
-
-    communities.get(node.community).push(node);
-  });
-
-  // PROCESS EACH COMMUNITY
-  communities.forEach((communityNodes) => {
-    let subId = 0;
-
-    const visited = new Set();
-
-    communityNodes.forEach((node) => {
-      if (visited.has(node.id)) return;
-
-      const queue = [node];
-
-      while (queue.length) {
-        const current = queue.shift();
-
-        if (!current || visited.has(current.id)) {
-          continue;
-        }
-
-        visited.add(current.id);
-
-        current.subcommunity = subId;
-
-        const neighbors = getConnectedNeighbors(current.id);
-
-        neighbors.forEach((neighbor) => {
-          if (
-            neighbor.community === current.community &&
-            !visited.has(neighbor.id)
-          ) {
-            queue.push(neighbor);
-          }
-        });
-      }
-
-      subId++;
-    });
-  });
-}
-
-function getCommunityCenters() {
-  const centers = new Map();
-
-  graphState.nodes.forEach((node) => {
-    if (!centers.has(node.community)) {
-      centers.set(node.community, {
-        x: 0,
-        y: 0,
-        count: 0,
-      });
-    }
-
-    const center = centers.get(node.community);
-
-    center.x += node.x;
-    center.y += node.y;
-    center.count++;
-  });
-
-  centers.forEach((center) => {
-    center.x /= center.count;
-    center.y /= center.count;
-  });
-
-  return centers;
-}
-
-function initializeCommunityAnchors() {
-  const centers = getCommunityCenters();
-
-  centers.forEach((center, communityId) => {
-    if (graphState.communityAnchors.has(communityId)) {
-      return;
-    }
-
-    const angle = (communityId * Math.PI * 2) / 12;
-
-    const radius = 600;
-
-    graphState.communityAnchors.set(communityId, {
-      x: canvas.width / 2 + Math.cos(angle) * radius,
-
-      y: canvas.height / 2 + Math.sin(angle) * radius,
-    });
-  });
-}
-
-function getCommunityRadii(centers) {
-  const radii = new Map();
-  const massMap = new Map();
-
-  graphState.nodes.forEach((node) => {
-    massMap.set(node.community, (massMap.get(node.community) || 0) + 1);
-
-    const center = centers.get(node.community);
-
-    if (!center) return;
-
-    const dx = node.x - center.x;
-    const dy = node.y - center.y;
-
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    const current = radii.get(node.community) || 0;
-
-    radii.set(node.community, Math.max(current, dist));
-
-    graphState.communityMass = massMap;
-  });
-
-  return radii;
-}
-
-function incrementFrequency(map, key, amount = 1) {
-  map.set(key, (map.get(key) || 0) + amount);
-}
-
-// Formatting helpers
-function isInsideMarker(text, pos, marker) {
-  const before = text.slice(0, pos);
-  const after = text.slice(pos);
-
-  const beforeCount = before.split(marker).length - 1;
-  const afterCount = after.split(marker).length - 1;
-
-  return beforeCount % 2 === 1 && afterCount > 0;
-}
-
-function normalizeSelectionForFormat(type) {
-  const start = editorContent.selectionStart;
-  const end = editorContent.selectionEnd;
-  const text = editorContent.value;
-
-  let marker = "";
-  if (type === "bold") marker = "**";
-  else if (type === "italic") marker = "*";
-  else if (type === "underline") marker = "__";
-  else return;
-
-  // Look OUTSIDE selection
-  const before = text.slice(start - marker.length, start);
-  const after = text.slice(end, end + marker.length);
-
-  if (before === marker && after === marker) {
-    editorContent.setSelectionRange(start - marker.length, end + marker.length);
-  }
-}
-
-function getActiveFormats() {
-  const pos = editorContent.selectionStart;
-  const text = editorContent.value;
-
-  const isBold = isInsideMarker(text, pos, "**");
-  const isUnderline = isInsideMarker(text, pos, "__");
-
-  // italic must NOT trigger inside bold/underline markers
-  const isItalic = !isBold && !isUnderline && isInsideMarker(text, pos, "*");
-
-  return {
-    bold: isBold,
-    italic: isItalic,
-    underline: isUnderline,
-    italic: isInsideMarker(text, pos, "*") && !isInsideMarker(text, pos, "**"),
-  };
-}
-
-// Markdown/export helpers
-function renderMarkdown(text) {
-  if (!text) return "";
-
-  let html = text
-    .replace(/^## (.*$)/gim, "<h2>$1</h2>")
-    .replace(/^# (.*$)/gim, "<h1>$1</h1>")
-    .replace(/\*\*(.*?)\*\*/gim, "<b>$1</b>")
-    .replace(/\*(.*?)\*/gim, "<i>$1</i>")
-    .replace(/__(.*?)__/gim, "<u>$1</u>")
-    .replace(/\n/gim, "<br>");
-
-  if (currentSearchQuery && currentSearchQuery.length > 0) {
-    try {
-      const safeQuery = escapeRegex(currentSearchQuery);
-      const regex = new RegExp(`(${safeQuery})`, "gi");
-      html = html.replace(regex, `<mark>$1</mark>`);
-    } catch (err) {
-      console.error("Search highlight error:", err);
-    }
-  }
-
-  return html;
-}
-
-function convertToPlainText(markdown) {
-  return markdown
-    .replace(/^# /gm, "")
-    .replace(/^## /gm, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/\*(.*?)\*/g, "$1")
-    .replace(/__/g, "")
-    .replace(/<u>|<\/u>/g, "");
-}
-
 // =====================================================
-// AI Agents
+// AI AGENT SYSTEMS
 // =====================================================
 
 function initializeAgents() {
@@ -2020,6 +1809,60 @@ function addAgentInsight({ agent, nodeId, severity, message }) {
   }
 }
 
+// =====================================================
+// AGENT BEHAVIORS
+// =====================================================
+
+function runManagerAgent() {
+  const insights = graphState.agentSystem.insights;
+
+  const conflicts = [];
+
+  // GROUP INSIGHTS BY NODE
+  const grouped = new Map();
+
+  insights.forEach((insight) => {
+    if (!grouped.has(insight.nodeId)) {
+      grouped.set(insight.nodeId, []);
+    }
+
+    grouped.get(insight.nodeId).push(insight);
+  });
+
+  // DETECT AGENT CONFLICTS
+  grouped.forEach((nodeInsights, nodeId) => {
+    const severities = nodeInsights.map((i) => i.severity);
+
+    const hasCritical = severities.includes("critical");
+
+    const hasInfo = severities.includes("info");
+
+    if (hasCritical && hasInfo) {
+      conflicts.push({
+        nodeId,
+        type: "priority-conflict",
+      });
+    }
+  });
+
+  graphState.agentSystem.conflicts = conflicts;
+
+  // ACTIVE AGENT FOCUS
+  const highest = insights.sort((a, b) => {
+    const score = {
+      critical: 3,
+      warning: 2,
+      info: 1,
+    };
+
+    return score[b.severity] - score[a.severity];
+  })[0];
+
+  graphState.agentSystem.activeAgent = highest?.agent || null;
+
+  generateAgentTasks();
+}
+
 function runContinuityAgent() {
   graphState.nodes.forEach((node) => {
     const temporal = graphState.temporalStateMap.get(node.id);
@@ -2114,73 +1957,9 @@ function runReaderAgent() {
   });
 }
 
-function runAgentSystem() {
-  if (!graphState.agentSystem.active) {
-    return;
-  }
-
-  graphState.agentSystem.insights = [];
-
-  runContinuityAgent();
-
-  runPsychologyAgent();
-
-  runReaderAgent();
-
-  runManagerAgent();
-
-  executeAgentTasks();
-}
-
-function runManagerAgent() {
-  const insights = graphState.agentSystem.insights;
-
-  const conflicts = [];
-
-  // GROUP INSIGHTS BY NODE
-  const grouped = new Map();
-
-  insights.forEach((insight) => {
-    if (!grouped.has(insight.nodeId)) {
-      grouped.set(insight.nodeId, []);
-    }
-
-    grouped.get(insight.nodeId).push(insight);
-  });
-
-  // DETECT AGENT CONFLICTS
-  grouped.forEach((nodeInsights, nodeId) => {
-    const severities = nodeInsights.map((i) => i.severity);
-
-    const hasCritical = severities.includes("critical");
-
-    const hasInfo = severities.includes("info");
-
-    if (hasCritical && hasInfo) {
-      conflicts.push({
-        nodeId,
-        type: "priority-conflict",
-      });
-    }
-  });
-
-  graphState.agentSystem.conflicts = conflicts;
-
-  // ACTIVE AGENT FOCUS
-  const highest = insights.sort((a, b) => {
-    const score = {
-      critical: 3,
-      warning: 2,
-      info: 1,
-    };
-
-    return score[b.severity] - score[a.severity];
-  })[0];
-
-  graphState.agentSystem.activeAgent = highest?.agent || null;
-
-  generateAgentTasks();
-}
+// =====================================================
+// TASK GENERATORS
+// =====================================================
 
 function generateAgentTasks() {
   graphState.nodes.forEach((node) => {
@@ -2242,6 +2021,10 @@ function generateAgentTasks() {
 
   sortAgentTasks();
 }
+
+// =====================================================
+// TASK EXECUTORS
+// =====================================================
 
 function executeContinuityTask(task) {
   addAgentInsight({
@@ -2342,264 +2125,387 @@ function executeLoreTask(task) {
 }
 
 // =====================================================
-// LOCAL STORAGE / PERSISTENCE
+// MAIN RUNTIME
 // =====================================================
 
-function saveToLocalStorage() {
-  localStorage.setItem("tapestriProjects", JSON.stringify(projects));
-  localStorage.setItem("tapestriCurrentProject", appState.currentProjectId);
+function runAgentSystem() {
+  if (!graphState.agentSystem.active) {
+    return;
+  }
+
+  graphState.agentSystem.insights = [];
+
+  runContinuityAgent();
+
+  runPsychologyAgent();
+
+  runReaderAgent();
+
+  runManagerAgent();
+
+  executeAgentTasks();
 }
 
-function loadFromLocalStorage() {
-  const data = localStorage.getItem("tapestriProjects");
-  const savedProjectId = localStorage.getItem("tapestriCurrentProject");
+// =====================================================
+// GRAPH HELPER FUNCTIONS
+// =====================================================
 
-  if (data) {
-    projects = JSON.parse(data);
+function getConnectedNodeIds(nodeId) {
+  const connected = new Set();
 
-    for (const pid in projects) {
-      const docs = projects[pid].documents;
+  graphState.edges.forEach((edge) => {
+    if (edge.from === nodeId) connected.add(edge.to);
+    if (edge.to === nodeId) connected.add(edge.from);
+  });
 
-      for (const id in docs) {
-        const doc = docs[id];
+  return connected;
+}
 
-        if (!doc.tags) doc.tags = [];
+function getConnectedNeighbors(nodeId) {
+  const neighbors = [];
 
-        if (!doc.relationships) {
-          doc.relationships = { characters: [] };
-        }
+  graphState.edges.forEach((edge) => {
+    if (edge.from === nodeId) {
+      const neighbor = graphState.nodeMap.get(edge.to);
 
-        if (!doc.relationships.characters) {
-          doc.relationships.characters = [];
-        }
+      if (neighbor) {
+        neighbors.push(neighbor);
       }
     }
 
-    const projectIds = Object.keys(projects);
+    if (edge.to === nodeId) {
+      const neighbor = graphState.nodeMap.get(edge.from);
 
-    if (savedProjectId && projects[savedProjectId]) {
-      appState.currentProjectId = savedProjectId;
-    } else {
-      appState.currentProjectId = projectIds[0];
+      if (neighbor) {
+        neighbors.push(neighbor);
+      }
+    }
+  });
+
+  return neighbors;
+}
+
+function edgeConnectionCount(nodeId) {
+  let count = 0;
+
+  graphState.edges.forEach((edge) => {
+    if (edge.from === nodeId || edge.to === nodeId) {
+      count++;
+    }
+  });
+
+  return count;
+}
+
+function getSemanticImportance(node) {
+  const connections = edgeConnectionCount(node.id);
+
+  const communityBonus = node.community != null ? 1.25 : 1;
+
+  const typeWeight = {
+    chapter: 2.2,
+    character: 1.9,
+    world: 1.5,
+    timeline: 1.4,
+    notes: 1.2,
+    ideas: 1.1,
+    tag: 0.6,
+  };
+
+  return connections * (typeWeight[node.type] || 1) * communityBonus;
+}
+
+function getContextRelevance(node, sourceNode) {
+  let score = 0;
+
+  if (node.community === sourceNode.community) {
+    score += 8;
+  }
+
+  if (node.type === sourceNode.type) {
+    score += 5;
+  }
+
+  const emotion = graphState.emotionMap.get(node.id);
+
+  if (emotion?.intensity > 7) {
+    score += 6;
+  }
+
+  const arc = graphState.arcMap.get(node.id);
+
+  if (arc?.phase === "climax") {
+    score += 10;
+  }
+
+  score += getSemanticImportance(node) * 0.35;
+
+  return score;
+}
+
+function getAttentionScore(node, sourceNode) {
+  let score = 0;
+
+  // SEMANTIC IMPORTANCE
+  score += getSemanticImportance(node) * 1.5;
+
+  // SAME COMMUNITY
+  if (node.community === sourceNode.community) {
+    score += 12;
+  }
+
+  // ACTIVE EMOTION
+  const emotion = graphState.emotionMap.get(node.id);
+
+  if (emotion) {
+    score += emotion.intensity * 1.8;
+  }
+
+  // ACTIVE ARC
+  const arc = graphState.arcMap.get(node.id);
+
+  if (arc) {
+    if (arc.phase === "climax") {
+      score += 25;
     }
 
-    if (!appState.currentProjectId) {
-      appState.currentProjectId = Object.keys(projects)[0];
+    if (arc.phase === "escalation") {
+      score += 15;
     }
-  } else {
-    const defaultProjectId = "project1";
+  }
 
-    projects = {
-      [defaultProjectId]: {
-        name: "My First Project",
-        documents: {
-          chapter1: {
-            id: "chapter1",
-            title: "Chapter 1",
-            content: "",
-            type: "chapter",
-            tags: [],
-            relationships: { characters: [] },
-          },
-        },
-      },
+  // TENSION
+  const tension = graphState.tensionMap.get(node.id) || 0;
+
+  score += tension * 2.2;
+
+  // RELATIONSHIP DENSITY
+  score += edgeConnectionCount(node.id) * 0.75;
+
+  // RECENCY BONUS
+  if (graphState.temporalMap?.get(node.id)) {
+    score += 8;
+  }
+
+  return score;
+}
+
+function getCommunityCenters() {
+  const centers = new Map();
+
+  graphState.nodes.forEach((node) => {
+    if (!centers.has(node.community)) {
+      centers.set(node.community, {
+        x: 0,
+        y: 0,
+        count: 0,
+      });
+    }
+
+    const center = centers.get(node.community);
+
+    center.x += node.x;
+    center.y += node.y;
+    center.count++;
+  });
+
+  centers.forEach((center) => {
+    center.x /= center.count;
+    center.y /= center.count;
+  });
+
+  return centers;
+}
+
+function getCommunityRadii(centers) {
+  const radii = new Map();
+  const massMap = new Map();
+
+  graphState.nodes.forEach((node) => {
+    massMap.set(node.community, (massMap.get(node.community) || 0) + 1);
+
+    const center = centers.get(node.community);
+
+    if (!center) return;
+
+    const dx = node.x - center.x;
+    const dy = node.y - center.y;
+
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    const current = radii.get(node.community) || 0;
+
+    radii.set(node.community, Math.max(current, dist));
+
+    graphState.communityMass = massMap;
+  });
+
+  return radii;
+}
+
+function getTooltipData(node) {
+  const docs = getCurrentDocs();
+
+  if (!node || !docs) return null;
+
+  // TAG NODE
+  if (node.type === "tag") {
+    const connectedCount = graphState.edges.filter(
+      (edge) => edge.to === node.id,
+    ).length;
+
+    return {
+      title: node.label,
+      type: "tag",
+      excerpt: `${connectedCount} connected documents`,
+      meta: [`${connectedCount} relationships`],
     };
-
-    appState.currentProjectId = defaultProjectId;
-
-    debounceSave();
   }
+
+  const doc = docs[node.id];
+
+  if (!doc) return null;
+
+  const excerpt =
+    (doc.content || "").replace(/\n/g, " ").trim().slice(0, 140) ||
+    "No content";
+
+  const relationshipCount = graphState.edges.filter(
+    (edge) => edge.from === node.id || edge.to === node.id,
+  ).length;
+
+  return {
+    title: doc.title || "Untitled",
+    type: doc.type,
+    excerpt,
+    meta: [
+      `${relationshipCount} relationships`,
+      ...(doc.tags || []).slice(0, 3),
+    ],
+  };
 }
 
-function savePreviewMode() {
-  localStorage.setItem("tapestri_preview_mode", JSON.stringify(isPreviewMode));
+function getGraphBounds() {
+  const nodes = graphState.nodes;
+  if (!nodes.length) return null;
+
+  let minX = Infinity,
+    maxX = -Infinity;
+  let minY = Infinity,
+    maxY = -Infinity;
+
+  nodes.forEach((n) => {
+    minX = Math.min(minX, n.x);
+    maxX = Math.max(maxX, n.x);
+    minY = Math.min(minY, n.y);
+    maxY = Math.max(maxY, n.y);
+  });
+
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    centerX: (minX + maxX) / 2,
+    centerY: (minY + maxY) / 2,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
 }
 
-function loadPreviewMode() {
-  const saved = localStorage.getItem("tapestri_preview_mode");
-  if (saved !== null) {
-    isPreviewMode = JSON.parse(saved);
-  }
-}
-
-function saveFocusMode() {
-  localStorage.setItem("tapestri_focus_mode", JSON.stringify(isFocusMode));
-}
-
-function loadFocusMode() {
-  const saved = localStorage.getItem("tapestri_focus_mode");
-  if (saved !== null) {
-    isFocusMode = JSON.parse(saved);
-    document.body.classList.toggle("focus-mode", isFocusMode);
-  }
-}
-
-function saveDocument() {
-  if (!appState.currentDocumentId) return;
-
-  projects[appState.currentProjectId].documents[
-    appState.currentDocumentId
-  ].title = editorTitle.value;
-  projects[appState.currentProjectId].documents[
-    appState.currentDocumentId
-  ].content = editorContent.value;
-
-  debounceSave();
-}
-
-// =====================================================
-// HISTORY SYSTEM
-// =====================================================
-
-function saveHistory() {
-  if (editorState.isRestoring) return;
-
-  const content = editorContent.value;
-
-  // Prevent duplicate spam entries
-  if (
-    content === lastSavedContent &&
-    editorContent.selectionStart === editorState.lastSelectionStart &&
-    editorContent.selectionEnd === editorState.lastSelectionEnd
-  )
-    return;
-
-  editorState.lastSelectionStart = editorContent.selectionStart;
-  editorState.lastSelectionEnd = editorContent.selectionEnd;
-
-  lastSavedContent = content;
-
-  // Trim redo stack
-  editorState.history = editorState.history.slice(
-    0,
-    editorState.historyIndex + 1,
+function getNodeAtPosition(x, y) {
+  const visibleNodes = graphState.nodes.filter(
+    (node) => graphState.filters[node.type],
   );
 
-  editorState.history.push({
-    content,
-    selectionStart: editorContent.selectionStart,
-    selectionEnd: editorContent.selectionEnd,
-  });
+  for (let i = visibleNodes.length - 1; i >= 0; i--) {
+    const node = visibleNodes[i];
 
-  editorState.historyIndex++;
+    const dx = node.x - x;
+    const dy = node.y - y;
+
+    const radius =
+      Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7)) /
+      graphState.scale;
+
+    if (Math.sqrt(dx * dx + dy * dy) <= radius) {
+      return node;
+    }
+  }
+
+  return null;
 }
 
-function undo() {
-  if (editorState.historyIndex <= 0) return;
-
-  editorState.historyIndex--;
-
-  const entry = editorState.history[editorState.historyIndex];
-
-  editorState.isRestoring = true;
-
-  editorContent.value = entry.content;
-
-  requestAnimationFrame(() => {
-    editorContent.focus();
-    editorContent.setSelectionRange(
-      entry.selectionStart ?? 0,
-      entry.selectionEnd ?? entry.selectionStart ?? 0,
-    );
-
-    updateToolbarState();
-
-    editorState.isRestoring = false;
-  });
-}
-
-function redo() {
-  if (editorState.historyIndex >= editorState.history.length - 1) return;
-
-  editorState.historyIndex++;
-
-  const entry = editorState.history[editorState.historyIndex];
-
-  editorState.isRestoring = true;
-
-  editorContent.value = entry.content;
-
-  requestAnimationFrame(() => {
-    editorContent.focus();
-    editorContent.setSelectionRange(
-      entry.selectionStart ?? 0,
-      entry.selectionEnd ?? entry.selectionStart ?? 0,
-    );
-
-    updateToolbarState();
-
-    editorState.isRestoring = false;
-  });
-}
-
-// =====================================================
-// GRAPH SYSTEM
-// =====================================================
-
-// Graph rendering
-function prepareGraphRenderState() {
-  const selectedId = graphState.selectedNodeId;
-
-  const hoveredId = graphState.hoveredNodeId;
-
-  const activeId = hoveredId || selectedId;
-
-  const connectedIds = activeId ? getConnectedNodeIds(activeId) : new Set();
+function findClosestNode(x, y) {
+  let closestNode = null;
+  let closestDistance = Infinity;
 
   const visibleNodes = graphState.nodes.filter(
     (node) => graphState.filters[node.type],
   );
 
-  const visibleNodeMap = new Map();
+  for (const node of visibleNodes) {
+    const dx = node.x - x;
+    const dy = node.y - y;
 
-  visibleNodes.forEach((node) => {
-    visibleNodeMap.set(node.id, node);
-  });
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestNode = node;
+    }
+  }
 
   return {
-    selectedId,
-    hoveredId,
-    activeId,
-    connectedIds,
-    visibleNodes,
-    visibleNodeMap,
+    node: closestNode,
+    distance: closestDistance,
   };
 }
 
-function renderGraph() {
-  const ctx = canvas.getContext("2d");
+function findShortestPath(startId, endId) {
+  if (!startId || !endId) {
+    return [];
+  }
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const queue = [[startId]];
 
-  const renderState = prepareGraphRenderState();
+  const visited = new Set();
 
-  drawSemanticInfluenceFields(ctx);
-  drawNarrativeTensionFields(ctx);
-  drawNarrativeArcFields(ctx);
-  drawCharacterInfluenceFields(ctx);
-  drawEmotionalFields(ctx);
-  drawRelationshipFields(ctx);
-  drawNarrativePropagationFields(ctx);
-  drawTemporalNarrativeFields(ctx);
-  drawSemanticInferenceEdges(ctx);
-  drawNarrativeAnomalies(ctx);
-  drawAgentInsights(ctx);
-  drawCommunityHulls(ctx);
-  drawEdges(ctx, renderState);
-  drawNodes(ctx, renderState);
-  drawLabels(ctx, renderState);
-  drawCommunityLabels(ctx);
-  renderMinimap();
+  visited.add(startId);
+
+  while (queue.length) {
+    const path = queue.shift();
+
+    const current = path[path.length - 1];
+
+    if (current === endId) {
+      return path;
+    }
+
+    const neighbors = graphState.edges
+      .filter((edge) => edge.from === current)
+      .map((edge) => edge.to);
+
+    for (const next of neighbors) {
+      if (!visited.has(next)) {
+        visited.add(next);
+
+        queue.push([...path, next]);
+      }
+    }
+  }
+
+  return [];
 }
 
-function renderMinimap() {
-  const ctx = minimapCtx;
+// =====================================================
+// GRAPH CAMERA + COORDINATE SYSTEM
+// =====================================================
 
-  ctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
-
+function getMinimapTransform() {
   const bounds = getGraphBounds();
 
-  if (!bounds) return;
+  if (!bounds) return null;
 
   const padding = 20;
 
@@ -2613,84 +2519,15 @@ function renderMinimap() {
 
   const offsetY = minimapCanvas.height / 2 - bounds.centerY * minimapScale;
 
-  // EDGES
-  graphState.edges.forEach((edge) => {
-    const from = graphState.nodeMap.get(edge.from);
-
-    const to = graphState.nodeMap.get(edge.to);
-
-    if (!from || !to) return;
-
-    // Skip hidden nodes
-    if (!graphState.filters[from.type] || !graphState.filters[to.type]) {
-      return;
-    }
-
-    ctx.beginPath();
-
-    ctx.moveTo(
-      from.x * minimapScale + offsetX,
-      from.y * minimapScale + offsetY,
-    );
-
-    ctx.lineTo(to.x * minimapScale + offsetX, to.y * minimapScale + offsetY);
-
-    ctx.strokeStyle = "#333";
-    ctx.lineWidth = 1;
-
-    ctx.stroke();
-  });
-
-  // NODES
-  const visibleNodes = graphState.nodes.filter(
-    (node) => graphState.filters[node.type],
-  );
-
-  visibleNodes.forEach((node) => {
-    const radius = graphState.scale < 0.35 ? 2 : 3;
-
-    ctx.beginPath();
-
-    ctx.arc(
-      node.x * minimapScale + offsetX,
-      node.y * minimapScale + offsetY,
-      radius,
-      0,
-      Math.PI * 2,
-    );
-
-    ctx.fillStyle = getNodeTypeColor(node.type);
-
-    ctx.fill();
-  });
-
-  renderMinimapViewport({
+  return {
     minimapScale,
     offsetX,
     offsetY,
-  });
+  };
 }
 
-function renderMinimapViewport({ minimapScale, offsetX, offsetY }) {
-  const ctx = minimapCtx;
-
-  const viewWidth = canvas.width / graphState.scale;
-
-  const viewHeight = canvas.height / graphState.scale;
-
-  const worldX = -graphState.offsetX / graphState.scale;
-
-  const worldY = -graphState.offsetY / graphState.scale;
-
-  ctx.strokeStyle = "#f39c12";
-  ctx.lineWidth = 2;
-
-  ctx.strokeRect(
-    worldX * minimapScale + offsetX,
-    worldY * minimapScale + offsetY,
-    viewWidth * minimapScale,
-    viewHeight * minimapScale,
-  );
+function quadraticBezier(p0, p1, p2, t) {
+  return (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * p1 + t * t * p2;
 }
 
 function getEdgeCurve(fromX, fromY, toX, toY, edge = null) {
@@ -2724,349 +2561,182 @@ function getEdgeCurve(fromX, fromY, toX, toY, edge = null) {
   };
 }
 
-function hashEdge(a, b) {
-  let hash = 0;
+function setCamera(scale, offsetX, offsetY) {
+  graphState.targetScale = scale;
+  graphState.targetOffsetX = offsetX;
+  graphState.targetOffsetY = offsetY;
 
-  const str = `${a}-${b}`;
+  // immediately start animation loop
+  wakeGraphPhysics();
+}
 
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
+function centerGraph() {
+  const bounds = getGraphBounds();
+  if (!bounds) return;
 
-    hash |= 0;
+  graphState.targetOffsetX =
+    canvas.width / 2 - bounds.centerX * graphState.scale;
+
+  graphState.targetOffsetY =
+    canvas.height / 2 - bounds.centerY * graphState.scale;
+
+  wakeGraphPhysics();
+}
+
+function centerOnNode(nodeId) {
+  focusNode(nodeId);
+}
+
+function focusNode(nodeId, options = {}) {
+  const node = graphState.nodeMap.get(nodeId);
+
+  if (!node) return;
+
+  const { scale = Math.max(graphState.scale, 0.9), animate = true } = options;
+
+  const offsetX = canvas.width / 2 - node.x * scale;
+
+  const offsetY = canvas.height / 2 - node.y * scale;
+
+  setCamera(scale, offsetX, offsetY);
+
+  if (animate) {
+    wakeGraphPhysics();
+  } else {
+    graphState.scale = scale;
+    graphState.offsetX = offsetX;
+    graphState.offsetY = offsetY;
   }
 
-  return Math.abs(hash);
+  if (isNodeNearCenter(node)) {
+    return;
+  }
 }
 
-function drawEdgePulses({
-  ctx,
-  fromX,
-  fromY,
-  toX,
-  toY,
-  controlX,
-  controlY,
-  strength = 1,
-}) {
-  const pulseCount = Math.min(5, Math.max(1, strength));
+function fitGraphToScreen() {
+  const bounds = getGraphBounds();
+  if (!bounds) return;
 
-  const speed = 0.6 + strength * 0.25;
+  const padding = 120;
 
-  ctx.save();
+  const scaleX = (canvas.width - padding) / bounds.width;
+  const scaleY = (canvas.height - padding) / bounds.height;
 
-  for (let i = 0; i < pulseCount; i++) {
-    const offset = i / pulseCount;
+  const newScale = Math.min(scaleX, scaleY);
 
-    const t = (graphState.animationTime * speed + offset) % 1;
+  setCamera(
+    newScale,
+    canvas.width / 2 - bounds.centerX * newScale,
+    canvas.height / 2 - bounds.centerY * newScale,
+  );
 
-    const pulseX = quadraticBezier(fromX, controlX, toX, t);
+  wakeGraphPhysics();
+}
 
-    const pulseY = quadraticBezier(fromY, controlY, toY, t);
+function resetGraphView() {
+  setCamera(
+    graphState.initialScale,
+    graphState.initialOffsetX,
+    graphState.initialOffsetY,
+  );
+}
 
-    const radius = 2 + strength * 0.8;
+function clampGraphCamera() {
+  const bounds = getGraphBounds();
+  if (!bounds) return;
 
-    ctx.beginPath();
+  const scaledWidth = bounds.width * graphState.scale;
+  const scaledHeight = bounds.height * graphState.scale;
 
-    ctx.arc(pulseX, pulseY, radius, 0, Math.PI * 2);
+  const padding = 1000;
 
-    ctx.fillStyle = "#f39c12";
+  const minOffsetX = canvas.width - scaledWidth - padding;
+  const maxOffsetX = padding;
 
-    ctx.globalAlpha = 0.75 + strength * 0.08;
+  const minOffsetY = canvas.height - scaledHeight - padding;
+  const maxOffsetY = padding;
 
-    ctx.shadowColor = "#f39c12";
+  graphState.offsetX = Math.max(
+    minOffsetX,
+    Math.min(maxOffsetX, graphState.offsetX),
+  );
 
-    ctx.shadowBlur = 10 + strength * 2;
+  graphState.offsetY = Math.max(
+    minOffsetY,
+    Math.min(maxOffsetY, graphState.offsetY),
+  );
+}
 
-    ctx.fill();
+function updateGraphCamera() {
+  if (graphState.dragging.isDraggingGraph) {
+    return;
   }
 
-  ctx.restore();
+  const cameraLerp = 0.14;
+  const zoomLerp = 0.12;
+
+  graphState.offsetX +=
+    (graphState.targetOffsetX - graphState.offsetX) * cameraLerp;
+
+  graphState.offsetY +=
+    (graphState.targetOffsetY - graphState.offsetY) * cameraLerp;
+
+  graphState.scale += (graphState.targetScale - graphState.scale) * zoomLerp;
+
+  graphState.scale = Math.max(0.05, graphState.scale);
+
+  graphState.targetScale = Math.max(0.05, graphState.targetScale);
+
+  clampGraphCamera();
 }
 
-function drawNarrativeFlow({
-  ctx,
-  fromX,
-  fromY,
-  toX,
-  toY,
-  controlX,
-  controlY,
-  edge,
-}) {
-  const time = graphState.animationTime * getFlowSpeed(edge);
+function updateSemanticZoomLevel() {
+  const scale = graphState.scale;
 
-  const t = ((Math.sin(time) + 1) / 2) * 0.92 + 0.04;
-
-  const x =
-    (1 - t) * (1 - t) * fromX + 2 * (1 - t) * t * controlX + t * t * toX;
-
-  const y =
-    (1 - t) * (1 - t) * fromY + 2 * (1 - t) * t * controlY + t * t * toY;
-
-  const color = getFlowColor(edge);
-
-  ctx.beginPath();
-
-  const intensity = Math.min(1.4, edge.strength || 1);
-
-  ctx.arc(x, y, 2.2 + intensity, 0, Math.PI * 2);
-
-  ctx.fillStyle = color;
-
-  ctx.globalAlpha = 0.65;
-
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 12;
-
-  ctx.fill();
-
-  ctx.shadowBlur = 0;
-  ctx.globalAlpha = 1;
-}
-
-function drawEdgeArrow({
-  ctx,
-  fromX,
-  fromY,
-  toX,
-  toY,
-  controlX,
-  controlY,
-  color,
-}) {
-  const t = 0.92;
-
-  const arrowX = quadraticBezier(fromX, controlX, toX, t);
-
-  const arrowY = quadraticBezier(fromY, controlY, toY, t);
-
-  const tangentX = 2 * (1 - t) * (controlX - fromX) + 2 * t * (toX - controlX);
-
-  const tangentY = 2 * (1 - t) * (controlY - fromY) + 2 * t * (toY - controlY);
-
-  const angle = Math.atan2(tangentY, tangentX);
-
-  const arrowSize = 8;
-
-  ctx.save();
-
-  ctx.translate(arrowX, arrowY);
-
-  ctx.rotate(angle);
-
-  ctx.beginPath();
-
-  ctx.moveTo(0, 0);
-
-  ctx.lineTo(-arrowSize, arrowSize * 0.5);
-
-  ctx.lineTo(-arrowSize, -arrowSize * 0.5);
-
-  ctx.closePath();
-
-  ctx.fillStyle = color;
-
-  ctx.globalAlpha = 0.85;
-
-  ctx.fill();
-
-  ctx.restore();
-}
-
-function drawEdges(ctx, renderState) {
-  const { activeId, visibleNodeMap } = renderState;
-
-  ctx.lineCap = "round";
-
-  // BUILD TRACED EDGE SET ONCE
-  const tracedEdges = new Set();
-
-  for (let i = 0; i < graphState.tracedPath.length - 1; i++) {
-    tracedEdges.add(
-      `${graphState.tracedPath[i]}-${graphState.tracedPath[i + 1]}`,
-    );
+  if (scale < 0.28) {
+    graphState.semanticZoomLevel = 1;
+  } else if (scale < 0.5) {
+    graphState.semanticZoomLevel = 2;
+  } else if (scale < 0.9) {
+    graphState.semanticZoomLevel = 3;
+  } else {
+    graphState.semanticZoomLevel = 4;
   }
-
-  graphState.edges.forEach((edge) => {
-    const relationship = graphState.relationshipDynamics.get(
-      `${edge.from}-${edge.to}`,
-    );
-    const zoomLevel = graphState.semanticZoomLevel;
-    const from = visibleNodeMap.get(edge.from);
-    const to = visibleNodeMap.get(edge.to);
-
-    // SEMANTIC LOD FILTERING
-    if (zoomLevel === 1) {
-      // MACRO VIEW:
-      // only strongest explicit edges
-
-      if (edge.style === "semantic" || (edge.strength || 0) < 2) {
-        return;
-      }
-    }
-
-    if (zoomLevel === 2) {
-      // COMMUNITY VIEW:
-      // reduce weak semantic edges
-      if (edge.style === "semantic" && (edge.strength || 0) < 1.4) {
-        return;
-      }
-    }
-
-    if (!from || !to) return;
-
-    const fromX = from.x * graphState.scale + graphState.offsetX;
-    const fromY = from.y * graphState.scale + graphState.offsetY;
-
-    const toX = to.x * graphState.scale + graphState.offsetX;
-    const toY = to.y * graphState.scale + graphState.offsetY;
-
-    const isConnected = edge.from === activeId || edge.to === activeId;
-
-    const fromTension = graphState.tensionMap.get(edge.from) || 0;
-    const toTension = graphState.tensionMap.get(edge.to) || 0;
-    const edgeTension = (fromTension + toTension) / 2;
-
-    const isTraced = tracedEdges.has(`${edge.from}-${edge.to}`);
-
-    const { controlX, controlY } = getEdgeCurve(fromX, fromY, toX, toY, edge);
-
-    ctx.beginPath();
-    ctx.moveTo(fromX, fromY);
-    ctx.quadraticCurveTo(controlX, controlY, toX, toY);
-
-    // TRACED PATH
-    if (isTraced) {
-      ctx.strokeStyle = "#00d4ff";
-      ctx.lineWidth = 4;
-      ctx.globalAlpha = 1;
-      ctx.shadowColor = "#00d4ff";
-      ctx.shadowBlur = 18;
-
-      // DEFAULT
-    } else if (!activeId || !graphState.focusMode) {
-      const dist = Math.sqrt(
-        (toX - fromX) * (toX - fromX) + (toY - fromY) * (toY - fromY),
-      );
-
-      const sameCommunity = from.community === to.community;
-
-      if (!sameCommunity) {
-        ctx.globalAlpha *= 0.45;
-      }
-
-      const depthFade = Math.max(0.08, 1 - dist / 1400);
-
-      // SEMANTIC EDGES
-      if (edge.style === "semantic") {
-        ctx.strokeStyle = "#6f7d91";
-        ctx.lineWidth = Math.max(0.7, graphState.scale * 0.9) * depthFade;
-
-        const semanticStrength = Math.min(1, (edge.strength || 1) / 2.5);
-
-        ctx.globalAlpha = (0.08 + semanticStrength * 0.18) * depthFade;
-
-        ctx.setLineDash([5, 8]);
-      } else {
-        // EXPLICIT EDGES
-        ctx.strokeStyle = "#7f8794";
-
-        ctx.lineWidth = Math.max(1, graphState.scale * 1.3) * depthFade;
-
-        ctx.globalAlpha = 0.42 * depthFade;
-
-        ctx.setLineDash([]);
-      }
-
-      // CONNECTED
-    } else if (isConnected) {
-      ctx.strokeStyle = "#f39c12";
-      ctx.lineWidth = Math.max(1.8, graphState.scale * 2.2);
-      ctx.globalAlpha = 0.95;
-      ctx.shadowColor = "#f39c12";
-      ctx.shadowBlur = 12;
-
-      // FADED
-    } else {
-      ctx.strokeStyle = "#222";
-      ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.12;
-    }
-
-    // RELATIONSHIP WEIGHTING
-    if (edge.strength) {
-      ctx.lineWidth *= edge.strength * Math.min(1.8, 1 + edgeTension * 0.06);
-
-      if (edge.flowType === "temporal") {
-        ctx.lineWidth *= 1.25;
-      }
-    }
-
-    if (relationship) {
-      ctx.strokeStyle = getRelationshipColor(relationship);
-
-      ctx.globalAlpha *= relationship.polarity === "alliance" ? 0.9 : 0.75;
-
-      ctx.shadowColor = ctx.strokeStyle;
-
-      ctx.shadowBlur += relationship.volatility * 0.45;
-
-      // VOLATILE RELATIONSHIPS THICKEN
-      ctx.lineWidth += relationship.volatility * 0.05;
-    }
-
-    ctx.stroke();
-
-    // NARRATIVE FLOW FIELDS
-
-    if (graphState.semanticZoomLevel >= 3 && edge.style !== "semantic") {
-      drawNarrativeFlow({
-        ctx,
-        fromX,
-        fromY,
-        toX,
-        toY,
-        controlX,
-        controlY,
-        edge,
-      });
-    }
-
-    ctx.setLineDash([]);
-
-    // DIRECTIONAL ARROWS
-    if (edge.direction && (!graphState.focusMode || isConnected || isTraced)) {
-      drawEdgeArrow({
-        ctx,
-        fromX,
-        fromY,
-        toX,
-        toY,
-        controlX,
-        controlY,
-        color: ctx.strokeStyle,
-      });
-    }
-
-    // EDGE PULSES
-    if (isConnected || isTraced) {
-      drawEdgePulses({
-        ctx,
-        fromX,
-        fromY,
-        toX,
-        toY,
-        controlX,
-        controlY,
-        strength: edge.strength || 1,
-      });
-    }
-
-    ctx.shadowBlur = 0;
-  });
-
-  ctx.globalAlpha = 1;
 }
+
+function navigateFromMinimap(x, y) {
+  const transform = getMinimapTransform();
+
+  if (!transform) return;
+
+  const { minimapScale, offsetX, offsetY } = transform;
+
+  const worldX = (x - offsetX) / minimapScale;
+
+  const worldY = (y - offsetY) / minimapScale;
+
+  graphState.targetOffsetX = canvas.width / 2 - worldX * graphState.scale;
+
+  graphState.targetOffsetY = canvas.height / 2 - worldY * graphState.scale;
+
+  wakeGraphPhysics();
+}
+
+function isNodeNearCenter(node) {
+  const screenX = node.x * graphState.scale + graphState.offsetX;
+
+  const screenY = node.y * graphState.scale + graphState.offsetY;
+
+  const dx = screenX - canvas.width / 2;
+
+  const dy = screenY - canvas.height / 2;
+
+  return Math.sqrt(dx * dx + dy * dy) < 180;
+}
+
+// =====================================================
+// VISUAL + FLOW HELPERS
+// =====================================================
 
 function getNodeTypeColor(type) {
   switch (type) {
@@ -3096,373 +2766,188 @@ function getNodeTypeColor(type) {
   }
 }
 
-function drawNodes(ctx, renderState) {
-  const { activeId, connectedIds, visibleNodes, selectedId, hoveredId } =
-    renderState;
+function getFlowSpeed(edge) {
+  switch (edge.flowType) {
+    case "temporal":
+      return 1.8;
+
+    case "character":
+      return 1.2;
+
+    case "lore":
+      return 0.7;
+
+    default:
+      return 1;
+  }
+}
+
+function getFlowColor(edge) {
+  switch (edge.flowType) {
+    case "temporal":
+      return "#00d4ff";
+
+    case "character":
+      return "#f39c12";
+
+    case "lore":
+      return "#9b59b6";
+
+    default:
+      return "#95a5a6";
+  }
+}
+
+function getArcColor(phase) {
+  switch (phase) {
+    case "setup":
+      return "rgba(52,152,219,0.7)";
+
+    case "development":
+      return "rgba(46,204,113,0.7)";
+
+    case "escalation":
+      return "rgba(243,156,18,0.8)";
+
+    case "climax":
+      return "rgba(231,76,60,0.9)";
+
+    default:
+      return "rgba(255,255,255,0.4)";
+  }
+}
+
+function getCharacterRoleColor(role) {
+  switch (role) {
+    case "protagonist":
+      return "rgba(241,196,15";
+
+    case "major":
+      return "rgba(230,126,34";
+
+    case "secondary":
+      return "rgba(52,152,219";
+
+    default:
+      return "rgba(127,140,141";
+  }
+}
+
+function getEmotionColor(state) {
+  switch (state) {
+    case "chaotic":
+      return "rgba(231,76,60";
+
+    case "intense":
+      return "rgba(243,156,18";
+
+    case "elevated":
+      return "rgba(155,89,182";
+
+    default:
+      return "rgba(52,152,219";
+  }
+}
+
+function getRelationshipColor(relationship) {
+  if (!relationship) {
+    return "#666";
+  }
+
+  return relationship.polarity === "alliance" ? "#2ecc71" : "#e74c3c";
+}
+
+function getPropagationColor(type) {
+  switch (type) {
+    case "catastrophic":
+      return "rgba(231,76,60";
+
+    case "volatile":
+      return "rgba(243,156,18";
+
+    case "active":
+      return "rgba(155,89,182";
+
+    default:
+      return "rgba(52,152,219";
+  }
+}
+
+function getTemporalColor(state) {
+  switch (state) {
+    case "dominant":
+      return "rgba(241,196,15";
+
+    case "active":
+      return "rgba(52,152,219";
+
+    case "emerging":
+      return "rgba(155,89,182";
+
+    default:
+      return "rgba(120,120,120";
+  }
+}
+
+function getNodeTypeDisplayName(type) {
+  switch (type) {
+    case "notes":
+      return "Research";
+
+    case "world":
+      return "Worldbuilding";
+
+    case "timeline":
+      return "Timeline";
+
+    case "ideas":
+      return "Ideas";
+
+    case "chapter":
+      return "Chapters";
+
+    case "character":
+      return "Characters";
+
+    default:
+      return capitalize(type);
+  }
+}
+
+// =====================================================
+// GRAPH RENDER PIPELINE
+// =====================================================
+// Render State
+function prepareGraphRenderState() {
+  const selectedId = graphState.selectedNodeId;
+
+  const hoveredId = graphState.hoveredNodeId;
+
+  const activeId = hoveredId || selectedId;
+
+  const connectedIds = activeId ? getConnectedNodeIds(activeId) : new Set();
+
+  const visibleNodes = graphState.nodes.filter(
+    (node) => graphState.filters[node.type],
+  );
+
+  const visibleNodeMap = new Map();
 
   visibleNodes.forEach((node) => {
-    const isSelected = node.id === selectedId;
-
-    const isHovered = node.id === hoveredId;
-
-    const isConnected = connectedIds.has(node.id);
-
-    const screenX = node.x * graphState.scale + graphState.offsetX;
-
-    const screenY = node.y * graphState.scale + graphState.offsetY;
-
-    const radius = Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7));
-
-    const communityColor =
-      graphState.communityColors[
-        node.community % graphState.communityColors.length
-      ];
-
-    const typeColor = getNodeTypeColor(node.type);
-
-    // GLOBAL SEMANTIC VALUES
-    const importance = getSemanticImportance(node);
-
-    const tension = graphState.tensionMap.get(node.id) || 0;
-
-    const arc = graphState.arcMap.get(node.id);
-
-    const characterData = graphState.characterDynamics.get(node.id);
-
-    const emotion = graphState.emotionMap.get(node.id);
-
-    const propagation = graphState.eventPropagationMap.get(node.id);
-
-    const temporal = graphState.temporalStateMap.get(node.id);
-
-    const zoomLevel = graphState.semanticZoomLevel;
-
-    const inContextWindow = graphState.cognitiveContext.activeWindow.some(
-      (n) => n.id === node.id,
-    );
-
-    // SEMANTIC NODE LOD
-    if (zoomLevel === 1) {
-      if (importance < 5 && node.type === "tag") {
-        return;
-      }
-    }
-
-    if (zoomLevel === 2) {
-      if (importance < 2 && node.type === "tag") {
-        return;
-      }
-    }
-
-    ctx.beginPath();
-
-    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
-
-    // RESET
-    ctx.shadowBlur = 0;
-    ctx.shadowColor = "transparent";
-    ctx.globalAlpha = 1;
-
-    /*
-     * ACTIVE NODE
-     */
-    if (isSelected || isHovered) {
-      ctx.fillStyle = "#f39c12";
-      ctx.shadowColor = "#f39c12";
-      ctx.shadowBlur = 20;
-      ctx.globalAlpha = 1;
-    } else if (activeId && graphState.focusMode && isConnected) {
-      /*
-       * CONNECTED NODE
-       */
-      ctx.fillStyle = typeColor;
-
-      ctx.shadowColor = communityColor;
-
-      ctx.shadowBlur = 10 + edgeConnectionCount(node.id) * 0.35;
-
-      ctx.globalAlpha = 0.95;
-    } else if (activeId && graphState.focusMode) {
-      /*
-       * FADED NODE
-       */
-      ctx.fillStyle = "#333";
-      ctx.globalAlpha = 0.18;
-    } else {
-      /*
-       * NORMAL VIEW
-       */
-      ctx.fillStyle = typeColor;
-
-      ctx.globalAlpha = Math.min(1, 0.45 + importance * 0.035);
-
-      ctx.shadowColor = tension > 5 ? "rgba(255,120,80,0.8)" : "transparent";
-
-      ctx.shadowBlur = tension > 5 ? 10 + tension * 1.5 : 0;
-    }
-
-    if (inContextWindow) {
-      ctx.lineWidth = 2;
-
-      ctx.strokeStyle = "rgba(255,255,255,0.35)";
-
-      ctx.stroke();
-    }
-
-    if (node.type === "character" && characterData) {
-      ctx.shadowColor = getCharacterRoleColor(characterData.role) + ",0.9)";
-
-      ctx.shadowBlur +=
-        characterData.role === "protagonist"
-          ? 26
-          : characterData.role === "major"
-            ? 16
-            : 8;
-    }
-
-    if (emotion) {
-      ctx.shadowColor = getEmotionColor(emotion.state) + ",0.85)";
-
-      ctx.shadowBlur +=
-        emotion.state === "chaotic" ? 24 : emotion.state === "intense" ? 14 : 8;
-    }
-
-    if (propagation) {
-      ctx.shadowColor = getPropagationColor(propagation.type) + ",0.75)";
-
-      ctx.shadowBlur +=
-        propagation.type === "catastrophic"
-          ? 30
-          : propagation.type === "volatile"
-            ? 18
-            : 10;
-    }
-
-    if (temporal) {
-      ctx.shadowColor = getTemporalColor(temporal.state) + ",0.75)";
-
-      ctx.shadowBlur +=
-        temporal.state === "dominant"
-          ? 32
-          : temporal.state === "active"
-            ? 18
-            : 8;
-    }
-
-    // ARC EMPHASIS
-    if (arc) {
-      ctx.shadowColor = getArcColor(arc.phase);
-
-      ctx.shadowBlur +=
-        arc.phase === "climax" ? 18 : arc.phase === "escalation" ? 10 : 4;
-    }
-
-    ctx.fill();
-
-    // CLEAN RESET
-    ctx.shadowBlur = 0;
-    ctx.shadowColor = "transparent";
-    ctx.globalAlpha = 1;
-  });
-}
-
-function drawLabels(ctx, renderState) {
-  const { visibleNodes } = renderState;
-
-  const minScale = 0.25;
-  const maxScale = 0.65;
-
-  // FULLY HIDDEN
-  if (graphState.scale <= minScale) {
-    return;
-  }
-
-  // SMOOTH INTERPOLATION
-  const alpha = Math.min(
-    1,
-    (graphState.scale - minScale) / (maxScale - minScale),
-  );
-
-  ctx.save();
-
-  ctx.fillStyle = "#fff";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
-  // Dynamic font scaling
-  const fontSize = Math.max(11, Math.min(16, 14 * graphState.scale));
-
-  ctx.font = `${fontSize}px sans-serif`;
-
-  visibleNodes
-    .slice()
-    .sort((a, b) => getSemanticImportance(b) - getSemanticImportance(a))
-    .forEach((node) => {
-      const isHovered = node.id === graphState.hoveredNodeId;
-
-      const screenX = node.x * graphState.scale + graphState.offsetX;
-
-      const screenY = node.y * graphState.scale + graphState.offsetY;
-
-      const radius = Math.max(
-        10,
-        NODE_RADIUS * Math.max(graphState.scale, 0.7),
-      );
-
-      const importance = getSemanticImportance(node);
-
-      const arc = graphState.arcMap.get(node.id);
-
-      const characterData = graphState.characterDynamics.get(node.id);
-
-      const emotion = graphState.emotionMap.get(node.id);
-
-      const zoomLevel = graphState.semanticZoomLevel;
-
-      // SEMANTIC LABEL LOD
-      if (zoomLevel === 1) {
-        if (importance < 14) {
-          return;
-        }
-      }
-
-      if (zoomLevel === 2) {
-        if (importance < 8) {
-          return;
-        }
-      }
-
-      // TAG DENSITY REDUCTION
-      if (alpha < 0.35 && node.type === "tag" && !isHovered) {
-        return;
-      }
-
-      const densityFade = Math.min(1, importance / 10);
-
-      // RESET PER LABEL
-      ctx.globalAlpha = alpha * (0.35 + densityFade * 0.65);
-
-      ctx.shadowColor = "rgba(0,0,0,0.6)";
-
-      ctx.shadowBlur = 4;
-
-      const label =
-        node.type === "character" &&
-        characterData &&
-        graphState.semanticZoomLevel >= 3
-          ? `${node.label} • ${characterData.role}`
-          : emotion && graphState.semanticZoomLevel >= 4
-            ? `${node.label} • ${emotion.state}`
-            : arc && graphState.semanticZoomLevel >= 3
-              ? `${node.label} • ${arc.phase}`
-              : node.label;
-
-      ctx.fillText(label, screenX, screenY + radius + 18);
-    });
-
-  ctx.shadowBlur = 0;
-
-  ctx.restore();
-}
-
-function getConvexHull(points) {
-  if (points.length < 3) return points;
-
-  const sorted = [...points].sort((a, b) =>
-    a.x === b.x ? a.y - b.y : a.x - b.x,
-  );
-
-  const cross = (o, a, b) =>
-    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-
-  const lower = [];
-
-  for (const p of sorted) {
-    while (
-      lower.length >= 2 &&
-      cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0
-    ) {
-      lower.pop();
-    }
-    lower.push(p);
-  }
-
-  const upper = [];
-
-  for (let i = sorted.length - 1; i >= 0; i--) {
-    const p = sorted[i];
-
-    while (
-      upper.length >= 2 &&
-      cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0
-    ) {
-      upper.pop();
-    }
-
-    upper.push(p);
-  }
-
-  upper.pop();
-  lower.pop();
-
-  return lower.concat(upper);
-}
-
-function expandHull(points, padding = 60) {
-  let centerX = 0;
-  let centerY = 0;
-
-  points.forEach((p) => {
-    centerX += p.x;
-    centerY += p.y;
+    visibleNodeMap.set(node.id, node);
   });
 
-  centerX /= points.length;
-  centerY /= points.length;
-
-  return points.map((p) => {
-    const dx = p.x - centerX;
-    const dy = p.y - centerY;
-
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-
-    return {
-      x: p.x + (dx / dist) * padding,
-      y: p.y + (dy / dist) * padding,
-    };
-  });
+  return {
+    selectedId,
+    hoveredId,
+    activeId,
+    connectedIds,
+    visibleNodes,
+    visibleNodeMap,
+  };
 }
 
-function drawSmoothHull(ctx, points) {
-  if (points.length < 3) return;
-
-  ctx.beginPath();
-
-  for (let i = 0; i < points.length; i++) {
-    const current = points[i];
-    const next = points[(i + 1) % points.length];
-
-    const midX = (current.x + next.x) / 2;
-    const midY = (current.y + next.y) / 2;
-
-    if (i === 0) {
-      ctx.moveTo(midX, midY);
-    } else {
-      ctx.quadraticCurveTo(current.x, current.y, midX, midY);
-    }
-  }
-
-  const first = points[0];
-  const last = points[points.length - 1];
-
-  const midX = (first.x + last.x) / 2;
-  const midY = (first.y + last.y) / 2;
-
-  ctx.quadraticCurveTo(last.x, last.y, midX, midY);
-
-  ctx.closePath();
-}
-
+// BackGround Fields
 function drawSemanticInfluenceFields(ctx) {
   const communityCenters = getCommunityCenters();
   const communityRadii = getCommunityRadii(communityCenters);
@@ -3791,6 +3276,52 @@ function drawNarrativePropagationFields(ctx) {
   });
 }
 
+function drawTemporalNarrativeFields(ctx) {
+  graphState.temporalStateMap.forEach((temporal, nodeId) => {
+    if (temporal.state === "background") {
+      return;
+    }
+
+    const node = graphState.nodeMap.get(nodeId);
+
+    if (!node) return;
+
+    const screenX = node.x * graphState.scale + graphState.offsetX;
+
+    const screenY = node.y * graphState.scale + graphState.offsetY;
+
+    const pulse = Math.sin(graphState.animationTime * 2) * 0.5 + 0.5;
+
+    const radius = (40 + temporal.weight * 2 + pulse * 12) * graphState.scale;
+
+    const gradient = ctx.createRadialGradient(
+      screenX,
+      screenY,
+      0,
+      screenX,
+      screenY,
+      radius,
+    );
+
+    const color = getTemporalColor(temporal.state);
+
+    gradient.addColorStop(0, color + ",0.14)");
+
+    gradient.addColorStop(0.5, color + ",0.05)");
+
+    gradient.addColorStop(1, "rgba(0,0,0,0)");
+
+    ctx.fillStyle = gradient;
+
+    ctx.beginPath();
+
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+
+    ctx.fill();
+  });
+}
+
+// Mid-Layer Systems
 function drawSemanticInferenceEdges(ctx) {
   graphState.semanticInferenceMap.forEach((inference, key) => {
     const [fromId, toId] = key.split("-");
@@ -3910,51 +3441,6 @@ function drawAgentInsights(ctx) {
   });
 }
 
-function drawTemporalNarrativeFields(ctx) {
-  graphState.temporalStateMap.forEach((temporal, nodeId) => {
-    if (temporal.state === "background") {
-      return;
-    }
-
-    const node = graphState.nodeMap.get(nodeId);
-
-    if (!node) return;
-
-    const screenX = node.x * graphState.scale + graphState.offsetX;
-
-    const screenY = node.y * graphState.scale + graphState.offsetY;
-
-    const pulse = Math.sin(graphState.animationTime * 2) * 0.5 + 0.5;
-
-    const radius = (40 + temporal.weight * 2 + pulse * 12) * graphState.scale;
-
-    const gradient = ctx.createRadialGradient(
-      screenX,
-      screenY,
-      0,
-      screenX,
-      screenY,
-      radius,
-    );
-
-    const color = getTemporalColor(temporal.state);
-
-    gradient.addColorStop(0, color + ",0.14)");
-
-    gradient.addColorStop(0.5, color + ",0.05)");
-
-    gradient.addColorStop(1, "rgba(0,0,0,0)");
-
-    ctx.fillStyle = gradient;
-
-    ctx.beginPath();
-
-    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
-
-    ctx.fill();
-  });
-}
-
 function drawCommunityHulls(ctx) {
   const communities = new Map();
 
@@ -4011,98 +3497,485 @@ function drawCommunityHulls(ctx) {
   });
 }
 
-function getNodeTypeDisplayName(type) {
-  switch (type) {
-    case "notes":
-      return "Research";
+// Core Graph
+function drawEdges(ctx, renderState) {
+  const { activeId, visibleNodeMap } = renderState;
 
-    case "world":
-      return "Worldbuilding";
+  ctx.lineCap = "round";
 
-    case "timeline":
-      return "Timeline";
+  // BUILD TRACED EDGE SET ONCE
+  const tracedEdges = new Set();
 
-    case "ideas":
-      return "Ideas";
-
-    case "chapter":
-      return "Chapters";
-
-    case "character":
-      return "Characters";
-
-    default:
-      return capitalize(type);
+  for (let i = 0; i < graphState.tracedPath.length - 1; i++) {
+    tracedEdges.add(
+      `${graphState.tracedPath[i]}-${graphState.tracedPath[i + 1]}`,
+    );
   }
-}
 
-function generateCommunityLabels() {
-  const labels = {};
-  const communities = new Map();
+  graphState.edges.forEach((edge) => {
+    const relationship = graphState.relationshipDynamics.get(
+      `${edge.from}-${edge.to}`,
+    );
+    const zoomLevel = graphState.semanticZoomLevel;
+    const from = visibleNodeMap.get(edge.from);
+    const to = visibleNodeMap.get(edge.to);
 
-  graphState.nodes.forEach((node) => {
-    if (!communities.has(node.community)) {
-      communities.set(node.community, []);
+    // SEMANTIC LOD FILTERING
+    if (zoomLevel === 1) {
+      // MACRO VIEW:
+      // only strongest explicit edges
+
+      if (edge.style === "semantic" || (edge.strength || 0) < 2) {
+        return;
+      }
     }
 
-    communities.get(node.community).push(node);
+    if (zoomLevel === 2) {
+      // COMMUNITY VIEW:
+      // reduce weak semantic edges
+      if (edge.style === "semantic" && (edge.strength || 0) < 1.4) {
+        return;
+      }
+    }
+
+    if (!from || !to) return;
+
+    const fromX = from.x * graphState.scale + graphState.offsetX;
+    const fromY = from.y * graphState.scale + graphState.offsetY;
+
+    const toX = to.x * graphState.scale + graphState.offsetX;
+    const toY = to.y * graphState.scale + graphState.offsetY;
+
+    const isConnected = edge.from === activeId || edge.to === activeId;
+
+    const fromTension = graphState.tensionMap.get(edge.from) || 0;
+    const toTension = graphState.tensionMap.get(edge.to) || 0;
+    const edgeTension = (fromTension + toTension) / 2;
+
+    const attentionA = graphState.attentionState.weights.get(edge.from) || 0;
+
+    const attentionB = graphState.attentionState.weights.get(edge.to) || 0;
+
+    const attentionStrength = (attentionA + attentionB) * 0.5;
+
+    const isTraced = tracedEdges.has(`${edge.from}-${edge.to}`);
+
+    const { controlX, controlY } = getEdgeCurve(fromX, fromY, toX, toY, edge);
+
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.quadraticCurveTo(controlX, controlY, toX, toY);
+
+    // TRACED PATH
+    if (isTraced) {
+      ctx.strokeStyle = "#00d4ff";
+      ctx.lineWidth = 4;
+      ctx.globalAlpha = 1;
+      ctx.shadowColor = "#00d4ff";
+      ctx.shadowBlur = 18;
+
+      // DEFAULT
+    } else if (!activeId || !graphState.focusMode) {
+      ctx.globalAlpha *= Math.min(1, 0.35 + attentionStrength * 0.025);
+
+      const dist = Math.sqrt(
+        (toX - fromX) * (toX - fromX) + (toY - fromY) * (toY - fromY),
+      );
+
+      const sameCommunity = from.community === to.community;
+
+      if (!sameCommunity) {
+        ctx.globalAlpha *= 0.45;
+      }
+
+      const depthFade = Math.max(0.08, 1 - dist / 1400);
+
+      // SEMANTIC EDGES
+      if (edge.style === "semantic") {
+        ctx.strokeStyle = "#6f7d91";
+        ctx.lineWidth = Math.max(0.7, graphState.scale * 0.9) * depthFade;
+
+        const semanticStrength = Math.min(1, (edge.strength || 1) / 2.5);
+
+        ctx.globalAlpha *= (0.08 + semanticStrength * 0.18) * depthFade;
+
+        ctx.setLineDash([5, 8]);
+      } else {
+        // EXPLICIT EDGES
+        ctx.strokeStyle = "#7f8794";
+
+        ctx.lineWidth = Math.max(1, graphState.scale * 1.3) * depthFade;
+
+        ctx.globalAlpha *= 0.42 * depthFade;
+
+        ctx.setLineDash([]);
+      }
+
+      // CONNECTED
+    } else if (isConnected) {
+      ctx.strokeStyle = "#f39c12";
+      ctx.lineWidth = Math.max(1.8, graphState.scale * 2.2);
+      ctx.globalAlpha = 0.95;
+      ctx.shadowColor = "#f39c12";
+      ctx.shadowBlur = 12;
+
+      // FADED
+    } else {
+      ctx.strokeStyle = "#222";
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.12;
+    }
+
+    // RELATIONSHIP WEIGHTING
+    if (edge.strength) {
+      ctx.lineWidth *= edge.strength * Math.min(1.8, 1 + edgeTension * 0.06);
+
+      if (edge.flowType === "temporal") {
+        ctx.lineWidth *= 1.25;
+      }
+    }
+
+    if (relationship) {
+      ctx.strokeStyle = getRelationshipColor(relationship);
+
+      ctx.globalAlpha *= relationship.polarity === "alliance" ? 0.9 : 0.75;
+
+      ctx.shadowColor = ctx.strokeStyle;
+
+      ctx.shadowBlur += relationship.volatility * 0.45;
+
+      // VOLATILE RELATIONSHIPS THICKEN
+      ctx.lineWidth += relationship.volatility * 0.05;
+    }
+
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+
+    // NARRATIVE FLOW FIELDS
+
+    if (graphState.semanticZoomLevel >= 3 && edge.style !== "semantic") {
+      drawNarrativeFlow({
+        ctx,
+        fromX,
+        fromY,
+        toX,
+        toY,
+        controlX,
+        controlY,
+        edge,
+      });
+    }
+
+    // DIRECTIONAL ARROWS
+    if (edge.direction && (!graphState.focusMode || isConnected || isTraced)) {
+      drawEdgeArrow({
+        ctx,
+        fromX,
+        fromY,
+        toX,
+        toY,
+        controlX,
+        controlY,
+        color: ctx.strokeStyle,
+      });
+    }
+
+    // EDGE PULSES
+    if (isConnected || isTraced) {
+      drawEdgePulses({
+        ctx,
+        fromX,
+        fromY,
+        toX,
+        toY,
+        controlX,
+        controlY,
+        strength: edge.strength || 1,
+      });
+    }
+
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
   });
 
-  communities.forEach((nodes, communityId) => {
-    const frequencies = new Map();
+  ctx.globalAlpha = 1;
+}
 
-    nodes.forEach((node) => {
+function drawNodes(ctx, renderState) {
+  const { activeId, connectedIds, visibleNodes, selectedId, hoveredId } =
+    renderState;
+
+  visibleNodes.forEach((node) => {
+    const isSelected = node.id === selectedId;
+
+    const isHovered = node.id === hoveredId;
+
+    const isConnected = connectedIds.has(node.id);
+
+    const screenX = node.x * graphState.scale + graphState.offsetX;
+
+    const screenY = node.y * graphState.scale + graphState.offsetY;
+
+    const radius = Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7));
+
+    const communityColor =
+      graphState.communityColors[
+        node.community % graphState.communityColors.length
+      ];
+
+    const typeColor = getNodeTypeColor(node.type);
+
+    // GLOBAL SEMANTIC VALUES
+    const importance = getSemanticImportance(node);
+
+    const attention = graphState.attentionState.weights.get(node.id) || 0;
+
+    const tension = graphState.tensionMap.get(node.id) || 0;
+
+    const arc = graphState.arcMap.get(node.id);
+
+    const characterData = graphState.characterDynamics.get(node.id);
+
+    const emotion = graphState.emotionMap.get(node.id);
+
+    const propagation = graphState.eventPropagationMap.get(node.id);
+
+    const temporal = graphState.temporalStateMap.get(node.id);
+
+    const zoomLevel = graphState.semanticZoomLevel;
+
+    const inContextWindow = graphState.cognitiveContext.activeWindow.some(
+      (n) => n.id === node.id,
+    );
+
+    // SEMANTIC NODE LOD
+    if (zoomLevel === 1) {
+      if (importance < 5 && node.type === "tag") {
+        return;
+      }
+    }
+
+    if (zoomLevel === 2) {
+      if (importance < 2 && node.type === "tag") {
+        return;
+      }
+    }
+
+    ctx.beginPath();
+
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+
+    // RESET
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+    ctx.globalAlpha = 1;
+
+    /*
+     * ACTIVE NODE
+     */
+    if (isSelected || isHovered) {
+      ctx.fillStyle = "#f39c12";
+      ctx.shadowColor = "#f39c12";
+      ctx.shadowBlur = 20;
+      ctx.globalAlpha = 1;
+    } else if (activeId && graphState.focusMode && isConnected) {
       /*
-       * Ignore tags for naming
+       * CONNECTED NODE
        */
-      if (node.type === "tag") {
+      ctx.fillStyle = typeColor;
+
+      ctx.shadowColor = communityColor;
+
+      ctx.shadowBlur = 10 + edgeConnectionCount(node.id) * 0.35;
+
+      ctx.globalAlpha = 0.95;
+    } else if (activeId && graphState.focusMode) {
+      /*
+       * FADED NODE
+       */
+      ctx.fillStyle = "#333";
+      ctx.globalAlpha = 0.18;
+    } else {
+      /*
+       * NORMAL VIEW
+       */
+      const attentionGlow = Math.min(24, attention * 0.18);
+
+      const tensionGlow = tension > 5 ? 10 + tension * 1.5 : 0;
+
+      ctx.fillStyle = typeColor;
+
+      ctx.globalAlpha = Math.min(1, 0.45 + importance * 0.035);
+
+      ctx.shadowColor = tension > 5 ? "rgba(255,120,80,0.8)" : communityColor;
+
+      ctx.shadowBlur = Math.max(attentionGlow, tensionGlow);
+    }
+
+    if (node.type === "character" && characterData) {
+      ctx.shadowColor = getCharacterRoleColor(characterData.role);
+
+      ctx.shadowBlur +=
+        characterData.role === "protagonist"
+          ? 26
+          : characterData.role === "major"
+            ? 16
+            : 8;
+    }
+
+    if (emotion) {
+      ctx.shadowColor = getEmotionColor(emotion.state);
+
+      ctx.shadowBlur +=
+        emotion.state === "chaotic" ? 24 : emotion.state === "intense" ? 14 : 8;
+    }
+
+    if (propagation) {
+      ctx.shadowColor = getPropagationColor(propagation.type) + ",0.75)";
+
+      ctx.shadowBlur +=
+        propagation.type === "catastrophic"
+          ? 30
+          : propagation.type === "volatile"
+            ? 18
+            : 10;
+    }
+
+    if (temporal) {
+      ctx.shadowColor = getTemporalColor(temporal.state) + ",0.75)";
+
+      ctx.shadowBlur +=
+        temporal.state === "dominant"
+          ? 32
+          : temporal.state === "active"
+            ? 18
+            : 8;
+    }
+
+    // ARC EMPHASIS
+    if (arc) {
+      ctx.shadowColor = getArcColor(arc.phase);
+
+      ctx.shadowBlur +=
+        arc.phase === "climax" ? 18 : arc.phase === "escalation" ? 10 : 4;
+    }
+
+    ctx.fill();
+
+    if (inContextWindow) {
+      ctx.lineWidth = 2;
+
+      ctx.strokeStyle = "rgba(255,255,255,0.35)";
+
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+
+    // CLEAN RESET
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+    ctx.globalAlpha = 1;
+  });
+}
+
+function drawLabels(ctx, renderState) {
+  const { visibleNodes } = renderState;
+
+  const minScale = 0.25;
+  const maxScale = 0.65;
+
+  // FULLY HIDDEN
+  if (graphState.scale <= minScale) {
+    return;
+  }
+
+  // SMOOTH INTERPOLATION
+  const alpha = Math.min(
+    1,
+    (graphState.scale - minScale) / (maxScale - minScale),
+  );
+
+  ctx.save();
+
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  // Dynamic font scaling
+  const fontSize = Math.max(11, Math.min(16, 14 * graphState.scale));
+
+  ctx.font = `${fontSize}px sans-serif`;
+
+  visibleNodes
+    .slice()
+    .sort((a, b) => getSemanticImportance(b) - getSemanticImportance(a))
+    .forEach((node) => {
+      const isHovered = node.id === graphState.hoveredNodeId;
+
+      const screenX = node.x * graphState.scale + graphState.offsetX;
+
+      const screenY = node.y * graphState.scale + graphState.offsetY;
+
+      const radius = Math.max(
+        10,
+        NODE_RADIUS * Math.max(graphState.scale, 0.7),
+      );
+
+      const importance = getSemanticImportance(node);
+
+      const arc = graphState.arcMap.get(node.id);
+
+      const characterData = graphState.characterDynamics.get(node.id);
+
+      const emotion = graphState.emotionMap.get(node.id);
+
+      const zoomLevel = graphState.semanticZoomLevel;
+
+      // SEMANTIC LABEL LOD
+      if (zoomLevel === 1) {
+        if (importance < 14) {
+          return;
+        }
+      }
+
+      if (zoomLevel === 2) {
+        if (importance < 8) {
+          return;
+        }
+      }
+
+      // TAG DENSITY REDUCTION
+      if (alpha < 0.35 && node.type === "tag" && !isHovered) {
         return;
       }
 
-      /*
-       * Type weighting
-       */
-      incrementFrequency(frequencies, getNodeTypeDisplayName(node.type), 2);
+      const densityFade = Math.min(1, importance / 10);
 
-      /*
-       * Label words
-       */
-      const words = node.label
-        .toLowerCase()
-        .split(/\s+/)
-        .filter(
-          (word) =>
-            word !== node.type.toLowerCase() &&
-            word !== getNodeTypeDisplayName(node.type).toLowerCase(),
-        );
+      // RESET PER LABEL
+      ctx.globalAlpha = alpha * (0.35 + densityFade * 0.65);
 
-      words.forEach((word) => {
-        if (word.length < 4) {
-          return;
-        }
+      ctx.shadowColor = "rgba(0,0,0,0.6)";
 
-        incrementFrequency(frequencies, word, 1);
-      });
+      ctx.shadowBlur = 4;
+
+      const label =
+        node.type === "character" &&
+        characterData &&
+        graphState.semanticZoomLevel >= 3
+          ? `${node.label} • ${characterData.role}`
+          : emotion && graphState.semanticZoomLevel >= 4
+            ? `${node.label} • ${emotion.state}`
+            : arc && graphState.semanticZoomLevel >= 3
+              ? `${node.label} • ${arc.phase}`
+              : node.label;
+
+      ctx.fillText(label, screenX, screenY + radius + 18);
     });
 
-    const sorted = [...frequencies.entries()].sort((a, b) => b[1] - a[1]);
+  ctx.shadowBlur = 0;
 
-    const unique = [];
-
-    sorted.forEach(([word]) => {
-      const normalized = word.toLowerCase();
-
-      if (!unique.some((existing) => existing.toLowerCase() === normalized)) {
-        unique.push(word);
-      }
-    });
-
-    const best = unique.slice(0, 2).map(capitalize);
-
-    labels[communityId] = best.join(" • ");
-  });
-
-  graphState.communityLabels = labels;
+  ctx.restore();
 }
 
 function drawCommunityLabels(ctx) {
@@ -4154,47 +4027,378 @@ function drawCommunityLabels(ctx) {
   });
 }
 
+// Overlay Layer
 function drawOverlays(ctx, renderState) {
   drawCommunityLabels(ctx);
 }
 
-function renderGraphTooltip(node, mouseX, mouseY) {
-  const data = getTooltipData(node);
+// Main Renderer
+function renderGraph() {
+  const ctx = canvas.getContext("2d");
 
-  if (!data) {
-    hideGraphTooltip();
-    return;
-  }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  graphTooltip.innerHTML = `
-    <div class="graph-tooltip-title">
-      ${data.title}
-    </div>
+  const renderState = prepareGraphRenderState();
 
-    <div class="graph-tooltip-type">
-      ${data.type}
-    </div>
+  drawSemanticInfluenceFields(ctx);
+  drawNarrativeTensionFields(ctx);
+  drawNarrativeArcFields(ctx);
+  drawCharacterInfluenceFields(ctx);
+  drawEmotionalFields(ctx);
+  drawRelationshipFields(ctx);
+  drawNarrativePropagationFields(ctx);
+  drawTemporalNarrativeFields(ctx);
+  drawSemanticInferenceEdges(ctx);
+  drawNarrativeAnomalies(ctx);
+  drawAgentInsights(ctx);
+  drawCommunityHulls(ctx);
+  drawEdges(ctx, renderState);
+  drawNodes(ctx, renderState);
+  drawLabels(ctx, renderState);
+  drawCommunityLabels(ctx);
+  renderMinimap();
+}
 
-    <div class="graph-tooltip-excerpt">
-      ${data.excerpt}
-    </div>
+function renderMinimap() {
+  const ctx = minimapCtx;
 
-    <div class="graph-tooltip-meta">
-      ${data.meta
-        .map((item) => `<span class="graph-tooltip-pill">${item}</span>`)
-        .join("")}
-    </div>
-  `;
+  ctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
 
-  positionGraphTooltip(mouseX, mouseY);
+  const bounds = getGraphBounds();
 
-  graphTooltip.classList.remove("hidden");
+  if (!bounds) return;
 
-  requestAnimationFrame(() => {
-    graphTooltip.classList.add("visible");
+  const padding = 20;
+
+  const scaleX = (minimapCanvas.width - padding * 2) / bounds.width;
+
+  const scaleY = (minimapCanvas.height - padding * 2) / bounds.height;
+
+  const minimapScale = Math.min(scaleX, scaleY);
+
+  const offsetX = minimapCanvas.width / 2 - bounds.centerX * minimapScale;
+
+  const offsetY = minimapCanvas.height / 2 - bounds.centerY * minimapScale;
+
+  // EDGES
+  graphState.edges.forEach((edge) => {
+    const from = graphState.nodeMap.get(edge.from);
+
+    const to = graphState.nodeMap.get(edge.to);
+
+    if (!from || !to) return;
+
+    // Skip hidden nodes
+    if (!graphState.filters[from.type] || !graphState.filters[to.type]) {
+      return;
+    }
+
+    ctx.beginPath();
+
+    ctx.moveTo(
+      from.x * minimapScale + offsetX,
+      from.y * minimapScale + offsetY,
+    );
+
+    ctx.lineTo(to.x * minimapScale + offsetX, to.y * minimapScale + offsetY);
+
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = 1;
+
+    ctx.stroke();
+  });
+
+  // NODES
+  const visibleNodes = graphState.nodes.filter(
+    (node) => graphState.filters[node.type],
+  );
+
+  visibleNodes.forEach((node) => {
+    const radius = graphState.scale < 0.35 ? 2 : 3;
+
+    ctx.beginPath();
+
+    ctx.arc(
+      node.x * minimapScale + offsetX,
+      node.y * minimapScale + offsetY,
+      radius,
+      0,
+      Math.PI * 2,
+    );
+
+    ctx.fillStyle = getNodeTypeColor(node.type);
+
+    ctx.fill();
+  });
+
+  renderMinimapViewport({
+    minimapScale,
+    offsetX,
+    offsetY,
   });
 }
 
+function renderMinimapViewport({ minimapScale, offsetX, offsetY }) {
+  const ctx = minimapCtx;
+
+  const viewWidth = canvas.width / graphState.scale;
+
+  const viewHeight = canvas.height / graphState.scale;
+
+  const worldX = -graphState.offsetX / graphState.scale;
+
+  const worldY = -graphState.offsetY / graphState.scale;
+
+  ctx.strokeStyle = "#f39c12";
+  ctx.lineWidth = 2;
+
+  ctx.strokeRect(
+    worldX * minimapScale + offsetX,
+    worldY * minimapScale + offsetY,
+    viewWidth * minimapScale,
+    viewHeight * minimapScale,
+  );
+}
+
+// =====================================================
+// GRAPH DRAW HELPERS
+// =====================================================
+function drawEdgePulses({
+  ctx,
+  fromX,
+  fromY,
+  toX,
+  toY,
+  controlX,
+  controlY,
+  strength = 1,
+}) {
+  const pulseCount = Math.min(5, Math.max(1, strength));
+
+  const speed = 0.6 + strength * 0.25;
+
+  ctx.save();
+
+  for (let i = 0; i < pulseCount; i++) {
+    const offset = i / pulseCount;
+
+    const t = (graphState.animationTime * speed + offset) % 1;
+
+    const pulseX = quadraticBezier(fromX, controlX, toX, t);
+
+    const pulseY = quadraticBezier(fromY, controlY, toY, t);
+
+    const radius = 2 + strength * 0.8;
+
+    ctx.beginPath();
+
+    ctx.arc(pulseX, pulseY, radius, 0, Math.PI * 2);
+
+    ctx.fillStyle = "#f39c12";
+
+    ctx.globalAlpha = 0.75 + strength * 0.08;
+
+    ctx.shadowColor = "#f39c12";
+
+    ctx.shadowBlur = 10 + strength * 2;
+
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawNarrativeFlow({
+  ctx,
+  fromX,
+  fromY,
+  toX,
+  toY,
+  controlX,
+  controlY,
+  edge,
+}) {
+  const time = graphState.animationTime * getFlowSpeed(edge);
+
+  const t = ((Math.sin(time) + 1) / 2) * 0.92 + 0.04;
+
+  const x =
+    (1 - t) * (1 - t) * fromX + 2 * (1 - t) * t * controlX + t * t * toX;
+
+  const y =
+    (1 - t) * (1 - t) * fromY + 2 * (1 - t) * t * controlY + t * t * toY;
+
+  const color = getFlowColor(edge);
+
+  ctx.beginPath();
+
+  const intensity = Math.min(1.4, edge.strength || 1);
+
+  ctx.arc(x, y, 2.2 + intensity, 0, Math.PI * 2);
+
+  ctx.fillStyle = color;
+
+  ctx.globalAlpha = 0.65;
+
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 12;
+
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = 1;
+}
+
+function drawEdgeArrow({
+  ctx,
+  fromX,
+  fromY,
+  toX,
+  toY,
+  controlX,
+  controlY,
+  color,
+}) {
+  const t = 0.92;
+
+  const arrowX = quadraticBezier(fromX, controlX, toX, t);
+
+  const arrowY = quadraticBezier(fromY, controlY, toY, t);
+
+  const tangentX = 2 * (1 - t) * (controlX - fromX) + 2 * t * (toX - controlX);
+
+  const tangentY = 2 * (1 - t) * (controlY - fromY) + 2 * t * (toY - controlY);
+
+  const angle = Math.atan2(tangentY, tangentX);
+
+  const arrowSize = 8;
+
+  ctx.save();
+
+  ctx.translate(arrowX, arrowY);
+
+  ctx.rotate(angle);
+
+  ctx.beginPath();
+
+  ctx.moveTo(0, 0);
+
+  ctx.lineTo(-arrowSize, arrowSize * 0.5);
+
+  ctx.lineTo(-arrowSize, -arrowSize * 0.5);
+
+  ctx.closePath();
+
+  ctx.fillStyle = color;
+
+  ctx.globalAlpha = 0.85;
+
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function getConvexHull(points) {
+  if (points.length < 3) return points;
+
+  const sorted = [...points].sort((a, b) =>
+    a.x === b.x ? a.y - b.y : a.x - b.x,
+  );
+
+  const cross = (o, a, b) =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+  const lower = [];
+
+  for (const p of sorted) {
+    while (
+      lower.length >= 2 &&
+      cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0
+    ) {
+      lower.pop();
+    }
+    lower.push(p);
+  }
+
+  const upper = [];
+
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const p = sorted[i];
+
+    while (
+      upper.length >= 2 &&
+      cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0
+    ) {
+      upper.pop();
+    }
+
+    upper.push(p);
+  }
+
+  upper.pop();
+  lower.pop();
+
+  return lower.concat(upper);
+}
+
+function expandHull(points, padding = 60) {
+  let centerX = 0;
+  let centerY = 0;
+
+  points.forEach((p) => {
+    centerX += p.x;
+    centerY += p.y;
+  });
+
+  centerX /= points.length;
+  centerY /= points.length;
+
+  return points.map((p) => {
+    const dx = p.x - centerX;
+    const dy = p.y - centerY;
+
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+    return {
+      x: p.x + (dx / dist) * padding,
+      y: p.y + (dy / dist) * padding,
+    };
+  });
+}
+
+function drawSmoothHull(ctx, points) {
+  if (points.length < 3) return;
+
+  ctx.beginPath();
+
+  for (let i = 0; i < points.length; i++) {
+    const current = points[i];
+    const next = points[(i + 1) % points.length];
+
+    const midX = (current.x + next.x) / 2;
+    const midY = (current.y + next.y) / 2;
+
+    if (i === 0) {
+      ctx.moveTo(midX, midY);
+    } else {
+      ctx.quadraticCurveTo(current.x, current.y, midX, midY);
+    }
+  }
+
+  const first = points[0];
+  const last = points[points.length - 1];
+
+  const midX = (first.x + last.x) / 2;
+  const midY = (first.y + last.y) / 2;
+
+  ctx.quadraticCurveTo(last.x, last.y, midX, midY);
+
+  ctx.closePath();
+}
+
+// =====================================================
+// PHYSICS + ANIMATION
+// =====================================================
 function applyForces() {
   const nodes = graphState.nodes;
   const edges = graphState.edges;
@@ -4511,39 +4715,6 @@ function animateGraph() {
   }
 }
 
-// Camera system
-function updateGraphCamera() {
-  if (graphState.dragging.isDraggingGraph) {
-    return;
-  }
-
-  const cameraLerp = 0.14;
-  const zoomLerp = 0.12;
-
-  graphState.offsetX +=
-    (graphState.targetOffsetX - graphState.offsetX) * cameraLerp;
-
-  graphState.offsetY +=
-    (graphState.targetOffsetY - graphState.offsetY) * cameraLerp;
-
-  graphState.scale += (graphState.targetScale - graphState.scale) * zoomLerp;
-
-  graphState.scale = Math.max(0.05, graphState.scale);
-
-  graphState.targetScale = Math.max(0.05, graphState.targetScale);
-
-  clampGraphCamera();
-}
-
-function setCamera(scale, offsetX, offsetY) {
-  graphState.targetScale = scale;
-  graphState.targetOffsetX = offsetX;
-  graphState.targetOffsetY = offsetY;
-
-  // immediately start animation loop
-  wakeGraphPhysics();
-}
-
 function startGraphLoop() {
   if (graphAnimating) return;
 
@@ -4551,148 +4722,110 @@ function startGraphLoop() {
   graphAnimationFrame = requestAnimationFrame(animateGraph);
 }
 
-function centerGraph() {
-  const bounds = getGraphBounds();
-  if (!bounds) return;
-
-  graphState.targetOffsetX =
-    canvas.width / 2 - bounds.centerX * graphState.scale;
-
-  graphState.targetOffsetY =
-    canvas.height / 2 - bounds.centerY * graphState.scale;
-
-  wakeGraphPhysics();
-}
-
-function focusNode(nodeId, options = {}) {
-  const node = graphState.nodeMap.get(nodeId);
-
-  if (!node) return;
-
-  const { scale = Math.max(graphState.scale, 0.9), animate = true } = options;
-
-  const offsetX = canvas.width / 2 - node.x * scale;
-
-  const offsetY = canvas.height / 2 - node.y * scale;
-
-  setCamera(scale, offsetX, offsetY);
-
-  if (animate) {
-    wakeGraphPhysics();
-  } else {
-    graphState.scale = scale;
-    graphState.offsetX = offsetX;
-    graphState.offsetY = offsetY;
-  }
-
-  if (isNodeNearCenter(node)) {
+function updateNarrativeTimeline() {
+  if (!graphState.timelinePlaying) {
     return;
   }
-}
 
-function centerOnNode(nodeId) {
-  focusNode(nodeId);
-}
+  if (graphState.timelineNodes.length === 0) {
+    return;
+  }
 
-function isNodeNearCenter(node) {
-  const screenX = node.x * graphState.scale + graphState.offsetX;
+  graphState.timelineTimer =
+    (graphState.timelineTimer || 0) + graphState.timelineSpeed;
 
-  const screenY = node.y * graphState.scale + graphState.offsetY;
+  if (graphState.timelineTimer < 120) {
+    return;
+  }
 
-  const dx = screenX - canvas.width / 2;
+  graphState.timelineTimer = 0;
 
-  const dy = screenY - canvas.height / 2;
+  graphState.timelineIndex++;
 
-  return Math.sqrt(dx * dx + dy * dy) < 180;
-}
-
-function resetGraphView() {
-  setCamera(
-    graphState.initialScale,
-    graphState.initialOffsetX,
-    graphState.initialOffsetY,
-  );
-}
-
-function fitGraphToScreen() {
-  const bounds = getGraphBounds();
-  if (!bounds) return;
-
-  const padding = 120;
-
-  const scaleX = (canvas.width - padding) / bounds.width;
-  const scaleY = (canvas.height - padding) / bounds.height;
-
-  const newScale = Math.min(scaleX, scaleY);
-
-  setCamera(
-    newScale,
-    canvas.width / 2 - bounds.centerX * newScale,
-    canvas.height / 2 - bounds.centerY * newScale,
-  );
-
-  wakeGraphPhysics();
-}
-
-function clampGraphCamera() {
-  const bounds = getGraphBounds();
-  if (!bounds) return;
-
-  const scaledWidth = bounds.width * graphState.scale;
-  const scaledHeight = bounds.height * graphState.scale;
-
-  const padding = 1000;
-
-  const minOffsetX = canvas.width - scaledWidth - padding;
-  const maxOffsetX = padding;
-
-  const minOffsetY = canvas.height - scaledHeight - padding;
-  const maxOffsetY = padding;
-
-  graphState.offsetX = Math.max(
-    minOffsetX,
-    Math.min(maxOffsetX, graphState.offsetX),
-  );
-
-  graphState.offsetY = Math.max(
-    minOffsetY,
-    Math.min(maxOffsetY, graphState.offsetY),
-  );
-}
-
-function updateSemanticZoomLevel() {
-  const scale = graphState.scale;
-
-  if (scale < 0.28) {
-    graphState.semanticZoomLevel = 1;
-  } else if (scale < 0.5) {
-    graphState.semanticZoomLevel = 2;
-  } else if (scale < 0.9) {
-    graphState.semanticZoomLevel = 3;
-  } else {
-    graphState.semanticZoomLevel = 4;
+  if (graphState.timelineIndex >= graphState.timelineNodes.length) {
+    graphState.timelineIndex = 0;
   }
 }
 
-function navigateFromMinimap(x, y) {
-  const transform = getMinimapTransform();
+// =====================================================
+// TOOLTIP SYSTEM
+// =====================================================
 
-  if (!transform) return;
+function renderGraphTooltip(node, mouseX, mouseY) {
+  const data = getTooltipData(node);
 
-  const { minimapScale, offsetX, offsetY } = transform;
+  if (!data) {
+    hideGraphTooltip();
+    return;
+  }
 
-  const worldX = (x - offsetX) / minimapScale;
+  graphTooltip.innerHTML = `
+    <div class="graph-tooltip-title">
+      ${data.title}
+    </div>
 
-  const worldY = (y - offsetY) / minimapScale;
+    <div class="graph-tooltip-type">
+      ${data.type}
+    </div>
 
-  graphState.targetOffsetX = canvas.width / 2 - worldX * graphState.scale;
+    <div class="graph-tooltip-excerpt">
+      ${data.excerpt}
+    </div>
 
-  graphState.targetOffsetY = canvas.height / 2 - worldY * graphState.scale;
+    <div class="graph-tooltip-meta">
+      ${data.meta
+        .map((item) => `<span class="graph-tooltip-pill">${item}</span>`)
+        .join("")}
+    </div>
+  `;
 
-  wakeGraphPhysics();
+  positionGraphTooltip(mouseX, mouseY);
+
+  graphTooltip.classList.remove("hidden");
+
+  requestAnimationFrame(() => {
+    graphTooltip.classList.add("visible");
+  });
 }
 
-// Graph interaction
+function positionGraphTooltip(mouseX, mouseY) {
+  const modalRect = graphModalContent.getBoundingClientRect();
+
+  const tooltipRect = graphTooltip.getBoundingClientRect();
+
+  const padding = 18;
+
+  let x = mouseX + 18;
+  let y = mouseY + 18;
+
+  // RIGHT EDGE
+  if (x + tooltipRect.width > modalRect.width - padding) {
+    x = modalRect.width - tooltipRect.width - padding;
+  }
+
+  // BOTTOM EDGE
+  if (y + tooltipRect.height > modalRect.height - padding) {
+    y = modalRect.height - tooltipRect.height - padding;
+  }
+
+  graphTooltip.style.left = `${x}px`;
+  graphTooltip.style.top = `${y}px`;
+}
+
+function hideGraphTooltip() {
+  graphTooltip.classList.remove("visible");
+
+  setTimeout(() => {
+    if (!graphTooltip.classList.contains("visible")) {
+      graphTooltip.classList.add("hidden");
+    }
+  }, 140);
+}
+
+// =====================================================
+// GRAPH INTERACTION
+// =====================================================
+
 function handleGraphClick(x, y, event) {
   if (graphState.hasDragged) return;
 
@@ -4746,101 +4879,18 @@ function handleGraphClick(x, y, event) {
   }
 }
 
-function findClosestNode(x, y) {
-  let closestNode = null;
-  let closestDistance = Infinity;
-
-  const visibleNodes = graphState.nodes.filter(
-    (node) => graphState.filters[node.type],
-  );
-
-  for (const node of visibleNodes) {
-    const dx = node.x - x;
-    const dy = node.y - y;
-
-    const distance = Math.sqrt(dx * dx + dy * dy);
-
-    if (distance < closestDistance) {
-      closestDistance = distance;
-      closestNode = node;
-    }
-  }
-
-  return {
-    node: closestNode,
-    distance: closestDistance,
-  };
-}
-
-function findShortestPath(startId, endId) {
-  if (!startId || !endId) {
-    return [];
-  }
-
-  const queue = [[startId]];
-
-  const visited = new Set();
-
-  visited.add(startId);
-
-  while (queue.length) {
-    const path = queue.shift();
-
-    const current = path[path.length - 1];
-
-    if (current === endId) {
-      return path;
-    }
-
-    const neighbors = graphState.edges
-      .filter((edge) => edge.from === current)
-      .map((edge) => edge.to);
-
-    for (const next of neighbors) {
-      if (!visited.has(next)) {
-        visited.add(next);
-
-        queue.push([...path, next]);
-      }
-    }
-  }
-
-  return [];
-}
-
-function positionGraphTooltip(mouseX, mouseY) {
-  const modalRect = graphModalContent.getBoundingClientRect();
-
-  const tooltipRect = graphTooltip.getBoundingClientRect();
-
-  const padding = 18;
-
-  let x = mouseX + 18;
-  let y = mouseY + 18;
-
-  // RIGHT EDGE
-  if (x + tooltipRect.width > modalRect.width - padding) {
-    x = modalRect.width - tooltipRect.width - padding;
-  }
-
-  // BOTTOM EDGE
-  if (y + tooltipRect.height > modalRect.height - padding) {
-    y = modalRect.height - tooltipRect.height - padding;
-  }
-
-  graphTooltip.style.left = `${x}px`;
-  graphTooltip.style.top = `${y}px`;
-}
-
-function hideGraphTooltip() {
-  graphTooltip.classList.remove("visible");
+function openDocumentFromGraph(id) {
+  closeGraph();
+  loadDocument(id);
 
   setTimeout(() => {
-    if (!graphTooltip.classList.contains("visible")) {
-      graphTooltip.classList.add("hidden");
-    }
-  }, 140);
+    editorContent.focus();
+  }, 100);
 }
+
+// =====================================================
+// GRAPH WINDOW CONTROL
+// =====================================================
 
 function openGraph() {
   if (isPreviewMode) return;
@@ -5009,23 +5059,10 @@ function closeGraph() {
   });
 }
 
-function openDocumentFromGraph(id) {
-  closeGraph();
-  loadDocument(id);
+// =====================================================
+// GRAPH EVENT HANDLERS
+// =====================================================
 
-  setTimeout(() => {
-    editorContent.focus();
-  }, 100);
-}
-
-function setupCanvasSize() {
-  canvas.width = canvas.offsetWidth;
-  canvas.height = canvas.offsetHeight;
-  minimapCanvas.width = 220;
-  minimapCanvas.height = 160;
-}
-
-// Graph mouse controls
 function onGraphMouseDown(e) {
   const drag = graphState.dragging;
   if (!drag) {
@@ -5262,6 +5299,10 @@ function onGraphDoubleClick(e) {
   }
 }
 
+// =====================================================
+// MINIMAP EVENTS
+// =====================================================
+
 function onMinimapMouseDown(e) {
   graphState.minimap.dragging = true;
 
@@ -5282,7 +5323,17 @@ function onMinimapMouseUp() {
   graphState.minimap.dragging = false;
 }
 
-// Graph initialization
+// =====================================================
+// GRAPH EVENT INITIALIZERS
+// =====================================================
+
+function setupCanvasSize() {
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+  minimapCanvas.width = 220;
+  minimapCanvas.height = 160;
+}
+
 function initGraphEvents() {
   initGraphCanvasEvent();
   initMinimapEvents();
@@ -5386,77 +5437,146 @@ function initMinimapEvents() {
 }
 
 // =====================================================
-// EDITOR SYSTEM
+// EDITOR CORE
 // =====================================================
 
-// Editor initialization
-function initEditorEvents() {
-  initEditorInputEvents();
-  initEditorKeyboardEvents();
-  initEditorToolbarEvents();
-  initEditorTitleEvents();
-  initEditorUIEvents();
+function debounceSave() {
+  clearTimeout(saveTimeout);
+
+  saveTimeout = setTimeout(() => {
+    saveToLocalStorage();
+  }, 300);
 }
 
-function initEditorInputEvents() {
-  editorContent.addEventListener("input", onEditorInput);
-  editorContent.addEventListener("keyup", updateToolbarState);
-  editorContent.addEventListener("click", updateToolbarState);
+function saveDocument() {
+  if (!appState.currentDocumentId) return;
+
+  projects[appState.currentProjectId].documents[
+    appState.currentDocumentId
+  ].title = editorTitle.value;
+  projects[appState.currentProjectId].documents[
+    appState.currentDocumentId
+  ].content = editorContent.value;
+
+  debounceSave();
 }
 
-function initEditorKeyboardEvents() {
-  editorContent.addEventListener("keydown", handleEditorKeyDown);
+function saveHistory() {
+  if (editorState.isRestoring) return;
 
-  editorContent.addEventListener("blur", () => {
-    editorState.lastSelectionStart = editorContent.selectionStart;
-    editorState.lastSelectionEnd = editorContent.selectionEnd;
+  const content = editorContent.value;
+
+  // Prevent duplicate spam entries
+  if (
+    content === lastSavedContent &&
+    editorContent.selectionStart === editorState.lastSelectionStart &&
+    editorContent.selectionEnd === editorState.lastSelectionEnd
+  )
+    return;
+
+  editorState.lastSelectionStart = editorContent.selectionStart;
+  editorState.lastSelectionEnd = editorContent.selectionEnd;
+
+  lastSavedContent = content;
+
+  // Trim redo stack
+  editorState.history = editorState.history.slice(
+    0,
+    editorState.historyIndex + 1,
+  );
+
+  editorState.history.push({
+    content,
+    selectionStart: editorContent.selectionStart,
+    selectionEnd: editorContent.selectionEnd,
+  });
+
+  editorState.historyIndex++;
+}
+
+function undo() {
+  if (editorState.historyIndex <= 0) return;
+
+  editorState.historyIndex--;
+
+  const entry = editorState.history[editorState.historyIndex];
+
+  editorState.isRestoring = true;
+
+  editorContent.value = entry.content;
+
+  requestAnimationFrame(() => {
+    editorContent.focus();
+    editorContent.setSelectionRange(
+      entry.selectionStart ?? 0,
+      entry.selectionEnd ?? entry.selectionStart ?? 0,
+    );
+
+    updateToolbarState();
+
+    editorState.isRestoring = false;
   });
 }
 
-function initEditorToolbarEvents() {
-  document.querySelectorAll(".format-toolbar button").forEach((button) => {
-    button.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      editorContent.focus();
+function redo() {
+  if (editorState.historyIndex >= editorState.history.length - 1) return;
+
+  editorState.historyIndex++;
+
+  const entry = editorState.history[editorState.historyIndex];
+
+  editorState.isRestoring = true;
+
+  editorContent.value = entry.content;
+
+  requestAnimationFrame(() => {
+    editorContent.focus();
+    editorContent.setSelectionRange(
+      entry.selectionStart ?? 0,
+      entry.selectionEnd ?? entry.selectionStart ?? 0,
+    );
+
+    updateToolbarState();
+
+    editorState.isRestoring = false;
+  });
+}
+
+function saveEditorState() {
+  if (!editorContent) return;
+  if (editorState.isRestoring) return;
+}
+
+function restoreEditorState() {
+  const textarea = editorContent;
+  if (!textarea) return;
+
+  const start = editorState.lastSelectionStart ?? 0;
+  const end = editorState.lastSelectionEnd ?? start;
+
+  editorState.isRestoring = true;
+
+  requestAnimationFrame(() => {
+    textarea.focus();
+
+    requestAnimationFrame(() => {
+      textarea.setSelectionRange(start, end);
+
+      setTimeout(() => {
+        editorState.isRestoring = false;
+      }, 0);
     });
-
-    button.addEventListener("click", (e) => {
-      const type = e.currentTarget.dataset.format;
-      if (!type) return;
-
-      formatText(type);
-    });
-  });
-
-  document.querySelectorAll(".menu-dropdown").forEach((menu) => {
-    menu.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-    });
   });
 }
 
-function initEditorTitleEvents() {
-  editorTitle.addEventListener("input", onTitleChange);
-  editorTitle.addEventListener("keydown", onTitleKeyDown);
+function restoreSelection() {
+  editorContent.focus();
 }
 
-function initEditorUIEvents() {
-  const fontSize = document.getElementById("font-size");
+// =====================================================
+// EDITOR INPUT
+// =====================================================
 
-  if (!fontSize) return;
-
-  fontSize.addEventListener("change", (e) => {
-    const start = editorContent.selectionStart;
-    const end = editorContent.selectionEnd;
-
-    setEditorFontSize(e.target.value);
-
-    restoreEditorState();
-    editorContent.setSelectionRange(start, end);
-  });
-}
-
-// Editor input handling
 function onEditorInput(e) {
   let doc = getCurrentDocs()[appState.currentDocumentId];
   if (!doc) return;
@@ -5598,7 +5718,54 @@ function handleTabIndent(e) {
   return true;
 }
 
-// Toolbar/editor formatting
+function isInsideMarker(text, pos, marker) {
+  const before = text.slice(0, pos);
+  const after = text.slice(pos);
+
+  const beforeCount = before.split(marker).length - 1;
+  const afterCount = after.split(marker).length - 1;
+
+  return beforeCount % 2 === 1 && afterCount > 0;
+}
+
+function normalizeSelectionForFormat(type) {
+  const start = editorContent.selectionStart;
+  const end = editorContent.selectionEnd;
+  const text = editorContent.value;
+
+  let marker = "";
+  if (type === "bold") marker = "**";
+  else if (type === "italic") marker = "*";
+  else if (type === "underline") marker = "__";
+  else return;
+
+  // Look OUTSIDE selection
+  const before = text.slice(start - marker.length, start);
+  const after = text.slice(end, end + marker.length);
+
+  if (before === marker && after === marker) {
+    editorContent.setSelectionRange(start - marker.length, end + marker.length);
+  }
+}
+
+function getActiveFormats() {
+  const pos = editorContent.selectionStart;
+  const text = editorContent.value;
+
+  const isBold = isInsideMarker(text, pos, "**");
+  const isUnderline = isInsideMarker(text, pos, "__");
+
+  // italic must NOT trigger inside bold/underline markers
+  const isItalic = !isBold && !isUnderline && isInsideMarker(text, pos, "*");
+
+  return {
+    bold: isBold,
+    italic: isItalic,
+    underline: isUnderline,
+    italic: isInsideMarker(text, pos, "*") && !isInsideMarker(text, pos, "**"),
+  };
+}
+
 function formatText(type) {
   const start = editorContent.selectionStart;
   const end = editorContent.selectionEnd;
@@ -5674,6 +5841,10 @@ function formatText(type) {
   editorState.isProgrammaticEdit = false;
 }
 
+// =====================================================
+// EDITOR UI
+// =====================================================
+
 function updateToolbarState() {
   const formats = getActiveFormats();
 
@@ -5690,60 +5861,21 @@ function updateToolbarState() {
     .forEach((btn) => btn.classList.toggle("active", formats.underline));
 }
 
-// Title handling
-function onTitleChange() {
-  const docs = getCurrentDocs();
-  const doc = docs[appState.currentDocumentId];
-  if (!doc) return;
+function updateWordCount() {
+  const text = editorContent.value;
 
-  doc.title = editorTitle.value;
+  const words = getWordCount(text);
+  const chars = text.length;
 
-  renderSidebar();
-  renderCharacterRelationships(appState.currentDocumentId);
+  document.getElementById("word-count").textContent =
+    `Words: ${words} | Characters: ${chars}`;
 }
 
-function onTitleKeyDown(e) {
-  if (e.key === "Enter") {
-    e.preventDefault();
-
-    restoreEditorState();
-  }
+function setEditorFontSize(size) {
+  editorContent.style.fontSize = size;
+  localStorage.setItem("editorFontSize", size);
 }
 
-// Selection handling
-function restoreSelection() {
-  editorContent.focus();
-}
-
-// Editor save/restore
-function saveEditorState() {
-  if (!editorContent) return;
-  if (editorState.isRestoring) return;
-}
-
-function restoreEditorState() {
-  const textarea = editorContent;
-  if (!textarea) return;
-
-  const start = editorState.lastSelectionStart ?? 0;
-  const end = editorState.lastSelectionEnd ?? start;
-
-  editorState.isRestoring = true;
-
-  requestAnimationFrame(() => {
-    textarea.focus();
-
-    requestAnimationFrame(() => {
-      textarea.setSelectionRange(start, end);
-
-      setTimeout(() => {
-        editorState.isRestoring = false;
-      }, 0);
-    });
-  });
-}
-
-// Preview/focus modes
 function togglePreview() {
   if (isTogglingPreview) return;
   isTogglingPreview = true;
@@ -5810,56 +5942,32 @@ function updateModeIndicator() {
   }
 }
 
-// Word count / typography
-function updateWordCount() {
-  const text = editorContent.value;
+// =====================================================
+// TITLE HANDLING
+// =====================================================
 
-  const words = getWordCount(text);
-  const chars = text.length;
+function onTitleChange() {
+  const docs = getCurrentDocs();
+  const doc = docs[appState.currentDocumentId];
+  if (!doc) return;
 
-  document.getElementById("word-count").textContent =
-    `Words: ${words} | Characters: ${chars}`;
+  doc.title = editorTitle.value;
+
+  renderSidebar();
+  renderCharacterRelationships(appState.currentDocumentId);
 }
 
-function setEditorFontSize(size) {
-  editorContent.style.fontSize = size;
-  localStorage.setItem("editorFontSize", size);
+function onTitleKeyDown(e) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+
+    restoreEditorState();
+  }
 }
 
 // =====================================================
-// SIDEBAR SYSTEM
+// SIDEBAR SYSTEMS
 // =====================================================
-
-function initSidebarEvents() {
-  initSidebarSearch();
-
-  addButtons.forEach((button) => {
-    button.addEventListener("click", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      const section = button.closest("details");
-      addNewItem(section);
-    });
-  });
-}
-
-function initSidebarSearch() {
-  searchInput.addEventListener("input", (e) => {
-    searchQuery = e.target.value.toLowerCase();
-
-    renderSidebar();
-    updatePreview();
-  });
-
-  searchInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-
-      editorContent.focus();
-      scrollToFirstMatch();
-    }
-  });
-}
 
 function renderSidebar() {
   const lists = document.querySelectorAll("ul");
@@ -5924,9 +6032,12 @@ function searchDocuments(query) {
   }
 }
 
-// =====================================================
-// TAG SYSTEM
-// =====================================================
+function scrollToFirstMatch() {
+  const match = document.querySelector("#preview-pane mark");
+  if (match) {
+    match.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+}
 
 function renderTags(doc) {
   tagList.innerHTML = "";
@@ -5971,10 +6082,6 @@ function removeTag(tag) {
   renderTags(doc);
   debounceSave();
 }
-
-// =====================================================
-// CHARACTER RELATIONSHIP SYSTEM
-// =====================================================
 
 function populateCharacterSelect() {
   characterSelect.innerHTML = "";
@@ -6534,6 +6641,10 @@ function updateMenuState() {
   }
 }
 
+// =====================================================
+// EXPORT SYSTEM
+// =====================================================
+
 function updatePreview() {
   const doc = getCurrentDocs()[appState.currentDocumentId];
   if (!doc) return;
@@ -6550,10 +6661,6 @@ function updatePreview() {
   const preview = document.getElementById("preview-pane");
   preview.innerHTML = html;
 }
-
-// =====================================================
-// EXPORT SYSTEM
-// =====================================================
 
 function openExportModal() {
   const modal = document.getElementById("export-modal");
@@ -6615,62 +6722,6 @@ function openExportModal() {
 
 function closeExportModal() {
   document.getElementById("export-modal").classList.add("hidden");
-}
-
-function initModalEvents() {
-  document
-    .getElementById("close-help")
-    ?.addEventListener("click", closeHelpModal);
-
-  document
-    .getElementById("close-export")
-    ?.addEventListener("click", closeExportModal);
-
-  document.getElementById("close-graph")?.addEventListener("click", closeGraph);
-}
-
-function handleExportConfirm() {
-  const filename = document.getElementById("export-filename").value.trim();
-  if (!filename) return;
-
-  let content = "";
-
-  if (exportMode === "document") {
-    const selectedDocs = Array.from(
-      document.querySelectorAll("#export-modal input[type='checkbox']:checked"),
-    ).map((cb) => cb.value);
-
-    const docs = getCurrentDocs();
-
-    content = selectedDocs
-      .map((id) => docs[id])
-      .filter(Boolean)
-      .map((doc) => documentToMarkdown(doc))
-      .join("\n\n");
-  } else {
-    const selectedSections = Array.from(
-      document.querySelectorAll("#export-modal input[type='checkbox']:checked"),
-    ).map((cb) => cb.value);
-
-    content = buildExportContent(selectedSections);
-  }
-
-  const formatSelect = document.getElementById("export-format");
-  const format = formatSelect.value;
-
-  let finalFilename = filename.replace(/\.(md|txt)$/i, "");
-
-  let finalContent = content;
-
-  if (format === "txt") {
-    finalFilename += ".txt";
-    finalContent = convertToPlainText(content);
-  } else {
-    finalFilename += ".md";
-  }
-
-  downloadFile(finalFilename, finalContent);
-  closeExportModal();
 }
 
 function buildExportContent(selectedSections) {
@@ -6753,8 +6804,52 @@ function downloadFile(filename, content) {
   document.body.removeChild(a);
 }
 
+function handleExportConfirm() {
+  const filename = document.getElementById("export-filename").value.trim();
+  if (!filename) return;
+
+  let content = "";
+
+  if (exportMode === "document") {
+    const selectedDocs = Array.from(
+      document.querySelectorAll("#export-modal input[type='checkbox']:checked"),
+    ).map((cb) => cb.value);
+
+    const docs = getCurrentDocs();
+
+    content = selectedDocs
+      .map((id) => docs[id])
+      .filter(Boolean)
+      .map((doc) => documentToMarkdown(doc))
+      .join("\n\n");
+  } else {
+    const selectedSections = Array.from(
+      document.querySelectorAll("#export-modal input[type='checkbox']:checked"),
+    ).map((cb) => cb.value);
+
+    content = buildExportContent(selectedSections);
+  }
+
+  const formatSelect = document.getElementById("export-format");
+  const format = formatSelect.value;
+
+  let finalFilename = filename.replace(/\.(md|txt)$/i, "");
+
+  let finalContent = content;
+
+  if (format === "txt") {
+    finalFilename += ".txt";
+    finalContent = convertToPlainText(content);
+  } else {
+    finalFilename += ".md";
+  }
+
+  downloadFile(finalFilename, finalContent);
+  closeExportModal();
+}
+
 // =====================================================
-// HELP / ABOUT MODALS
+// HELP / MODALS
 // =====================================================
 
 function openHelpModal(title, content) {
@@ -6800,9 +6895,211 @@ function getShortcutsContent() {
   `;
 }
 
+function initModalEvents() {
+  document
+    .getElementById("close-help")
+    ?.addEventListener("click", closeHelpModal);
+
+  document
+    .getElementById("close-export")
+    ?.addEventListener("click", closeExportModal);
+
+  document.getElementById("close-graph")?.addEventListener("click", closeGraph);
+}
+
 // =====================================================
-// KEYBOARD SHORTCUTS
+// LOCAL STORAGE
 // =====================================================
+
+function saveToLocalStorage() {
+  localStorage.setItem("tapestriProjects", JSON.stringify(projects));
+  localStorage.setItem("tapestriCurrentProject", appState.currentProjectId);
+}
+
+function loadFromLocalStorage() {
+  const data = localStorage.getItem("tapestriProjects");
+  const savedProjectId = localStorage.getItem("tapestriCurrentProject");
+
+  if (data) {
+    projects = JSON.parse(data);
+
+    for (const pid in projects) {
+      const docs = projects[pid].documents;
+
+      for (const id in docs) {
+        const doc = docs[id];
+
+        if (!doc.tags) doc.tags = [];
+
+        if (!doc.relationships) {
+          doc.relationships = { characters: [] };
+        }
+
+        if (!doc.relationships.characters) {
+          doc.relationships.characters = [];
+        }
+      }
+    }
+
+    const projectIds = Object.keys(projects);
+
+    if (savedProjectId && projects[savedProjectId]) {
+      appState.currentProjectId = savedProjectId;
+    } else {
+      appState.currentProjectId = projectIds[0];
+    }
+
+    if (!appState.currentProjectId) {
+      appState.currentProjectId = Object.keys(projects)[0];
+    }
+  } else {
+    const defaultProjectId = "project1";
+
+    projects = {
+      [defaultProjectId]: {
+        name: "My First Project",
+        documents: {
+          chapter1: {
+            id: "chapter1",
+            title: "Chapter 1",
+            content: "",
+            type: "chapter",
+            tags: [],
+            relationships: { characters: [] },
+          },
+        },
+      },
+    };
+
+    appState.currentProjectId = defaultProjectId;
+
+    debounceSave();
+  }
+}
+
+function savePreviewMode() {
+  localStorage.setItem("tapestri_preview_mode", JSON.stringify(isPreviewMode));
+}
+
+function loadPreviewMode() {
+  const saved = localStorage.getItem("tapestri_preview_mode");
+  if (saved !== null) {
+    isPreviewMode = JSON.parse(saved);
+  }
+}
+
+function saveFocusMode() {
+  localStorage.setItem("tapestri_focus_mode", JSON.stringify(isFocusMode));
+}
+
+function loadFocusMode() {
+  const saved = localStorage.getItem("tapestri_focus_mode");
+  if (saved !== null) {
+    isFocusMode = JSON.parse(saved);
+    document.body.classList.toggle("focus-mode", isFocusMode);
+  }
+}
+
+// =====================================================
+// APPLICATION EVENTS
+// =====================================================
+
+function initEditorEvents() {
+  initEditorInputEvents();
+  initEditorKeyboardEvents();
+  initEditorToolbarEvents();
+  initEditorTitleEvents();
+  initEditorUIEvents();
+}
+
+function initEditorInputEvents() {
+  editorContent.addEventListener("input", onEditorInput);
+  editorContent.addEventListener("keyup", updateToolbarState);
+  editorContent.addEventListener("click", updateToolbarState);
+}
+
+function initEditorKeyboardEvents() {
+  editorContent.addEventListener("keydown", handleEditorKeyDown);
+
+  editorContent.addEventListener("blur", () => {
+    editorState.lastSelectionStart = editorContent.selectionStart;
+    editorState.lastSelectionEnd = editorContent.selectionEnd;
+  });
+}
+
+function initEditorToolbarEvents() {
+  document.querySelectorAll(".format-toolbar button").forEach((button) => {
+    button.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      editorContent.focus();
+    });
+
+    button.addEventListener("click", (e) => {
+      const type = e.currentTarget.dataset.format;
+      if (!type) return;
+
+      formatText(type);
+    });
+  });
+
+  document.querySelectorAll(".menu-dropdown").forEach((menu) => {
+    menu.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+    });
+  });
+}
+
+function initEditorTitleEvents() {
+  editorTitle.addEventListener("input", onTitleChange);
+  editorTitle.addEventListener("keydown", onTitleKeyDown);
+}
+
+function initEditorUIEvents() {
+  const fontSize = document.getElementById("font-size");
+
+  if (!fontSize) return;
+
+  fontSize.addEventListener("change", (e) => {
+    const start = editorContent.selectionStart;
+    const end = editorContent.selectionEnd;
+
+    setEditorFontSize(e.target.value);
+
+    restoreEditorState();
+    editorContent.setSelectionRange(start, end);
+  });
+}
+
+function initSidebarEvents() {
+  initSidebarSearch();
+
+  addButtons.forEach((button) => {
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const section = button.closest("details");
+      addNewItem(section);
+    });
+  });
+}
+
+function initSidebarSearch() {
+  searchInput.addEventListener("input", (e) => {
+    searchQuery = e.target.value.toLowerCase();
+
+    renderSidebar();
+    updatePreview();
+  });
+
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+
+      editorContent.focus();
+      scrollToFirstMatch();
+    }
+  });
+}
 
 function initKeyboardShortcuts() {
   document.addEventListener("keydown", handleKeyboardShorts);
@@ -6866,10 +7163,6 @@ function handleKeyboardShorts(e) {
     closeAllMenus();
   }
 }
-
-// =====================================================
-// EVENT LISTENERS
-// =====================================================
 
 function initEventListeners() {
   const newProject = document.getElementById("new-project");
@@ -6986,7 +7279,7 @@ function attachItemListeners(item) {
 }
 
 // =====================================================
-// APPLICATION INITIALIZATION
+// APPLICATION BOOTSTRAP
 // =====================================================
 
 function initApp() {
