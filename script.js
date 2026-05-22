@@ -132,6 +132,9 @@ const graphState = {
 
   nodeMap: new Map(),
 
+  adjacencyMap: new Map(),
+  edgeMap: new Map(),
+
   // ---------------------------------
   // Selection / Interaction
   // ---------------------------------
@@ -663,6 +666,39 @@ function buildNarrativeTimeline() {
     });
 
   graphState.timelineNodes = chapters;
+}
+
+function rebuildGraphIndexes() {
+  const adjacency = new Map();
+  const edgeMap = new Map();
+
+  // Initialize adjacency buckets
+  graphState.nodes.forEach((node) => {
+    adjacency.set(node.id, []);
+  });
+
+  graphState.edges.forEach((edge) => {
+    // ADJACENCY
+
+    if (adjacency.has(edge.from)) {
+      adjacency.get(edge.from).push(edge.to);
+    }
+
+    if (adjacency.has(edge.to)) {
+      adjacency.get(edge.to).push(edge.from);
+    }
+
+    // EDGE MAP
+
+    const forwardKey = `${edge.from}-${edge.to}`;
+    const reverseKey = `${edge.to}-${edge.from}`;
+
+    edgeMap.set(forwardKey, edge);
+    edgeMap.set(reverseKey, edge);
+  });
+
+  graphState.adjacencyMap = adjacency;
+  graphState.edgeMap = edgeMap;
 }
 
 function detectCommunities() {
@@ -2151,50 +2187,25 @@ function runAgentSystem() {
 // =====================================================
 
 function getConnectedNodeIds(nodeId) {
-  const connected = new Set();
-
-  graphState.edges.forEach((edge) => {
-    if (edge.from === nodeId) connected.add(edge.to);
-    if (edge.to === nodeId) connected.add(edge.from);
-  });
-
-  return connected;
+  return new Set(graphState.adjacencyMap.get(nodeId) || []);
 }
 
 function getConnectedNeighbors(nodeId) {
-  const neighbors = [];
+  const neighborIds = graphState.adjacencyMap.get(nodeId);
 
-  graphState.edges.forEach((edge) => {
-    if (edge.from === nodeId) {
-      const neighbor = graphState.nodeMap.get(edge.to);
+  if (!neighborIds) {
+    return [];
+  }
 
-      if (neighbor) {
-        neighbors.push(neighbor);
-      }
-    }
-
-    if (edge.to === nodeId) {
-      const neighbor = graphState.nodeMap.get(edge.from);
-
-      if (neighbor) {
-        neighbors.push(neighbor);
-      }
-    }
-  });
-
-  return neighbors;
+  return neighborIds.map((id) => graphState.nodeMap.get(id)).filter(Boolean);
 }
 
 function edgeConnectionCount(nodeId) {
-  let count = 0;
+  return graphState.adjacencyMap.get(nodeId)?.length || 0;
+}
 
-  graphState.edges.forEach((edge) => {
-    if (edge.from === nodeId || edge.to === nodeId) {
-      count++;
-    }
-  });
-
-  return count;
+function getEdgeBetween(a, b) {
+  return graphState.edgeMap.get(`${a}-${b}`) || null;
 }
 
 function getSemanticImportance(node) {
@@ -5003,6 +5014,8 @@ function openGraph() {
   });
 
   graphState.edges = data.edges;
+
+  rebuildGraphIndexes();
 
   detectCommunities();
   detectSubcommunities();
