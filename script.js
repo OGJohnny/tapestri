@@ -208,6 +208,12 @@ const graphState = {
   },
 
   // ---------------------------------
+  // Dirty State
+  // ---------------------------------
+
+  dirtySystems: new Set(),
+
+  // ---------------------------------
   // Tooltip State
   // ---------------------------------
 
@@ -533,6 +539,20 @@ function convertToPlainText(markdown) {
 }
 
 // =====================================================
+// DIRTY GRAPH FLAGS
+// =====================================================
+
+function markDirty(...systems) {
+  systems.forEach((system) => {
+    graphState.dirtySystems.add(system);
+  });
+}
+
+function clearDirty() {
+  graphState.dirtySystems.clear();
+}
+
+// =====================================================
 // GRAPH DATA BUILDERS
 // =====================================================
 
@@ -666,6 +686,8 @@ function buildNarrativeTimeline() {
     });
 
   graphState.timelineNodes = chapters;
+
+  markDirty("temporal", "analytics", "rendering");
 }
 
 function rebuildGraphIndexes() {
@@ -2579,6 +2601,7 @@ function setCamera(scale, offsetX, offsetY) {
 
   // immediately start animation loop
   wakeGraphPhysics();
+  markDirty("rendering", "minimap");
 }
 
 function centerGraph() {
@@ -2592,10 +2615,18 @@ function centerGraph() {
     canvas.height / 2 - bounds.centerY * graphState.scale;
 
   wakeGraphPhysics();
+
+  markDirty("rendering", "minimap");
+
+  startGraphLoop();
 }
 
 function centerOnNode(nodeId) {
   focusNode(nodeId);
+
+  markDirty("rendering", "minimap");
+
+  startGraphLoop();
 }
 
 function focusNode(nodeId, options = {}) {
@@ -2622,6 +2653,10 @@ function focusNode(nodeId, options = {}) {
   if (isNodeNearCenter(node)) {
     return;
   }
+
+  markDirty("rendering", "minimap");
+
+  startGraphLoop();
 }
 
 function fitGraphToScreen() {
@@ -2642,6 +2677,10 @@ function fitGraphToScreen() {
   );
 
   wakeGraphPhysics();
+
+  markDirty("rendering", "minimap");
+
+  startGraphLoop();
 }
 
 function resetGraphView() {
@@ -2650,6 +2689,10 @@ function resetGraphView() {
     graphState.initialOffsetX,
     graphState.initialOffsetY,
   );
+
+  markDirty("rendering", "minimap");
+
+  startGraphLoop();
 }
 
 function clampGraphCamera() {
@@ -2699,6 +2742,14 @@ function updateGraphCamera() {
   graphState.targetScale = Math.max(0.05, graphState.targetScale);
 
   clampGraphCamera();
+
+  if (
+    Math.abs(graphState.offsetX - graphState.targetOffsetX) > 0.01 ||
+    Math.abs(graphState.offsetY - graphState.targetOffsetY) > 0.01 ||
+    Math.abs(graphState.scale - graphState.targetScale) > 0.0001
+  ) {
+    startGraphLoop();
+  }
 }
 
 function updateSemanticZoomLevel() {
@@ -2731,6 +2782,10 @@ function navigateFromMinimap(x, y) {
   graphState.targetOffsetY = canvas.height / 2 - worldY * graphState.scale;
 
   wakeGraphPhysics();
+
+  markDirty("rendering", "minimap");
+
+  startGraphLoop();
 }
 
 function isNodeNearCenter(node) {
@@ -4043,6 +4098,64 @@ function drawOverlays(ctx, renderState) {
   drawCommunityLabels(ctx);
 }
 
+function updateGraphSystems() {
+  const dirty = graphState.dirtySystems;
+
+  if (dirty.has("structure")) {
+    rebuildGraphIndexes();
+    detectCommunities();
+    detectSubcommunities();
+    generateCommunityLabels();
+    initializeCommunityAnchors();
+  }
+
+  if (dirty.has("analytics")) {
+    calculateNarrativeTension();
+    detectNarrativeArcs();
+  }
+
+  if (dirty.has("emotional")) {
+    analyzeEmotionalTrajectories();
+  }
+
+  if (dirty.has("character")) {
+    analyzeCharacterDynamics();
+  }
+
+  if (dirty.has("relationships")) {
+    analyzeRelationshipDynamics();
+  }
+
+  if (dirty.has("propagation")) {
+    analyzeNarrativePropagation();
+  }
+
+  if (dirty.has("temporal")) {
+    analyzeTemporalNarrativeState();
+  }
+
+  if (dirty.has("semantic")) {
+    analyzeSemanticInference();
+    analyzeSemanticMotifs();
+  }
+
+  if (dirty.has("anomalies")) {
+    analyzeNarrativeAnomalies();
+  }
+
+  if (dirty.has("attention")) {
+    if (graphState.selectedNodeId) {
+      buildAttentionMap(graphState.selectedNodeId);
+    }
+  }
+
+  if (dirty.has("agents")) {
+    runAgentSystem();
+  }
+
+  clearDirty();
+}
+
 // Main Renderer
 function renderGraph() {
   const ctx = canvas.getContext("2d");
@@ -4419,7 +4532,7 @@ function applyForces() {
   const centerY = canvas.height / 2;
 
   // Smooth cooling (slower = nicer animation)
-  graphState.temperature *= 0.96;
+  graphState.temperature *= 0.992;
 
   nodes.forEach((node) => {
     if (node.fixed) return;
@@ -4676,61 +4789,111 @@ function applyForces() {
     node.vx = Math.max(-3, Math.min(3, node.vx));
     node.vy = Math.max(-3, Math.min(3, node.vy));
   });
+
+  if (graphState.temperature < 0.0001) {
+    graphState.temperature = 0;
+  }
 }
 
 function updateGraphPhysics() {
   applyForces();
+  console.log("TEMP", graphState.temperature);
 }
 
 function wakeGraphPhysics() {
+  graphState.physicsActive = true;
   graphState.temperature = 1;
 
   startGraphLoop();
 }
 
-function animateGraph() {
-  if (!graphAnimating) return;
+function graphLoop() {
+  if (!graphAnimating) {
+    return;
+  }
 
-  updateGraphPhysics();
-  updateGraphCamera();
-  updateSemanticZoomLevel();
-  calculateNarrativeTension();
-  detectNarrativeArcs();
-  analyzeCharacterDynamics();
-  analyzeEmotionalTrajectories();
-  analyzeRelationshipDynamics();
-  analyzeNarrativePropagation();
-  analyzeTemporalNarrativeState();
-  analyzeSemanticInference();
-  analyzeSemanticMotifs();
-  analyzeNarrativeAnomalies();
-  runAgentSystem();
-  updateNarrativeTimeline();
+  // --------------------------------
+  // TIMING
+  // --------------------------------
 
   graphState.animationTime += 0.016;
   graphState.eventPulseTime += 0.045;
 
+  // --------------------------------
+  // PHYSICS
+  // --------------------------------
+
+  updateGraphPhysics();
+
+  // --------------------------------
+  // CAMERA
+  // --------------------------------
+
+  updateGraphCamera();
+
+  // --------------------------------
+  // ZOOM
+  // --------------------------------
+
+  updateSemanticZoomLevel();
+
+  // --------------------------------
+  // EXPENSIVE DIRTY SYSTEMS
+  // --------------------------------
+
+  updateGraphSystems();
+
+  // --------------------------------
+  // ALWAYS RENDER FRAME
+  // --------------------------------
+
   renderGraph();
+  renderMinimap();
 
-  const cameraSettled =
-    Math.abs(graphState.offsetX - graphState.targetOffsetX) < 0.5 &&
-    Math.abs(graphState.offsetY - graphState.targetOffsetY) < 0.5 &&
-    Math.abs(graphState.scale - graphState.targetScale) < 0.001;
+  // --------------------------------
+  // ACTIVE STATE CHECKS
+  // --------------------------------
 
-  const physicsSettled = graphState.temperature < 0.02;
+  const cameraDelta =
+    Math.abs(graphState.offsetX - graphState.targetOffsetX) +
+    Math.abs(graphState.offsetY - graphState.targetOffsetY) +
+    Math.abs(graphState.scale - graphState.targetScale);
 
-  if (!cameraSettled || !physicsSettled) {
-    graphAnimationFrame = requestAnimationFrame(animateGraph);
+  const cameraSettled = cameraDelta < 0.01;
+
+  const physicsActive = graphState.temperature > 0.0001;
+
+  const dragging =
+    graphState.dragging.isDraggingGraph || !!graphState.dragging.draggedNode;
+
+  const visualEffectsActive =
+    graphState.timelinePlaying ||
+    graphState.selectedNodeId ||
+    graphState.hoveredNodeId;
+
+  // --------------------------------
+  // CONTINUE LOOP
+  // --------------------------------
+
+  if (physicsActive || !cameraSettled || dragging || visualEffectsActive) {
+    graphAnimationFrame = requestAnimationFrame(graphLoop);
   } else {
     graphAnimating = false;
+    graphAnimationFrame = null;
   }
 }
 
 function startGraphLoop() {
-  if (graphAnimating) return;
+  console.log("START GRAPH LOOP");
+
+  if (graphAnimating) {
+    console.log("ALREADY ANIMATING");
+    return;
+  }
 
   graphAnimating = true;
-  graphAnimationFrame = requestAnimationFrame(animateGraph);
+
+  graphAnimationFrame = requestAnimationFrame(graphLoop);
 }
 
 function updateNarrativeTimeline() {
@@ -4756,6 +4919,8 @@ function updateNarrativeTimeline() {
   if (graphState.timelineIndex >= graphState.timelineNodes.length) {
     graphState.timelineIndex = 0;
   }
+
+  markDirty("temporal", "analytics", "attention", "agents", "rendering");
 }
 
 // =====================================================
@@ -4838,6 +5003,8 @@ function hideGraphTooltip() {
 // =====================================================
 
 function handleGraphClick(x, y, event) {
+  startGraphLoop();
+
   if (graphState.hasDragged) return;
 
   const { node, distance } = findClosestNode(x, y);
@@ -4845,48 +5012,40 @@ function handleGraphClick(x, y, event) {
   if (node && distance <= CLICK_RADIUS) {
     if (graphTransitioning) return;
 
-    // PATH TRACING
     if (event.shiftKey) {
       if (graphState.traceStartNodeId) {
         graphState.tracedPath = findShortestPath(
           graphState.traceStartNodeId,
           node.id,
         );
-
         graphState.traceStartNodeId = null;
       } else {
         graphState.traceStartNodeId = node.id;
-
         graphState.tracedPath = [];
       }
     } else {
       graphState.tracedPath = [];
-
       graphState.traceStartNodeId = null;
     }
 
     graphTransitioning = true;
-
     graphState.selectedNodeId = node.id;
 
-    // COGNITIVE CONTEXT
     buildHierarchicalMemory(node.id);
 
-    renderGraph();
+    // GOOD: split dirty responsibilities
+    markDirty("attention", "analytics", "rendering");
 
     setTimeout(() => {
       graphTransitioning = false;
     }, 180);
   } else {
     graphState.selectedNodeId = null;
-
     graphState.tracedPath = [];
-
     graphState.traceStartNodeId = null;
-
     graphState.cognitiveContext.activeWindow = [];
 
-    renderGraph();
+    markDirty("attention", "rendering");
   }
 }
 
@@ -4904,13 +5063,18 @@ function openDocumentFromGraph(id) {
 // =====================================================
 
 function openGraph() {
-  if (isPreviewMode) return;
+  if (isPreviewMode) {
+    return;
+  }
 
   canvas.setAttribute("tabindex", "0");
 
-  setTimeout(() => canvas.focus(), 50);
+  setTimeout(() => {
+    canvas.focus();
+  }, 50);
 
   graphState.isOpen = true;
+  graphState.focusMode = true;
 
   graphState.filters = {
     chapter: true,
@@ -4922,13 +5086,15 @@ function openGraph() {
     tag: true,
   };
 
-  graphState.focusMode = true;
-
   document
     .querySelectorAll("#graph-filters input[type='checkbox']")
     .forEach((checkbox) => {
       const type = checkbox.dataset.type;
-      if (type) checkbox.checked = graphState.filters[type];
+
+      if (type) {
+        checkbox.checked = graphState.filters[type];
+      }
+
       if (checkbox.id === "focus-mode-toggle") {
         checkbox.checked = graphState.focusMode;
       }
@@ -4936,8 +5102,9 @@ function openGraph() {
 
   document.getElementById("graph-modal").classList.remove("hidden");
 
-  // STOP animation
+  // STOP LOOP
   graphAnimating = false;
+
   if (graphAnimationFrame) {
     cancelAnimationFrame(graphAnimationFrame);
     graphAnimationFrame = null;
@@ -4947,9 +5114,19 @@ function openGraph() {
   graphState.nodes = [];
   graphState.edges = [];
   graphState.selectedNodeId = null;
+  graphState.hoveredNodeId = null;
+  graphState.tracedPath = [];
+  graphState.traceStartNodeId = null;
+
+  graphState.nodeMap.clear();
+  graphState.adjacencyMap.clear();
+  graphState.edgeMap.clear();
+
+  graphState.dirtySystems.clear();
 
   setupCanvasSize();
 
+  // CLUSTER CENTERS
   clusterCenters.chapter = {
     x: canvas.width * 0.5,
     y: canvas.height * 0.5,
@@ -4988,39 +5165,26 @@ function openGraph() {
   // BUILD GRAPH
   const data = getGraphData();
 
-  const spacing = Math.max(120, 300 - data.nodes.length * 5);
-  const radius = spacing * Math.sqrt(data.nodes.length || 1);
-
   graphState.nodes = data.nodes.map((node) => {
     const cluster = clusterCenters[node.type] || clusterCenters.chapter;
 
     return {
       ...node,
-
       x: cluster.x + (Math.random() - 0.5) * 300,
       y: cluster.y + (Math.random() - 0.5) * 300,
-
       vx: 0,
       vy: 0,
-
       fixed: false,
     };
   });
 
-  graphState.nodeMap.clear();
+  graphState.edges = data.edges;
 
   graphState.nodes.forEach((node) => {
     graphState.nodeMap.set(node.id, node);
   });
 
-  graphState.edges = data.edges;
-
-  rebuildGraphIndexes();
-
-  detectCommunities();
-  detectSubcommunities();
-
-  // INITIAL CAMERA (centered)
+  // CAMERA
   graphState.scale = 0.3;
   graphState.targetScale = 0.3;
 
@@ -5030,20 +5194,35 @@ function openGraph() {
   graphState.targetOffsetX = canvas.width / 2;
   graphState.targetOffsetY = canvas.height / 2;
 
-  // FIT AFTER RENDER
+  graphState.temperature = 1;
+
+  // FIT VIEW
   setTimeout(() => {
     fitGraphToScreen();
 
-    // SAVE BASELINE
     graphState.initialScale = graphState.targetScale;
+
     graphState.initialOffsetX = graphState.targetOffsetX;
+
     graphState.initialOffsetY = graphState.targetOffsetY;
   }, 100);
 
-  graphState.temperature = 1;
+  // DIRTY SYSTEMS
+  markDirty(
+    "structure",
+    "analytics",
+    "semantic",
+    "temporal",
+    "attention",
+    "agents",
+    "rendering",
+    "minimap",
+  );
 
-  renderGraph();
   wakeGraphPhysics();
+
+  // START LOOP
+  startGraphLoop();
 }
 
 function closeGraph() {
@@ -5070,6 +5249,9 @@ function closeGraph() {
       restoreEditorState();
     });
   });
+
+  graphState.physicsActive = false;
+  graphAnimating = false;
 }
 
 // =====================================================
@@ -5118,6 +5300,8 @@ function onGraphMouseDown(e) {
   if (clickedNode) {
     drag.draggedNode = clickedNode;
 
+    wakeGraphPhysics();
+
     drag.nodeOffsetX = worldX - clickedNode.x;
     drag.nodeOffsetY = worldY - clickedNode.y;
 
@@ -5125,12 +5309,13 @@ function onGraphMouseDown(e) {
   } else {
     drag.draggedNode = null;
     drag.isDraggingGraph = true; // enables panning
+
+    wakeGraphPhysics();
   }
 }
 
 function onGraphMouseMove(e) {
   const rect = canvas.getBoundingClientRect();
-
   const drag = graphState.dragging;
 
   const localX = e.clientX - rect.left;
@@ -5140,7 +5325,6 @@ function onGraphMouseMove(e) {
     localX >= 0 && localY >= 0 && localX <= rect.width && localY <= rect.height;
 
   const worldX = (localX - graphState.offsetX) / graphState.scale;
-
   const worldY = (localY - graphState.offsetY) / graphState.scale;
 
   // NODE DRAGGING
@@ -5148,25 +5332,21 @@ function onGraphMouseMove(e) {
     drag.hasDragged = true;
 
     drag.draggedNode.x = worldX - drag.nodeOffsetX;
-
     drag.draggedNode.y = worldY - drag.nodeOffsetY;
 
     drag.draggedNode.vx = 0;
     drag.draggedNode.vy = 0;
-
     drag.draggedNode.fixed = true;
 
     wakeGraphPhysics();
 
-    renderGraph();
-
+    markDirty("rendering", "minimap", "attention");
     return;
   }
 
   // GRAPH PANNING
   if (drag.isDraggingGraph) {
     drag.hasDragged = true;
-
     canvas.style.cursor = "grabbing";
 
     const dx = e.clientX - drag.startX;
@@ -5176,31 +5356,25 @@ function onGraphMouseMove(e) {
     graphState.offsetY += dy;
 
     graphState.targetOffsetX = graphState.offsetX;
-
     graphState.targetOffsetY = graphState.offsetY;
 
     drag.startX = e.clientX;
     drag.startY = e.clientY;
 
-    renderGraph();
-
+    markDirty("rendering", "minimap");
     return;
   }
 
-  // ONLY PROCESS HOVER INSIDE CANVAS
+  // OUTSIDE CANVAS
   if (!insideCanvas) {
     hideGraphTooltip();
-
     graphState.hoveredNodeId = null;
-
     canvas.style.cursor = "default";
-
     return;
   }
 
-  // HOVER DETECTION
+  // HOVER
   const hoveredNode = getNodeAtPosition(worldX, worldY);
-
   graphState.hoveredNodeId = hoveredNode ? hoveredNode.id : null;
 
   if (hoveredNode) {
@@ -5209,36 +5383,27 @@ function onGraphMouseMove(e) {
     hideGraphTooltip();
   }
 
-  // CURSOR
   canvas.style.cursor = hoveredNode ? "pointer" : "grab";
-
-  renderGraph();
-
-  clampGraphCamera();
 }
 
 function onGraphMouseUp() {
   const drag = graphState.dragging;
 
-  // RELEASE NODE
   if (drag.draggedNode) {
     drag.draggedNode.fixed = false;
-    drag.draggedNode = null;
   }
 
-  // RELEASE GRAPH
   drag.isDraggingGraph = false;
+  drag.draggedNode = null;
 
-  canvas.style.cursor = "grab";
+  // preserve hasDragged briefly
+  setTimeout(() => {
+    drag.hasDragged = false;
+  }, 0);
 
-  // SYNCHRONIZE CAMERA TARGETS
-  graphState.targetOffsetX = graphState.offsetX;
-  graphState.targetOffsetY = graphState.offsetY;
-  graphState.targetScale = graphState.scale;
-
-  // RESET DRAG STATE
-  drag.nodeOffsetX = 0;
-  drag.nodeOffsetY = 0;
+  // IMPORTANT:
+  // restart loop so camera easing continues
+  startGraphLoop();
 }
 
 function onGraphMouseLeave() {
@@ -5263,6 +5428,10 @@ function onGraphWheel(e) {
     0.1,
     Math.min(3, graphState.targetScale * zoomFactor),
   );
+
+  markDirty("rendering", "minimap");
+
+  startGraphLoop();
 
   const worldX = (mouseX - graphState.offsetX) / graphState.scale;
   const worldY = (mouseY - graphState.offsetY) / graphState.scale;
@@ -5390,7 +5559,6 @@ function initGraphUIEvents() {
   if (focusToggle) {
     focusToggle.addEventListener("change", (e) => {
       graphState.focusMode = e.target.checked;
-      renderGraph();
     });
   }
 
@@ -5420,8 +5588,6 @@ function initGraphUIEvents() {
     checkbox.addEventListener("change", (e) => {
       const type = e.target.dataset.type;
       graphState.filters[type] = e.target.checked;
-
-      renderGraph();
     });
   });
 }
@@ -5472,6 +5638,8 @@ function saveDocument() {
   ].content = editorContent.value;
 
   debounceSave();
+
+  markDirty("semantic", "analytics", "attention", "agents", "rendering");
 }
 
 function saveHistory() {
@@ -5609,6 +5777,8 @@ function onEditorInput(e) {
   updatePreview();
   updateWordCount();
   debounceSave();
+
+  markDirty("semantic", "analytics", "attention", "agents");
 }
 
 function handleEditorKeyDown(e) {
@@ -5968,6 +6138,8 @@ function onTitleChange() {
 
   renderSidebar();
   renderCharacterRelationships(appState.currentDocumentId);
+
+  markDirty("semantic", "analytics", "attention", "rendering");
 }
 
 function onTitleKeyDown(e) {
@@ -6082,6 +6254,20 @@ function addTag(tag) {
 
   renderTags(doc);
   debounceSave();
+
+  rebuildGraphIndexes();
+
+  markDirty(
+    "structure",
+    "analytics",
+    "semantic",
+    "attention",
+    "agents",
+    "rendering",
+    "minimap",
+  );
+
+  startGraphLoop();
 }
 
 function removeTag(tag) {
@@ -6094,6 +6280,20 @@ function removeTag(tag) {
 
   renderTags(doc);
   debounceSave();
+
+  rebuildGraphIndexes();
+
+  markDirty(
+    "structure",
+    "analytics",
+    "semantic",
+    "attention",
+    "agents",
+    "rendering",
+    "minimap",
+  );
+
+  startGraphLoop();
 }
 
 function populateCharacterSelect() {
@@ -6155,6 +6355,20 @@ function addCharacterToChapter() {
 
   renderCharacterRelationships(appState.currentDocumentId);
   debounceSave();
+
+  rebuildGraphIndexes();
+
+  markDirty(
+    "structure",
+    "analytics",
+    "semantic",
+    "attention",
+    "agents",
+    "rendering",
+    "minimap",
+  );
+
+  wakeGraphPhysics();
 }
 
 function removeCharacterFromChapter(charId) {
@@ -6167,6 +6381,20 @@ function removeCharacterFromChapter(charId) {
 
   renderCharacterRelationships(appState.currentDocumentId);
   debounceSave();
+
+  rebuildGraphIndexes();
+
+  markDirty(
+    "structure",
+    "analytics",
+    "semantic",
+    "attention",
+    "agents",
+    "rendering",
+    "minimap",
+  );
+
+  wakeGraphPhysics();
 }
 
 function getChaptersForCharacter(characterId) {
@@ -6256,6 +6484,8 @@ function loadDocument(id) {
   updateWordCount();
   updatePreview();
   saveHistory();
+
+  markDirty("attention", "rendering");
 }
 
 function clearEditor() {
@@ -6304,6 +6534,20 @@ function addNewItem(section) {
   attachItemListeners(newLi);
   handleItemClick(newLi);
   debounceSave();
+
+  rebuildGraphIndexes();
+
+  markDirty(
+    "structure",
+    "analytics",
+    "semantic",
+    "attention",
+    "agents",
+    "rendering",
+    "minimap",
+  );
+
+  wakeGraphPhysics();
 }
 
 function renameItem(item) {
@@ -6321,6 +6565,10 @@ function renameItem(item) {
   }
 
   debounceSave();
+
+  markDirty("semantic", "analytics", "attention", "agents", "rendering");
+
+  startGraphLoop();
 }
 
 function deleteItem(item) {
@@ -6345,6 +6593,20 @@ function deleteItem(item) {
   }
 
   debounceSave();
+
+  rebuildGraphIndexes();
+
+  markDirty(
+    "structure",
+    "analytics",
+    "semantic",
+    "attention",
+    "agents",
+    "rendering",
+    "minimap",
+  );
+
+  wakeGraphPhysics();
 }
 
 function setActiveItem(clickedItem) {
