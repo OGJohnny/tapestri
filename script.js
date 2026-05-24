@@ -130,6 +130,9 @@ const graphState = {
   nodes: [],
   edges: [],
 
+  visibleNodes: [],
+  visibleEdges: [],
+
   nodeMap: new Map(),
 
   adjacencyMap: new Map(),
@@ -462,6 +465,16 @@ function hashEdge(a, b) {
 
 function incrementFrequency(map, key, amount = 1) {
   map.set(key, (map.get(key) || 0) + amount);
+}
+
+function withAlpha(hex, alpha) {
+  const bigint = parseInt(hex.slice(1), 16);
+
+  const r = (bigint >> 16) & 255;
+  const g = (bigint >> 8) & 255;
+  const b = bigint & 255;
+
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 // Data Access
@@ -2947,6 +2960,46 @@ function isNodeNearCenter(node) {
   return Math.sqrt(dx * dx + dy * dy) < 180;
 }
 
+function getViewportBounds() {
+  const left = -graphState.offsetX / graphState.scale;
+
+  const top = -graphState.offsetY / graphState.scale;
+
+  const right = left + canvas.width / graphState.scale;
+
+  const bottom = top + canvas.height / graphState.scale;
+
+  return {
+    left,
+    top,
+    right,
+    bottom,
+  };
+}
+
+function updateVisibleNodes() {
+  const bounds = getViewportBounds();
+
+  const padding = 300;
+
+  graphState.visibleNodes = graphState.nodes.filter((node) => {
+    return (
+      node.x >= bounds.left - padding &&
+      node.x <= bounds.right + padding &&
+      node.y >= bounds.top - padding &&
+      node.y <= bounds.bottom + padding
+    );
+  });
+}
+
+function updateVisibleEdges() {
+  const visibleIds = new Set(graphState.visibleNodes.map((n) => n.id));
+
+  graphState.visibleEdges = graphState.edges.filter((edge) => {
+    return visibleIds.has(edge.source) || visibleIds.has(edge.target);
+  });
+}
+
 // =====================================================
 // VISUAL + FLOW HELPERS
 // =====================================================
@@ -3133,12 +3186,16 @@ function getNodeTypeDisplayName(type) {
 // Render State
 function prepareGraphRenderState() {
   const selectedId = graphState.selectedNodeId;
-
   const hoveredId = graphState.hoveredNodeId;
-
   const activeId = hoveredId || selectedId;
 
+  const zoomLevel = graphState.semanticZoomLevel;
+
   const connectedIds = activeId ? getConnectedNodeIds(activeId) : new Set();
+
+  // --------------------------------
+  // VISIBLE NODES
+  // --------------------------------
 
   const visibleNodes = graphState.nodes.filter(
     (node) => graphState.filters[node.type],
@@ -3150,13 +3207,58 @@ function prepareGraphRenderState() {
     visibleNodeMap.set(node.id, node);
   });
 
+  // --------------------------------
+  // EDGE FILTERING
+  // --------------------------------
+
+  const visibleEdges = graphState.edges.filter((edge) => {
+    return visibleNodeMap.has(edge.from) && visibleNodeMap.has(edge.to);
+  });
+
+  // --------------------------------
+  // LABEL PRIORITY
+  // --------------------------------
+
+  const visibleLabels = [...visibleNodes].sort(
+    (a, b) => getSemanticImportance(b) - getSemanticImportance(a),
+  );
+
+  // --------------------------------
+  // CONTEXT IDS
+  // --------------------------------
+
+  const contextIds = new Set(
+    graphState.cognitiveContext.activeWindow.map((n) => n.id),
+  );
+
+  // --------------------------------
+  // NODE CULLING
+  // --------------------------------
+
+  let culledNodes = visibleNodes;
+
+  if (zoomLevel === 1) {
+    culledNodes = visibleNodes.filter((node) => {
+      const importance = getSemanticImportance(node);
+
+      return (
+        importance >= 10 || node.type === "chapter" || node.type === "character"
+      );
+    });
+  }
+
   return {
     selectedId,
     hoveredId,
     activeId,
     connectedIds,
-    visibleNodes,
+
+    visibleNodes: culledNodes,
+    visibleEdges,
+
+    visibleLabels,
     visibleNodeMap,
+    contextIds,
   };
 }
 
@@ -3712,11 +3814,14 @@ function drawCommunityHulls(ctx) {
 
 // Core Graph
 function drawEdges(ctx, renderState) {
-  const { activeId, visibleNodeMap } = renderState;
+  const { activeId, visibleNodeMap, visibleEdges } = renderState;
 
   ctx.lineCap = "round";
 
-  // BUILD TRACED EDGE SET ONCE
+  // --------------------------------
+  // TRACED EDGE SET
+  // --------------------------------
+
   const tracedEdges = new Set();
 
   for (let i = 0; i < graphState.tracedPath.length - 1; i++) {
@@ -3725,44 +3830,66 @@ function drawEdges(ctx, renderState) {
     );
   }
 
-  graphState.edges.forEach((edge) => {
-    const relationship = graphState.relationshipDynamics.get(
-      `${edge.from}-${edge.to}`,
-    );
-    const zoomLevel = graphState.semanticZoomLevel;
+  // --------------------------------
+  // EDGE LOOP
+  // --------------------------------
+
+  visibleEdges.forEach((edge) => {
     const from = visibleNodeMap.get(edge.from);
     const to = visibleNodeMap.get(edge.to);
 
-    // SEMANTIC LOD FILTERING
-    if (zoomLevel === 1) {
-      // MACRO VIEW:
-      // only strongest explicit edges
+    if (!from || !to) {
+      return;
+    }
 
+    const relationship = graphState.relationshipDynamics.get(
+      `${edge.from}-${edge.to}`,
+    );
+
+    const zoomLevel = graphState.semanticZoomLevel;
+
+    // --------------------------------
+    // LOD FILTERING
+    // --------------------------------
+
+    if (zoomLevel === 1) {
       if (edge.style === "semantic" || (edge.strength || 0) < 2) {
         return;
       }
     }
 
     if (zoomLevel === 2) {
-      // COMMUNITY VIEW:
-      // reduce weak semantic edges
       if (edge.style === "semantic" && (edge.strength || 0) < 1.4) {
         return;
       }
     }
 
-    if (!from || !to) return;
+    // --------------------------------
+    // SCREEN POSITIONS
+    // --------------------------------
 
     const fromX = from.x * graphState.scale + graphState.offsetX;
+
     const fromY = from.y * graphState.scale + graphState.offsetY;
 
     const toX = to.x * graphState.scale + graphState.offsetX;
+
     const toY = to.y * graphState.scale + graphState.offsetY;
 
     const isConnected = edge.from === activeId || edge.to === activeId;
 
+    const isTraced = tracedEdges.has(`${edge.from}-${edge.to}`);
+
+    const { controlX, controlY } = getEdgeCurve(fromX, fromY, toX, toY, edge);
+
+    // --------------------------------
+    // TENSION / ATTENTION
+    // --------------------------------
+
     const fromTension = graphState.tensionMap.get(edge.from) || 0;
+
     const toTension = graphState.tensionMap.get(edge.to) || 0;
+
     const edgeTension = (fromTension + toTension) / 2;
 
     const attentionA = graphState.attentionState.weights.get(edge.from) || 0;
@@ -3771,41 +3898,50 @@ function drawEdges(ctx, renderState) {
 
     const attentionStrength = (attentionA + attentionB) * 0.5;
 
-    const isTraced = tracedEdges.has(`${edge.from}-${edge.to}`);
-
-    const { controlX, controlY } = getEdgeCurve(fromX, fromY, toX, toY, edge);
+    // --------------------------------
+    // DRAW EDGE
+    // --------------------------------
 
     ctx.beginPath();
+
     ctx.moveTo(fromX, fromY);
+
     ctx.quadraticCurveTo(controlX, controlY, toX, toY);
 
-    // TRACED PATH
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+
+    // --------------------------------
+    // TRACED
+    // --------------------------------
+
     if (isTraced) {
       ctx.strokeStyle = "#00d4ff";
       ctx.lineWidth = 4;
       ctx.globalAlpha = 1;
+
       ctx.shadowColor = "#00d4ff";
       ctx.shadowBlur = 18;
-
-      // DEFAULT
     } else if (!activeId || !graphState.focusMode) {
-      ctx.globalAlpha *= Math.min(1, 0.35 + attentionStrength * 0.025);
+      // --------------------------------
+      // NORMAL MODE
+      // --------------------------------
 
-      const dist = Math.sqrt(
-        (toX - fromX) * (toX - fromX) + (toY - fromY) * (toY - fromY),
-      );
+      const dist = Math.hypot(toX - fromX, toY - fromY);
 
       const sameCommunity = from.community === to.community;
+
+      const depthFade = Math.max(0.08, 1 - dist / 1400);
+
+      ctx.globalAlpha = Math.min(1, 0.35 + attentionStrength * 0.025);
 
       if (!sameCommunity) {
         ctx.globalAlpha *= 0.45;
       }
 
-      const depthFade = Math.max(0.08, 1 - dist / 1400);
-
-      // SEMANTIC EDGES
       if (edge.style === "semantic") {
         ctx.strokeStyle = "#6f7d91";
+
         ctx.lineWidth = Math.max(0.7, graphState.scale * 0.9) * depthFade;
 
         const semanticStrength = Math.min(1, (edge.strength || 1) / 2.5);
@@ -3814,7 +3950,6 @@ function drawEdges(ctx, renderState) {
 
         ctx.setLineDash([5, 8]);
       } else {
-        // EXPLICIT EDGES
         ctx.strokeStyle = "#7f8794";
 
         ctx.lineWidth = Math.max(1, graphState.scale * 1.3) * depthFade;
@@ -3823,23 +3958,35 @@ function drawEdges(ctx, renderState) {
 
         ctx.setLineDash([]);
       }
-
-      // CONNECTED
     } else if (isConnected) {
+      // --------------------------------
+      // CONNECTED
+      // --------------------------------
+
       ctx.strokeStyle = "#f39c12";
+
       ctx.lineWidth = Math.max(1.8, graphState.scale * 2.2);
+
       ctx.globalAlpha = 0.95;
+
       ctx.shadowColor = "#f39c12";
       ctx.shadowBlur = 12;
-
-      // FADED
     } else {
+      // --------------------------------
+      // FADED
+      // --------------------------------
+
       ctx.strokeStyle = "#222";
+
       ctx.lineWidth = 1;
+
       ctx.globalAlpha = 0.12;
     }
 
-    // RELATIONSHIP WEIGHTING
+    // --------------------------------
+    // STRENGTH
+    // --------------------------------
+
     if (edge.strength) {
       ctx.lineWidth *= edge.strength * Math.min(1.8, 1 + edgeTension * 0.06);
 
@@ -3847,6 +3994,10 @@ function drawEdges(ctx, renderState) {
         ctx.lineWidth *= 1.25;
       }
     }
+
+    // --------------------------------
+    // RELATIONSHIPS
+    // --------------------------------
 
     if (relationship) {
       ctx.strokeStyle = getRelationshipColor(relationship);
@@ -3857,15 +4008,20 @@ function drawEdges(ctx, renderState) {
 
       ctx.shadowBlur += relationship.volatility * 0.45;
 
-      // VOLATILE RELATIONSHIPS THICKEN
       ctx.lineWidth += relationship.volatility * 0.05;
     }
+
+    // --------------------------------
+    // STROKE
+    // --------------------------------
 
     ctx.stroke();
 
     ctx.setLineDash([]);
 
-    // NARRATIVE FLOW FIELDS
+    // --------------------------------
+    // FLOW
+    // --------------------------------
 
     if (graphState.semanticZoomLevel >= 3 && edge.style !== "semantic") {
       drawNarrativeFlow({
@@ -3880,7 +4036,10 @@ function drawEdges(ctx, renderState) {
       });
     }
 
-    // DIRECTIONAL ARROWS
+    // --------------------------------
+    // ARROWS
+    // --------------------------------
+
     if (edge.direction && (!graphState.focusMode || isConnected || isTraced)) {
       drawEdgeArrow({
         ctx,
@@ -3894,7 +4053,10 @@ function drawEdges(ctx, renderState) {
       });
     }
 
-    // EDGE PULSES
+    // --------------------------------
+    // PULSES
+    // --------------------------------
+
     if (isConnected || isTraced) {
       drawEdgePulses({
         ctx,
@@ -3916,14 +4078,18 @@ function drawEdges(ctx, renderState) {
 }
 
 function drawNodes(ctx, renderState) {
-  const { activeId, connectedIds, visibleNodes, selectedId, hoveredId } =
-    renderState;
+  const {
+    activeId,
+    connectedIds,
+    visibleNodes,
+    selectedId,
+    hoveredId,
+    contextIds,
+  } = renderState;
 
   visibleNodes.forEach((node) => {
     const isSelected = node.id === selectedId;
-
     const isHovered = node.id === hoveredId;
-
     const isConnected = connectedIds.has(node.id);
 
     const screenX = node.x * graphState.scale + graphState.offsetX;
@@ -3939,7 +4105,6 @@ function drawNodes(ctx, renderState) {
 
     const typeColor = getNodeTypeColor(node.type);
 
-    // GLOBAL SEMANTIC VALUES
     const importance = getSemanticImportance(node);
 
     const attention = graphState.attentionState.weights.get(node.id) || 0;
@@ -3958,11 +4123,12 @@ function drawNodes(ctx, renderState) {
 
     const zoomLevel = graphState.semanticZoomLevel;
 
-    const inContextWindow = graphState.cognitiveContext.activeWindow.some(
-      (n) => n.id === node.id,
-    );
+    const inContextWindow = contextIds.has(node.id);
 
-    // SEMANTIC NODE LOD
+    // --------------------------------
+    // NODE LOD
+    // --------------------------------
+
     if (zoomLevel === 1) {
       if (importance < 5 && node.type === "tag") {
         return;
@@ -3979,40 +4145,24 @@ function drawNodes(ctx, renderState) {
 
     ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
 
-    // RESET
     ctx.shadowBlur = 0;
     ctx.shadowColor = "transparent";
     ctx.globalAlpha = 1;
 
-    /*
-     * ACTIVE NODE
-     */
     if (isSelected || isHovered) {
       ctx.fillStyle = "#f39c12";
       ctx.shadowColor = "#f39c12";
       ctx.shadowBlur = 20;
-      ctx.globalAlpha = 1;
     } else if (activeId && graphState.focusMode && isConnected) {
-      /*
-       * CONNECTED NODE
-       */
       ctx.fillStyle = typeColor;
-
       ctx.shadowColor = communityColor;
-
       ctx.shadowBlur = 10 + edgeConnectionCount(node.id) * 0.35;
 
       ctx.globalAlpha = 0.95;
     } else if (activeId && graphState.focusMode) {
-      /*
-       * FADED NODE
-       */
       ctx.fillStyle = "#333";
       ctx.globalAlpha = 0.18;
     } else {
-      /*
-       * NORMAL VIEW
-       */
       const attentionGlow = Math.min(24, attention * 0.18);
 
       const tensionGlow = tension > 5 ? 10 + tension * 1.5 : 0;
@@ -4045,7 +4195,7 @@ function drawNodes(ctx, renderState) {
     }
 
     if (propagation) {
-      ctx.shadowColor = getPropagationColor(propagation.type) + ",0.75)";
+      ctx.shadowColor = withAlpha(getPropagationColor(propagation.type), 0.75);
 
       ctx.shadowBlur +=
         propagation.type === "catastrophic"
@@ -4056,7 +4206,7 @@ function drawNodes(ctx, renderState) {
     }
 
     if (temporal) {
-      ctx.shadowColor = getTemporalColor(temporal.state) + ",0.75)";
+      ctx.shadowColor = withAlpha(getTemporalColor(temporal.state), 0.75);
 
       ctx.shadowBlur +=
         temporal.state === "dominant"
@@ -4066,7 +4216,6 @@ function drawNodes(ctx, renderState) {
             : 8;
     }
 
-    // ARC EMPHASIS
     if (arc) {
       ctx.shadowColor = getArcColor(arc.phase);
 
@@ -4078,14 +4227,10 @@ function drawNodes(ctx, renderState) {
 
     if (inContextWindow) {
       ctx.lineWidth = 2;
-
       ctx.strokeStyle = "rgba(255,255,255,0.35)";
-
       ctx.stroke();
-      ctx.lineWidth = 1;
     }
 
-    // CLEAN RESET
     ctx.shadowBlur = 0;
     ctx.shadowColor = "transparent";
     ctx.globalAlpha = 1;
@@ -4093,6 +4238,7 @@ function drawNodes(ctx, renderState) {
 }
 
 function drawLabels(ctx, renderState) {
+  const { visibleLabels } = renderState;
   const { visibleNodes } = renderState;
 
   const minScale = 0.25;
@@ -4120,71 +4266,65 @@ function drawLabels(ctx, renderState) {
 
   ctx.font = `${fontSize}px sans-serif`;
 
-  visibleNodes
-    .slice()
-    .sort((a, b) => getSemanticImportance(b) - getSemanticImportance(a))
-    .forEach((node) => {
-      const isHovered = node.id === graphState.hoveredNodeId;
+  visibleLabels.forEach((node) => {
+    const isHovered = node.id === graphState.hoveredNodeId;
 
-      const screenX = node.x * graphState.scale + graphState.offsetX;
+    const screenX = node.x * graphState.scale + graphState.offsetX;
 
-      const screenY = node.y * graphState.scale + graphState.offsetY;
+    const screenY = node.y * graphState.scale + graphState.offsetY;
 
-      const radius = Math.max(
-        10,
-        NODE_RADIUS * Math.max(graphState.scale, 0.7),
-      );
+    const radius = Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7));
 
-      const importance = getSemanticImportance(node);
+    const importance = getSemanticImportance(node);
 
-      const arc = graphState.arcMap.get(node.id);
+    const arc = graphState.arcMap.get(node.id);
 
-      const characterData = graphState.characterDynamics.get(node.id);
+    const characterData = graphState.characterDynamics.get(node.id);
 
-      const emotion = graphState.emotionMap.get(node.id);
+    const emotion = graphState.emotionMap.get(node.id);
 
-      const zoomLevel = graphState.semanticZoomLevel;
+    const zoomLevel = graphState.semanticZoomLevel;
 
-      // SEMANTIC LABEL LOD
-      if (zoomLevel === 1) {
-        if (importance < 14) {
-          return;
-        }
-      }
-
-      if (zoomLevel === 2) {
-        if (importance < 8) {
-          return;
-        }
-      }
-
-      // TAG DENSITY REDUCTION
-      if (alpha < 0.35 && node.type === "tag" && !isHovered) {
+    // SEMANTIC LABEL LOD
+    if (zoomLevel === 1) {
+      if (importance < 14) {
         return;
       }
+    }
 
-      const densityFade = Math.min(1, importance / 10);
+    if (zoomLevel === 2) {
+      if (importance < 8) {
+        return;
+      }
+    }
 
-      // RESET PER LABEL
-      ctx.globalAlpha = alpha * (0.35 + densityFade * 0.65);
+    // TAG DENSITY REDUCTION
+    if (alpha < 0.35 && node.type === "tag" && !isHovered) {
+      return;
+    }
 
-      ctx.shadowColor = "rgba(0,0,0,0.6)";
+    const densityFade = Math.min(1, importance / 10);
 
-      ctx.shadowBlur = 4;
+    // RESET PER LABEL
+    ctx.globalAlpha = alpha * (0.35 + densityFade * 0.65);
 
-      const label =
-        node.type === "character" &&
-        characterData &&
-        graphState.semanticZoomLevel >= 3
-          ? `${node.label} • ${characterData.role}`
-          : emotion && graphState.semanticZoomLevel >= 4
-            ? `${node.label} • ${emotion.state}`
-            : arc && graphState.semanticZoomLevel >= 3
-              ? `${node.label} • ${arc.phase}`
-              : node.label;
+    ctx.shadowColor = "rgba(0,0,0,0.6)";
 
-      ctx.fillText(label, screenX, screenY + radius + 18);
-    });
+    ctx.shadowBlur = 4;
+
+    const label =
+      node.type === "character" &&
+      characterData &&
+      graphState.semanticZoomLevel >= 3
+        ? `${node.label} • ${characterData.role}`
+        : emotion && graphState.semanticZoomLevel >= 4
+          ? `${node.label} • ${emotion.state}`
+          : arc && graphState.semanticZoomLevel >= 3
+            ? `${node.label} • ${arc.phase}`
+            : node.label;
+
+    ctx.fillText(label, screenX, screenY + radius + 18);
+  });
 
   ctx.shadowBlur = 0;
 
@@ -4194,7 +4334,7 @@ function drawLabels(ctx, renderState) {
 function drawCommunityLabels(ctx) {
   const communities = new Map();
 
-  graphState.nodes.forEach((node) => {
+  graphState.visibleNodes.forEach((node) => {
     if (node.community == null) return;
 
     if (!communities.has(node.community)) {
@@ -4958,46 +5098,39 @@ function graphLoop() {
   // --------------------------------
   // TIMING
   // --------------------------------
-
   graphState.animationTime += 0.016;
   graphState.eventPulseTime += 0.045;
 
   // --------------------------------
   // PHYSICS
   // --------------------------------
-
   updateGraphPhysics();
+
+  // --------------------------------
+  // SPATIAL GRID
+  // --------------------------------
   rebuildSpatialGrid();
+  updateVisibleNodes();
+  updateVisibleEdges();
 
   // --------------------------------
   // CAMERA
   // --------------------------------
-
   updateGraphCamera();
 
   // --------------------------------
   // ZOOM
   // --------------------------------
-
   updateSemanticZoomLevel();
 
   // --------------------------------
   // EXPENSIVE DIRTY SYSTEMS
   // --------------------------------
-
   updateGraphSystems();
-
-  // --------------------------------
-  // ALWAYS RENDER FRAME
-  // --------------------------------
-
-  renderGraph();
-  renderMinimap();
 
   // --------------------------------
   // ACTIVE STATE CHECKS
   // --------------------------------
-
   const cameraDelta =
     Math.abs(graphState.offsetX - graphState.targetOffsetX) +
     Math.abs(graphState.offsetY - graphState.targetOffsetY) +
@@ -5016,9 +5149,17 @@ function graphLoop() {
     graphState.hoveredNodeId;
 
   // --------------------------------
+  // RENDER
+  // --------------------------------
+  renderGraph();
+
+  if (physicsActive || dragging || !cameraSettled) {
+    renderMinimap();
+  }
+
+  // --------------------------------
   // CONTINUE LOOP
   // --------------------------------
-
   if (physicsActive || !cameraSettled || dragging || visualEffectsActive) {
     graphAnimationFrame = requestAnimationFrame(graphLoop);
   } else {
