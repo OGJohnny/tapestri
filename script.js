@@ -214,6 +214,17 @@ const graphState = {
   dirtySystems: new Set(),
 
   // ---------------------------------
+  // Analytics Queues
+  // ---------------------------------
+
+  analyticsQueue: new Set(),
+  semanticQueue: new Set(),
+  temporalQueue: new Set(),
+  relationshipQueue: new Set(),
+  emotionQueue: new Set(),
+  characterQueue: new Set(),
+
+  // ---------------------------------
   // Tooltip State
   // ---------------------------------
 
@@ -265,6 +276,13 @@ const graphState = {
   semanticInferenceMap: new Map(),
   semanticMotifMap: new Map(),
   semanticAnomalyMap: new Map(),
+
+  // ---------------------------------
+  // Grid State
+  // ---------------------------------
+
+  spatialGrid: new Map(),
+  gridCellSize: 240,
 
   // ---------------------------------
   // Timeline State
@@ -907,6 +925,85 @@ function initializeCommunityAnchors() {
 }
 
 // =====================================================
+// QUEUE HELPERS
+// =====================================================
+
+function queueAnalytics(...nodeIds) {
+  nodeIds.forEach((id) => {
+    if (id != null) {
+      graphState.analyticsQueue.add(String(id));
+    }
+  });
+
+  markDirty("analytics");
+}
+
+function queueSemantic(...nodeIds) {
+  nodeIds.forEach((id) => {
+    if (id != null) {
+      graphState.semanticQueue.add(String(id));
+    }
+  });
+
+  markDirty("semantic");
+}
+
+function queueRelationships(...nodeIds) {
+  nodeIds.forEach((id) => {
+    if (id != null) {
+      graphState.relationshipQueue.add(String(id));
+    }
+  });
+
+  markDirty("relationships");
+}
+
+function queueEmotion(...nodeIds) {
+  nodeIds.forEach((id) => {
+    if (id != null) {
+      graphState.emotionQueue.add(String(id));
+    }
+  });
+
+  markDirty("emotional");
+}
+
+function queueNodeAndNeighbors(nodeId) {
+  if (!nodeId) {
+    return;
+  }
+
+  const connected = getConnectedNeighbors(nodeId);
+
+  graphState.analyticsQueue.add(nodeId);
+  graphState.semanticQueue.add(nodeId);
+  graphState.temporalQueue.add(nodeId);
+  graphState.relationshipQueue.add(nodeId);
+  graphState.emotionQueue.add(nodeId);
+  graphState.characterQueue.add(nodeId);
+
+  connected.forEach((neighbor) => {
+    graphState.analyticsQueue.add(neighbor.id);
+    graphState.semanticQueue.add(neighbor.id);
+    graphState.temporalQueue.add(neighbor.id);
+    graphState.relationshipQueue.add(neighbor.id);
+    graphState.emotionQueue.add(neighbor.id);
+    graphState.characterQueue.add(neighbor.id);
+  });
+}
+
+function processQueueInBatches(queue, batchSize, processor) {
+  const items = [...queue].slice(0, batchSize);
+
+  items.forEach((item) => {
+    processor(item);
+    queue.delete(item);
+  });
+
+  return queue.size > 0;
+}
+
+// =====================================================
 // COGNITIVE / AI MEMORY SYSTEMS
 // =====================================================
 
@@ -1237,13 +1334,12 @@ function detectNarrativeArcs() {
 }
 
 function analyzeCharacterDynamics() {
-  const dynamics = new Map();
+  const queuedNodes = [...graphState.analyticsQueue]
+    .map((id) => graphState.nodeMap.get(id))
+    .filter(Boolean)
+    .filter((node) => node.type === "character");
 
-  const timelineNodes = graphState.nodes.filter(
-    (node) => node.type === "timeline",
-  );
-
-  graphState.nodes.forEach((node) => {
+  queuedNodes.forEach((node) => {
     if (node.type !== "character") {
       return;
     }
@@ -1296,13 +1392,17 @@ function analyzeCharacterDynamics() {
     });
   });
 
-  graphState.characterDynamics = dynamics;
+  graphState.analyticsQueue.clear();
 }
 
 function analyzeEmotionalTrajectories() {
   const emotionMap = new Map();
 
-  graphState.nodes.forEach((node) => {
+  const queuedNodes = [...graphState.analyticsQueue]
+    .map((id) => graphState.nodeMap.get(id))
+    .filter(Boolean);
+
+  queuedNodes.forEach((node) => {
     const neighbors = getConnectedNeighbors(node.id);
 
     const tension = graphState.tensionMap.get(node.id) || 0;
@@ -1429,7 +1529,11 @@ function analyzeRelationshipDynamics() {
 function analyzeNarrativePropagation() {
   const propagation = new Map();
 
-  graphState.nodes.forEach((node) => {
+  const queuedNodes = [...graphState.analyticsQueue]
+    .map((id) => graphState.nodeMap.get(id))
+    .filter(Boolean);
+
+  queuedNodes.forEach((node) => {
     const neighbors = getConnectedNeighbors(node.id);
 
     const tension = graphState.tensionMap.get(node.id) || 0;
@@ -1505,7 +1609,11 @@ function analyzeTemporalNarrativeState() {
 
   const chapterNumber = extractChapterNumber(currentChapter.label);
 
-  graphState.nodes.forEach((node) => {
+  const queuedNodes = [...graphState.analyticsQueue]
+    .map((id) => graphState.nodeMap.get(id))
+    .filter(Boolean);
+
+  queuedNodes.forEach((node) => {
     let temporalWeight = 0;
 
     // CHAPTER SELF
@@ -1574,16 +1682,20 @@ function analyzeTemporalNarrativeState() {
 function analyzeSemanticInference() {
   const inferenceMap = new Map();
 
-  const nodes = graphState.nodes.filter((node) => node.type !== "tag");
+  const queuedNodes = [...graphState.semanticQueue]
+    .map((id) => graphState.nodeMap.get(id))
+    .filter(Boolean);
 
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i + 1; j < nodes.length; j++) {
-      const a = nodes[i];
-      const b = nodes[j];
+  queuedNodes.forEach((a) => {
+    const neighbors = getConnectedNeighbors(a.id);
 
-      const aTokens = tokenizeNarrativeText(a.label);
+    neighbors.forEach((b) => {
+      if (!b || a.id === b.id) {
+        return;
+      }
 
-      const bTokens = tokenizeNarrativeText(b.label);
+      const aTokens = tokenizeNarrativeText(a.label || "");
+      const bTokens = tokenizeNarrativeText(b.label || "");
 
       const shared = aTokens.filter((token) => bTokens.includes(token));
 
@@ -1599,7 +1711,6 @@ function analyzeSemanticInference() {
 
       // EMOTIONAL SIMILARITY
       const aEmotion = graphState.emotionMap.get(a.id);
-
       const bEmotion = graphState.emotionMap.get(b.id);
 
       if (aEmotion && bEmotion && aEmotion.state === bEmotion.state) {
@@ -1608,7 +1719,6 @@ function analyzeSemanticInference() {
 
       // ARC SIMILARITY
       const aArc = graphState.arcMap.get(a.id);
-
       const bArc = graphState.arcMap.get(b.id);
 
       if (aArc && bArc && aArc.phase === bArc.phase) {
@@ -1617,7 +1727,6 @@ function analyzeSemanticInference() {
 
       // TEMPORAL PROXIMITY
       const aTemporal = graphState.temporalStateMap.get(a.id);
-
       const bTemporal = graphState.temporalStateMap.get(b.id);
 
       if (
@@ -1628,18 +1737,18 @@ function analyzeSemanticInference() {
         semanticScore += 4;
       }
 
-      if (semanticScore < 14) {
-        continue;
+      if (semanticScore >= 14) {
+        inferenceMap.set(`${a.id}-${b.id}`, {
+          score: semanticScore,
+          sharedTokens: shared,
+        });
       }
-
-      inferenceMap.set(`${a.id}-${b.id}`, {
-        score: semanticScore,
-        sharedTokens: shared,
-      });
-    }
-  }
+    });
+  });
 
   graphState.semanticInferenceMap = inferenceMap;
+
+  graphState.semanticQueue.clear();
 }
 
 function analyzeSemanticMotifs() {
@@ -2447,26 +2556,41 @@ function getGraphBounds() {
 }
 
 function getNodeAtPosition(x, y) {
-  const visibleNodes = graphState.nodes.filter(
-    (node) => graphState.filters[node.type],
-  );
+  const size = graphState.gridCellSize;
 
-  for (let i = visibleNodes.length - 1; i >= 0; i--) {
-    const node = visibleNodes[i];
+  const gx = Math.floor(x / size);
+  const gy = Math.floor(y / size);
 
-    const dx = node.x - x;
-    const dy = node.y - y;
+  let closest = null;
+  let closestDistance = Infinity;
 
-    const radius =
-      Math.max(10, NODE_RADIUS * Math.max(graphState.scale, 0.7)) /
-      graphState.scale;
+  for (let ox = -1; ox <= 1; ox++) {
+    for (let oy = -1; oy <= 1; oy++) {
+      const key = `${gx + ox},${gy + oy}`;
 
-    if (Math.sqrt(dx * dx + dy * dy) <= radius) {
-      return node;
+      const bucket = graphState.spatialGrid.get(key);
+
+      if (!bucket) {
+        continue;
+      }
+
+      bucket.forEach((node) => {
+        const dx = node.x - x;
+        const dy = node.y - y;
+
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        const radius = node.radius || 22;
+
+        if (distance < radius && distance < closestDistance) {
+          closest = node;
+          closestDistance = distance;
+        }
+      });
     }
   }
 
-  return null;
+  return closest;
 }
 
 function findClosestNode(x, y) {
@@ -2529,6 +2653,29 @@ function findShortestPath(startId, endId) {
   }
 
   return [];
+}
+
+function getGridKey(x, y) {
+  const size = graphState.gridCellSize;
+
+  const gx = Math.floor(x / size);
+  const gy = Math.floor(y / size);
+
+  return `${gx},${gy}`;
+}
+
+function rebuildSpatialGrid() {
+  graphState.spatialGrid.clear();
+
+  graphState.nodes.forEach((node) => {
+    const key = getGridKey(node.x, node.y);
+
+    if (!graphState.spatialGrid.has(key)) {
+      graphState.spatialGrid.set(key, []);
+    }
+
+    graphState.spatialGrid.get(key).push(node);
+  });
 }
 
 // =====================================================
@@ -4104,9 +4251,6 @@ function updateGraphSystems() {
   if (dirty.has("structure")) {
     rebuildGraphIndexes();
     detectCommunities();
-    detectSubcommunities();
-    generateCommunityLabels();
-    initializeCommunityAnchors();
   }
 
   if (dirty.has("analytics")) {
@@ -4797,7 +4941,6 @@ function applyForces() {
 
 function updateGraphPhysics() {
   applyForces();
-  console.log("TEMP", graphState.temperature);
 }
 
 function wakeGraphPhysics() {
@@ -4824,6 +4967,7 @@ function graphLoop() {
   // --------------------------------
 
   updateGraphPhysics();
+  rebuildSpatialGrid();
 
   // --------------------------------
   // CAMERA
@@ -4884,10 +5028,7 @@ function graphLoop() {
 }
 
 function startGraphLoop() {
-  console.log("START GRAPH LOOP");
-
   if (graphAnimating) {
-    console.log("ALREADY ANIMATING");
     return;
   }
 
@@ -5005,19 +5146,25 @@ function hideGraphTooltip() {
 function handleGraphClick(x, y, event) {
   startGraphLoop();
 
-  if (graphState.hasDragged) return;
+  if (graphState.hasDragged) {
+    return;
+  }
 
   const { node, distance } = findClosestNode(x, y);
 
   if (node && distance <= CLICK_RADIUS) {
-    if (graphTransitioning) return;
+    if (graphTransitioning) {
+      return;
+    }
 
+    // PATH TRACING
     if (event.shiftKey) {
       if (graphState.traceStartNodeId) {
         graphState.tracedPath = findShortestPath(
           graphState.traceStartNodeId,
           node.id,
         );
+
         graphState.traceStartNodeId = null;
       } else {
         graphState.traceStartNodeId = node.id;
@@ -5029,12 +5176,16 @@ function handleGraphClick(x, y, event) {
     }
 
     graphTransitioning = true;
+
     graphState.selectedNodeId = node.id;
 
     buildHierarchicalMemory(node.id);
 
-    // GOOD: split dirty responsibilities
-    markDirty("attention", "analytics", "rendering");
+    queueNodeAndNeighbors(node.id);
+
+    markDirty("attention", "analytics", "semantic", "rendering");
+
+    wakeGraphPhysics();
 
     setTimeout(() => {
       graphTransitioning = false;
@@ -5046,6 +5197,8 @@ function handleGraphClick(x, y, event) {
     graphState.cognitiveContext.activeWindow = [];
 
     markDirty("attention", "rendering");
+
+    wakeGraphPhysics();
   }
 }
 
@@ -5777,6 +5930,10 @@ function onEditorInput(e) {
   updatePreview();
   updateWordCount();
   debounceSave();
+
+  if (currentDocumentId) {
+    queueNodeAndNeighbors(currentDocumentId);
+  }
 
   markDirty("semantic", "analytics", "attention", "agents");
 }
