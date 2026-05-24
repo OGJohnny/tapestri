@@ -2540,31 +2540,109 @@ function getTooltipData(node) {
   };
 }
 
-function getGraphBounds() {
-  const nodes = graphState.nodes;
-  if (!nodes.length) return null;
+function calculateGraphBounds() {
+  if (!graphState.nodes.length) {
+    return {
+      minX: -500,
+      minY: -500,
+      maxX: 500,
+      maxY: 500,
+      width: 1000,
+      height: 1000,
+      centerX: 0,
+      centerY: 0,
+    };
+  }
 
-  let minX = Infinity,
-    maxX = -Infinity;
-  let minY = Infinity,
-    maxY = -Infinity;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
 
-  nodes.forEach((n) => {
-    minX = Math.min(minX, n.x);
-    maxX = Math.max(maxX, n.x);
-    minY = Math.min(minY, n.y);
-    maxY = Math.max(maxY, n.y);
+  graphState.nodes.forEach((node) => {
+    minX = Math.min(minX, node.x);
+    minY = Math.min(minY, node.y);
+    maxX = Math.max(maxX, node.x);
+    maxY = Math.max(maxY, node.y);
   });
+
+  // -----------------------------------
+  // PREVENT TINY-GRAPH COLLAPSE
+  // -----------------------------------
+
+  const MIN_GRAPH_SIZE = 1400;
+
+  let width = maxX - minX;
+  let height = maxY - minY;
+
+  if (width < MIN_GRAPH_SIZE) {
+    const pad = (MIN_GRAPH_SIZE - width) * 0.5;
+    minX -= pad;
+    maxX += pad;
+  }
+
+  if (height < MIN_GRAPH_SIZE) {
+    const pad = (MIN_GRAPH_SIZE - height) * 0.5;
+    minY -= pad;
+    maxY += pad;
+  }
+
+  width = maxX - minX;
+  height = maxY - minY;
 
   return {
     minX,
-    maxX,
     minY,
+    maxX,
     maxY,
-    centerX: (minX + maxX) / 2,
-    centerY: (minY + maxY) / 2,
+    width,
+    height,
+    centerX: (minX + maxX) * 0.5,
+    centerY: (minY + maxY) * 0.5,
+  };
+}
+
+function calculateVisualGraphBounds() {
+  if (!graphState.nodes.length) {
+    return null;
+  }
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  graphState.nodes.forEach((node) => {
+    if (!graphState.filters[node.type]) {
+      return;
+    }
+
+    minX = Math.min(minX, node.x);
+    minY = Math.min(minY, node.y);
+    maxX = Math.max(maxX, node.x);
+    maxY = Math.max(maxY, node.y);
+  });
+
+  // SINGLE NODE SAFETY
+  if (minX === maxX) {
+    minX -= 200;
+    maxX += 200;
+  }
+
+  if (minY === maxY) {
+    minY -= 200;
+    maxY += 200;
+  }
+
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
     width: maxX - minX,
     height: maxY - minY,
+    centerX: (minX + maxX) * 0.5,
+    centerY: (minY + maxY) * 0.5,
   };
 }
 
@@ -2696,7 +2774,7 @@ function rebuildSpatialGrid() {
 // =====================================================
 
 function getMinimapTransform() {
-  const bounds = getGraphBounds();
+  const bounds = calculateGraphBounds();
 
   if (!bounds) return null;
 
@@ -2765,7 +2843,7 @@ function setCamera(scale, offsetX, offsetY) {
 }
 
 function centerGraph() {
-  const bounds = getGraphBounds();
+  const bounds = calculateGraphBounds();
   if (!bounds) return;
 
   graphState.targetOffsetX =
@@ -2820,25 +2898,48 @@ function focusNode(nodeId, options = {}) {
 }
 
 function fitGraphToScreen() {
-  const bounds = getGraphBounds();
+  const bounds = calculateVisualGraphBounds();
+
   if (!bounds) return;
 
-  const padding = 120;
+  // --------------------------------
+  // DYNAMIC PADDING
+  // --------------------------------
 
-  const scaleX = (canvas.width - padding) / bounds.width;
-  const scaleY = (canvas.height - padding) / bounds.height;
+  const horizontalPadding = canvas.width * 0.12;
+  const verticalPadding = canvas.height * 0.12;
 
-  const newScale = Math.min(scaleX, scaleY);
+  // --------------------------------
+  // SCALE
+  // --------------------------------
 
-  setCamera(
-    newScale,
-    canvas.width / 2 - bounds.centerX * newScale,
-    canvas.height / 2 - bounds.centerY * newScale,
-  );
+  const scaleX = (canvas.width - horizontalPadding * 2) / bounds.width;
+
+  const scaleY = (canvas.height - verticalPadding * 2) / bounds.height;
+
+  let newScale = Math.min(scaleX, scaleY);
+
+  // --------------------------------
+  // UX CLAMPING
+  // --------------------------------
+
+  // prevents absurd zoom-in on tiny graphs
+  newScale = Math.min(newScale, 1.4);
+
+  // prevents absurd zoom-out on huge graphs
+  newScale = Math.max(newScale, 0.12);
+
+  // --------------------------------
+  // CENTER CAMERA
+  // --------------------------------
+
+  const offsetX = canvas.width * 0.5 - bounds.centerX * newScale;
+
+  const offsetY = canvas.height * 0.5 - bounds.centerY * newScale;
+
+  setCamera(newScale, offsetX, offsetY);
 
   wakeGraphPhysics();
-
-  markDirty("rendering", "minimap");
 
   startGraphLoop();
 }
@@ -2856,13 +2957,13 @@ function resetGraphView() {
 }
 
 function clampGraphCamera() {
-  const bounds = getGraphBounds();
+  const bounds = calculateGraphBounds();
   if (!bounds) return;
 
   const scaledWidth = bounds.width * graphState.scale;
   const scaledHeight = bounds.height * graphState.scale;
 
-  const padding = 1000;
+  const padding = Math.max(300, Math.min(canvas.width, canvas.height) * 0.35);
 
   const minOffsetX = canvas.width - scaledWidth - padding;
   const maxOffsetX = padding;
@@ -4472,7 +4573,7 @@ function renderMinimap() {
 
   ctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
 
-  const bounds = getGraphBounds();
+  const bounds = calculateGraphBounds();
 
   if (!bounds) return;
 
@@ -5420,44 +5521,59 @@ function openGraph() {
 
   setupCanvasSize();
 
-  // CLUSTER CENTERS
-  clusterCenters.chapter = {
-    x: canvas.width * 0.5,
-    y: canvas.height * 0.5,
-  };
-
-  clusterCenters.character = {
-    x: canvas.width * 0.25,
-    y: canvas.height * 0.5,
-  };
-
-  clusterCenters.tag = {
-    x: canvas.width * 0.75,
-    y: canvas.height * 0.5,
-  };
-
-  clusterCenters.world = {
-    x: canvas.width * 0.72,
-    y: canvas.height * 0.35,
-  };
-
-  clusterCenters.timeline = {
-    x: canvas.width * 0.62,
-    y: canvas.height * 0.22,
-  };
-
-  clusterCenters.notes = {
-    x: canvas.width * 0.78,
-    y: canvas.height * 0.68,
-  };
-
-  clusterCenters.ideas = {
-    x: canvas.width * 0.88,
-    y: canvas.height * 0.5,
-  };
-
   // BUILD GRAPH
   const data = getGraphData();
+  const totalNodes = data.nodes.length;
+  const smallGraph = totalNodes <= 5;
+
+  // CLUSTER CENTERS
+  if (smallGraph) {
+    const centerX = canvas.width * 0.5;
+    const centerY = canvas.height * 0.5;
+
+    clusterCenters.chapter = { x: centerX, y: centerY };
+    clusterCenters.character = { x: centerX, y: centerY };
+    clusterCenters.tag = { x: centerX, y: centerY };
+    clusterCenters.world = { x: centerX, y: centerY };
+    clusterCenters.timeline = { x: centerX, y: centerY };
+    clusterCenters.notes = { x: centerX, y: centerY };
+    clusterCenters.ideas = { x: centerX, y: centerY };
+  } else {
+    clusterCenters.chapter = {
+      x: canvas.width * 0.5,
+      y: canvas.height * 0.5,
+    };
+
+    clusterCenters.character = {
+      x: canvas.width * 0.25,
+      y: canvas.height * 0.5,
+    };
+
+    clusterCenters.tag = {
+      x: canvas.width * 0.75,
+      y: canvas.height * 0.5,
+    };
+
+    clusterCenters.world = {
+      x: canvas.width * 0.72,
+      y: canvas.height * 0.35,
+    };
+
+    clusterCenters.timeline = {
+      x: canvas.width * 0.62,
+      y: canvas.height * 0.22,
+    };
+
+    clusterCenters.notes = {
+      x: canvas.width * 0.78,
+      y: canvas.height * 0.68,
+    };
+
+    clusterCenters.ideas = {
+      x: canvas.width * 0.88,
+      y: canvas.height * 0.5,
+    };
+  }
 
   graphState.nodes = data.nodes.map((node) => {
     const cluster = clusterCenters[node.type] || clusterCenters.chapter;
@@ -5987,8 +6103,6 @@ function undo() {
       entry.selectionEnd ?? entry.selectionStart ?? 0,
     );
 
-    updateToolbarState();
-
     editorState.isRestoring = false;
   });
 }
@@ -6010,8 +6124,6 @@ function redo() {
       entry.selectionStart ?? 0,
       entry.selectionEnd ?? entry.selectionStart ?? 0,
     );
-
-    updateToolbarState();
 
     editorState.isRestoring = false;
   });
@@ -6199,54 +6311,6 @@ function handleTabIndent(e) {
   return true;
 }
 
-function isInsideMarker(text, pos, marker) {
-  const before = text.slice(0, pos);
-  const after = text.slice(pos);
-
-  const beforeCount = before.split(marker).length - 1;
-  const afterCount = after.split(marker).length - 1;
-
-  return beforeCount % 2 === 1 && afterCount > 0;
-}
-
-function normalizeSelectionForFormat(type) {
-  const start = editorContent.selectionStart;
-  const end = editorContent.selectionEnd;
-  const text = editorContent.value;
-
-  let marker = "";
-  if (type === "bold") marker = "**";
-  else if (type === "italic") marker = "*";
-  else if (type === "underline") marker = "__";
-  else return;
-
-  // Look OUTSIDE selection
-  const before = text.slice(start - marker.length, start);
-  const after = text.slice(end, end + marker.length);
-
-  if (before === marker && after === marker) {
-    editorContent.setSelectionRange(start - marker.length, end + marker.length);
-  }
-}
-
-function getActiveFormats() {
-  const pos = editorContent.selectionStart;
-  const text = editorContent.value;
-
-  const isBold = isInsideMarker(text, pos, "**");
-  const isUnderline = isInsideMarker(text, pos, "__");
-
-  // italic must NOT trigger inside bold/underline markers
-  const isItalic = !isBold && !isUnderline && isInsideMarker(text, pos, "*");
-
-  return {
-    bold: isBold,
-    italic: isItalic,
-    underline: isUnderline,
-    italic: isInsideMarker(text, pos, "*") && !isInsideMarker(text, pos, "**"),
-  };
-}
-
 function formatText(type) {
   const start = editorContent.selectionStart;
   const end = editorContent.selectionEnd;
@@ -6281,7 +6345,6 @@ function formatText(type) {
       saveHistory();
 
       editorState.isProgrammaticEdit = false;
-      updateToolbarState();
 
       return;
     }
@@ -6318,29 +6381,12 @@ function formatText(type) {
 
   // STEP 2: Save POST-FORMAT state (redo target)
   saveHistory();
-  updateToolbarState();
   editorState.isProgrammaticEdit = false;
 }
 
 // =====================================================
 // EDITOR UI
 // =====================================================
-
-function updateToolbarState() {
-  const formats = getActiveFormats();
-
-  document
-    .querySelectorAll(".toolbar-btn[data-format='bold']")
-    .forEach((btn) => btn.classList.toggle("active", formats.bold));
-
-  document
-    .querySelectorAll(".toolbar-btn[data-format='italic']")
-    .forEach((btn) => btn.classList.toggle("active", formats.italic));
-
-  document
-    .querySelectorAll(".toolbar-btn[data-format='underline']")
-    .forEach((btn) => btn.classList.toggle("active", formats.underline));
-}
 
 function updateWordCount() {
   const text = editorContent.value;
@@ -6359,6 +6405,7 @@ function setEditorFontSize(size) {
 
 function togglePreview() {
   if (isTogglingPreview) return;
+
   isTogglingPreview = true;
 
   if (!isPreviewMode) {
@@ -6369,24 +6416,23 @@ function togglePreview() {
 
   updatePreview();
   applyPreviewMode();
+
   updateMenuState();
   savePreviewMode();
 
   const indicator = document.getElementById("mode-indicator");
 
-  if (isPreviewMode) {
-    indicator.classList.remove("hidden");
-  } else {
-    indicator.classList.add("hidden");
+  indicator.classList.toggle("hidden", !isPreviewMode);
 
+  if (!isPreviewMode) {
     requestAnimationFrame(() => {
       restoreEditorState();
     });
   }
 
-  setTimeout(() => {
+  requestAnimationFrame(() => {
     isTogglingPreview = false;
-  }, 0);
+  });
 }
 
 function toggleFocusMode() {
@@ -6403,9 +6449,26 @@ function applyPreviewMode() {
   if (isPreviewMode) {
     preview.classList.remove("hidden");
     textarea.classList.add("hidden");
+
+    // MATCH EDITOR SCROLL POSITION
+    preview.scrollTop = textarea.scrollTop;
+
+    // REMOVE BROWSER OUTLINE
+    preview.style.outline = "none";
+
+    // IMPORTANT:
+    // GIVE KEYBOARD FOCUS TO PREVIEW
+    requestAnimationFrame(() => {
+      preview.focus();
+    });
   } else {
     preview.classList.add("hidden");
     textarea.classList.remove("hidden");
+
+    // RESTORE EDITOR FOCUS
+    requestAnimationFrame(() => {
+      textarea.focus();
+    });
   }
 
   document.body.classList.toggle("preview-mode", isPreviewMode);
@@ -7587,8 +7650,6 @@ function initEditorEvents() {
 
 function initEditorInputEvents() {
   editorContent.addEventListener("input", onEditorInput);
-  editorContent.addEventListener("keyup", updateToolbarState);
-  editorContent.addEventListener("click", updateToolbarState);
 }
 
 function initEditorKeyboardEvents() {
@@ -7737,6 +7798,47 @@ function handleKeyboardShorts(e) {
   }
 }
 
+function initializePreviewKeyboardNavigation() {
+  const preview = document.getElementById("preview-pane");
+
+  preview.addEventListener("keydown", (e) => {
+    const scrollAmount = 60;
+    const pageAmount = window.innerHeight * 0.9;
+
+    switch (e.key) {
+      case "ArrowDown":
+        preview.scrollTop += scrollAmount;
+        e.preventDefault();
+        break;
+
+      case "ArrowUp":
+        preview.scrollTop -= scrollAmount;
+        e.preventDefault();
+        break;
+
+      case "PageDown":
+        preview.scrollTop += pageAmount;
+        e.preventDefault();
+        break;
+
+      case "PageUp":
+        preview.scrollTop -= pageAmount;
+        e.preventDefault();
+        break;
+
+      case "Home":
+        preview.scrollTop = 0;
+        e.preventDefault();
+        break;
+
+      case "End":
+        preview.scrollTop = preview.scrollHeight;
+        e.preventDefault();
+        break;
+    }
+  });
+}
+
 function initEventListeners() {
   const newProject = document.getElementById("new-project");
 
@@ -7862,6 +7964,7 @@ function initApp() {
   initEditorEvents();
   initSidebarEvents();
   initKeyboardShortcuts();
+  initializePreviewKeyboardNavigation();
   initGraphEvents();
   initializeAgents();
   initModalEvents();
