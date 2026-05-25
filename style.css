@@ -587,6 +587,250 @@ body.graph-open #mode-indicator {
   display: none !important;
 }
 
+/* =========================================
+   GRAPH HELP MODAL
+========================================= */
+
+#graph-help-modal {
+  position: fixed;
+  inset: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  z-index: 99999;
+
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+#graph-help-modal.hidden {
+  display: none;
+}
+
+/* =========================================
+   HELP CONTENT
+========================================= */
+
+.graph-help-content {
+  width: min(1000px, 92vw);
+  max-height: 88vh;
+
+  overflow: hidden;
+
+  display: flex;
+  flex-direction: column;
+
+  background: #151515;
+  border: 1px solid #2a2a2a;
+  border-radius: 14px;
+
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 24px 80px rgba(0, 0, 0, 0.55);
+}
+
+/* =========================================
+   HEADER
+========================================= */
+
+.graph-help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 18px 22px;
+
+  border-bottom: 1px solid #2a2a2a;
+
+  background: #1a1a1a;
+}
+
+.graph-help-header h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.modal-close-btn {
+  background: transparent;
+  border: none;
+
+  color: #fff;
+
+  font-size: 24px;
+
+  cursor: pointer;
+}
+
+/* =========================================
+   BODY
+========================================= */
+
+.graph-help-body {
+  overflow-y: auto;
+
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+
+  padding: 24px;
+}
+
+.graph-help-section h3 {
+  margin-top: 0;
+  margin-bottom: 14px;
+
+  font-size: 18px;
+}
+
+/* =========================================
+   GRID
+========================================= */
+
+.legend-grid {
+  display: grid;
+
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+
+  gap: 16px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+
+  background: #1b1b1b;
+  border: 1px solid #2d2d2d;
+
+  padding: 14px;
+
+  border-radius: 10px;
+}
+
+.legend-item p {
+  margin-top: 4px;
+  margin-bottom: 0;
+
+  color: #bdbdbd;
+
+  line-height: 1.5;
+}
+
+/* =========================================
+   NODE DOTS
+========================================= */
+
+.legend-dot {
+  width: 18px;
+  height: 18px;
+
+  border-radius: 50%;
+
+  flex-shrink: 0;
+
+  margin-top: 4px;
+}
+
+.legend-dot.character {
+  background: #f39c12;
+}
+
+.legend-dot.chapter {
+  background: #3498db;
+}
+
+.legend-dot.tag {
+  background: #1abc9c;
+}
+
+.legend-dot.world {
+  background: #9b59b6;
+}
+
+.legend-dot.timeline {
+  background: #e74c3c;
+}
+
+.legend-dot.notes {
+  background: #2ecc71;
+}
+
+.legend-dot.ideas {
+  background: #f1c40f;
+}
+
+/* =========================================
+   EDGE TYPES
+========================================= */
+
+.legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.legend-edge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.legend-edge span {
+  width: 80px;
+  height: 4px;
+
+  border-radius: 999px;
+
+  display: block;
+
+  flex-shrink: 0;
+}
+
+.legend-edge.semantic span {
+  background: #6f7d91;
+  border-top: 2px dashed #aab3c0;
+}
+
+.legend-edge.explicit span {
+  background: #f39c12;
+}
+
+.legend-edge.temporal span {
+  background: #00d4ff;
+}
+
+/* =========================================
+   HELP LISTS
+========================================= */
+
+.graph-help-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  padding-left: 18px;
+}
+
+.graph-help-list li {
+  line-height: 1.55;
+  color: #d6d6d6;
+}
+
+/* =========================================
+   SCROLLBAR
+========================================= */
+
+.graph-help-body::-webkit-scrollbar {
+  width: 10px;
+}
+
+.graph-help-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
 /* ======================
    GRAPH TOOLTIP
 ====================== */

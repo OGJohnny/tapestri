@@ -7509,6 +7509,14 @@ function closeHelpModal() {
   updateModeIndicator();
 }
 
+function openGraphHelpModal() {
+  document.getElementById("graph-help-modal").classList.remove("hidden");
+}
+
+function closeGraphHelpModal() {
+  document.getElementById("graph-help-modal").classList.add("hidden");
+}
+
 function getAboutContent() {
   return `
     <p><strong>Tapestri</strong> is an AI-enhanced creative writing studio.</p>
@@ -7539,6 +7547,14 @@ function initModalEvents() {
   document
     .getElementById("close-export")
     ?.addEventListener("click", closeExportModal);
+
+  document
+    .getElementById("graph-help-btn")
+    .addEventListener("click", openGraphHelpModal);
+
+  document
+    .getElementById("close-graph-help-btn")
+    .addEventListener("click", closeGraphHelpModal);
 
   document.getElementById("close-graph")?.addEventListener("click", closeGraph);
 }
@@ -7778,6 +7794,12 @@ function handleKeyboardShorts(e) {
   if (e.key === "Escape") {
     const graphModal = document.getElementById("graph-modal");
     const helpModal = document.getElementById("help-modal");
+    const graphHelpModal = document.getElementById("graph-help-modal");
+
+    if (graphHelpModal && !graphHelpModal.classList.contains("hidden")) {
+      closeGraphHelpModal();
+      return;
+    }
 
     if (graphModal && !graphModal.classList.contains("hidden")) {
       closeGraph();
