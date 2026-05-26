@@ -254,6 +254,7 @@
             <button id="center-node-btn">Center Node</button>
             <button id="reset-view-btn">Reset View</button>
             <button id="fit-graph-btn">Fit to Screen</button>
+            <button id="fullscreen-graph-btn">Fullscreen</button>
 
             <button id="graph-help-btn" class="graph-toolbar-btn">
               Graph Guide
@@ -315,214 +316,230 @@
           </div>
         </div>
 
+        <!-- GRAPH HELP MODAL -->
+        <div id="graph-help-modal" class="modal hidden">
+          <div class="modal-content graph-help-content">
+            <div class="graph-help-header">
+              <h2>Graph Intelligence Guide</h2>
+
+              <button id="close-graph-help-btn" class="modal-close-btn">
+                ✕
+              </button>
+            </div>
+
+            <div class="graph-help-body">
+              <!-- NODE TYPES -->
+              <section class="graph-help-section">
+                <h3>Node Types</h3>
+
+                <div class="legend-grid">
+                  <div class="legend-item">
+                    <span class="legend-dot chapter"></span>
+                    <div>
+                      <strong>Chapters</strong>
+                      <p>
+                        Primary manuscript structure and narrative progression.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="legend-item">
+                    <span class="legend-dot character"></span>
+                    <div>
+                      <strong>Characters</strong>
+                      <p>Major actors, relationships, and emotional arcs.</p>
+                    </div>
+                  </div>
+
+                  <div class="legend-item">
+                    <span class="legend-dot tag"></span>
+                    <div>
+                      <strong>Tags</strong>
+                      <p>
+                        Semantic themes, motifs, and conceptual connections.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="legend-item">
+                    <span class="legend-dot world"></span>
+                    <div>
+                      <strong>Worldbuilding</strong>
+                      <p>
+                        Locations, lore, systems, factions, and setting data.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="legend-item">
+                    <span class="legend-dot timeline"></span>
+                    <div>
+                      <strong>Timeline</strong>
+                      <p>Temporal sequencing and narrative chronology.</p>
+                    </div>
+                  </div>
+
+                  <div class="legend-item">
+                    <span class="legend-dot notes"></span>
+                    <div>
+                      <strong>Research</strong>
+                      <p>Reference material, analysis, and supporting notes.</p>
+                    </div>
+                  </div>
+
+                  <div class="legend-item">
+                    <span class="legend-dot ideas"></span>
+                    <div>
+                      <strong>Ideas</strong>
+                      <p>
+                        Loose concepts, fragments, and experimental directions.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- EDGE TYPES -->
+              <section class="graph-help-section">
+                <h3>Edge Types</h3>
+
+                <div class="legend-list">
+                  <div class="legend-edge semantic">
+                    <span></span>
+                    <div>
+                      <strong>Semantic Edges</strong>
+                      <p>
+                        AI-inferred relationships based on thematic similarity.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="legend-edge explicit">
+                    <span></span>
+                    <div>
+                      <strong>Explicit Edges</strong>
+                      <p>
+                        Direct authored relationships between connected nodes.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="legend-edge temporal">
+                    <span></span>
+                    <div>
+                      <strong>Temporal Edges</strong>
+                      <p>
+                        Chronological narrative progression and flow direction.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- VISUAL SYSTEMS -->
+              <section class="graph-help-section">
+                <h3>Visual Intelligence Layers</h3>
+
+                <ul class="graph-help-list">
+                  <li>
+                    <strong>Node Glow</strong> = semantic importance, tension,
+                    and attention weighting.
+                  </li>
+
+                  <li>
+                    <strong>Orange Highlights</strong> = selected, hovered, or
+                    active focus nodes.
+                  </li>
+
+                  <li>
+                    <strong>Community Colors</strong> = semantic clustering and
+                    thematic grouping.
+                  </li>
+
+                  <li>
+                    <strong>Community Hulls</strong> = AI-detected narrative
+                    regions and semantic domains.
+                  </li>
+
+                  <li>
+                    <strong>Edge Pulses</strong> = active narrative flow and
+                    propagated relationships.
+                  </li>
+
+                  <li>
+                    <strong>Arc Colors</strong> = escalation, climax,
+                    resolution, and narrative phase states.
+                  </li>
+
+                  <li>
+                    <strong>Emotion Colors</strong> = emotional trajectory and
+                    scene intensity analysis.
+                  </li>
+
+                  <li>
+                    <strong>Temporal Glows</strong> = dominant chronological or
+                    active narrative states.
+                  </li>
+
+                  <li>
+                    <strong>Context Rings</strong> = cognitive memory relevance
+                    and active attention windows.
+                  </li>
+                </ul>
+              </section>
+
+              <!-- NAVIGATION -->
+              <section class="graph-help-section">
+                <h3>Navigation</h3>
+
+                <ul class="graph-help-list">
+                  <li>Mouse Wheel = Zoom</li>
+
+                  <li>Drag Empty Space = Pan Graph</li>
+
+                  <li>Drag Node = Reposition Node</li>
+
+                  <li>Click Node = Focus Semantic Neighborhood</li>
+
+                  <li>Shift + Click = Narrative Path Tracing</li>
+
+                  <li>Double Click = Cinematic Focus Zoom</li>
+
+                  <li>Minimap Drag = Rapid Navigation</li>
+                </ul>
+              </section>
+
+              <!-- PERFORMANCE -->
+              <section class="graph-help-section">
+                <h3>Graph Intelligence Systems</h3>
+
+                <ul class="graph-help-list">
+                  <li>Semantic relationship inference</li>
+
+                  <li>Community detection and clustering</li>
+
+                  <li>Narrative tension analysis</li>
+
+                  <li>Character dynamics tracking</li>
+
+                  <li>Temporal narrative state analysis</li>
+
+                  <li>Emotional trajectory systems</li>
+
+                  <li>Cognitive attention weighting</li>
+
+                  <li>Narrative anomaly detection</li>
+
+                  <li>Hierarchical memory systems</li>
+                </ul>
+              </section>
+            </div>
+          </div>
+        </div>
+
         <!-- FOOTER -->
         <div class="graph-footer">
           <button id="close-graph">Close</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- GRAPH HELP MODAL -->
-    <div id="graph-help-modal" class="modal hidden">
-      <div class="modal-content graph-help-content">
-        <div class="graph-help-header">
-          <h2>Graph Intelligence Guide</h2>
-
-          <button id="close-graph-help-btn" class="modal-close-btn">✕</button>
-        </div>
-
-        <div class="graph-help-body">
-          <!-- NODE TYPES -->
-          <section class="graph-help-section">
-            <h3>Node Types</h3>
-
-            <div class="legend-grid">
-              <div class="legend-item">
-                <span class="legend-dot chapter"></span>
-                <div>
-                  <strong>Chapters</strong>
-                  <p>Primary manuscript structure and narrative progression.</p>
-                </div>
-              </div>
-
-              <div class="legend-item">
-                <span class="legend-dot character"></span>
-                <div>
-                  <strong>Characters</strong>
-                  <p>Major actors, relationships, and emotional arcs.</p>
-                </div>
-              </div>
-
-              <div class="legend-item">
-                <span class="legend-dot tag"></span>
-                <div>
-                  <strong>Tags</strong>
-                  <p>Semantic themes, motifs, and conceptual connections.</p>
-                </div>
-              </div>
-
-              <div class="legend-item">
-                <span class="legend-dot world"></span>
-                <div>
-                  <strong>Worldbuilding</strong>
-                  <p>Locations, lore, systems, factions, and setting data.</p>
-                </div>
-              </div>
-
-              <div class="legend-item">
-                <span class="legend-dot timeline"></span>
-                <div>
-                  <strong>Timeline</strong>
-                  <p>Temporal sequencing and narrative chronology.</p>
-                </div>
-              </div>
-
-              <div class="legend-item">
-                <span class="legend-dot notes"></span>
-                <div>
-                  <strong>Research</strong>
-                  <p>Reference material, analysis, and supporting notes.</p>
-                </div>
-              </div>
-
-              <div class="legend-item">
-                <span class="legend-dot ideas"></span>
-                <div>
-                  <strong>Ideas</strong>
-                  <p>Loose concepts, fragments, and experimental directions.</p>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <!-- EDGE TYPES -->
-          <section class="graph-help-section">
-            <h3>Edge Types</h3>
-
-            <div class="legend-list">
-              <div class="legend-edge semantic">
-                <span></span>
-                <div>
-                  <strong>Semantic Edges</strong>
-                  <p>AI-inferred relationships based on thematic similarity.</p>
-                </div>
-              </div>
-
-              <div class="legend-edge explicit">
-                <span></span>
-                <div>
-                  <strong>Explicit Edges</strong>
-                  <p>Direct authored relationships between connected nodes.</p>
-                </div>
-              </div>
-
-              <div class="legend-edge temporal">
-                <span></span>
-                <div>
-                  <strong>Temporal Edges</strong>
-                  <p>Chronological narrative progression and flow direction.</p>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <!-- VISUAL SYSTEMS -->
-          <section class="graph-help-section">
-            <h3>Visual Intelligence Layers</h3>
-
-            <ul class="graph-help-list">
-              <li>
-                <strong>Node Glow</strong> = semantic importance, tension, and
-                attention weighting.
-              </li>
-
-              <li>
-                <strong>Orange Highlights</strong> = selected, hovered, or
-                active focus nodes.
-              </li>
-
-              <li>
-                <strong>Community Colors</strong> = semantic clustering and
-                thematic grouping.
-              </li>
-
-              <li>
-                <strong>Community Hulls</strong> = AI-detected narrative regions
-                and semantic domains.
-              </li>
-
-              <li>
-                <strong>Edge Pulses</strong> = active narrative flow and
-                propagated relationships.
-              </li>
-
-              <li>
-                <strong>Arc Colors</strong> = escalation, climax, resolution,
-                and narrative phase states.
-              </li>
-
-              <li>
-                <strong>Emotion Colors</strong> = emotional trajectory and scene
-                intensity analysis.
-              </li>
-
-              <li>
-                <strong>Temporal Glows</strong> = dominant chronological or
-                active narrative states.
-              </li>
-
-              <li>
-                <strong>Context Rings</strong> = cognitive memory relevance and
-                active attention windows.
-              </li>
-            </ul>
-          </section>
-
-          <!-- NAVIGATION -->
-          <section class="graph-help-section">
-            <h3>Navigation</h3>
-
-            <ul class="graph-help-list">
-              <li>Mouse Wheel = Zoom</li>
-
-              <li>Drag Empty Space = Pan Graph</li>
-
-              <li>Drag Node = Reposition Node</li>
-
-              <li>Click Node = Focus Semantic Neighborhood</li>
-
-              <li>Shift + Click = Narrative Path Tracing</li>
-
-              <li>Double Click = Cinematic Focus Zoom</li>
-
-              <li>Minimap Drag = Rapid Navigation</li>
-            </ul>
-          </section>
-
-          <!-- PERFORMANCE -->
-          <section class="graph-help-section">
-            <h3>Graph Intelligence Systems</h3>
-
-            <ul class="graph-help-list">
-              <li>Semantic relationship inference</li>
-
-              <li>Community detection and clustering</li>
-
-              <li>Narrative tension analysis</li>
-
-              <li>Character dynamics tracking</li>
-
-              <li>Temporal narrative state analysis</li>
-
-              <li>Emotional trajectory systems</li>
-
-              <li>Cognitive attention weighting</li>
-
-              <li>Narrative anomaly detection</li>
-
-              <li>Hierarchical memory systems</li>
-            </ul>
-          </section>
         </div>
       </div>
     </div>

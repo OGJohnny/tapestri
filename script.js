@@ -422,12 +422,17 @@ const sections = document.querySelectorAll("details");
 const addButtons = document.querySelectorAll(".add-btn");
 
 const graphTooltip = document.getElementById("graph-tooltip");
-const graphModalContent = document.querySelector("#graph-modal .modal-content");
+
+const graphModalContent = document.querySelector(".graph-modal-content");
+
+const fullscreenGraphBtn = document.getElementById("fullscreen-graph-btn");
 
 const minimapCanvas = document.getElementById("graph-minimap");
 const minimapCtx = minimapCanvas.getContext("2d");
 
 const canvas = document.getElementById("graph-canvas");
+
+const graphCtx = canvas.getContext("2d");
 
 canvas.width = canvas.clientWidth;
 canvas.height = canvas.clientHeight;
@@ -2769,6 +2774,24 @@ function rebuildSpatialGrid() {
   });
 }
 
+function toggleGraphFullscreen() {
+  if (!document.fullscreenElement) {
+    graphModalContent.requestFullscreen();
+  } else {
+    document.exitFullscreen();
+  }
+
+  if (document.fullscreenElement) {
+    minimapCanvas.width = 320;
+    minimapCanvas.height = 220;
+  } else {
+    minimapCanvas.width = 220;
+    minimapCanvas.height = 160;
+  }
+
+  renderMinimap();
+}
+
 // =====================================================
 // GRAPH CAMERA + COORDINATE SYSTEM
 // =====================================================
@@ -3099,6 +3122,117 @@ function updateVisibleEdges() {
   graphState.visibleEdges = graphState.edges.filter((edge) => {
     return visibleIds.has(edge.source) || visibleIds.has(edge.target);
   });
+}
+
+// ========================================
+// FULLSCREEN HELPERS
+// ========================================
+
+async function enterGraphFullscreen() {
+  if (graphState.isFullscreen) {
+    return;
+  }
+
+  try {
+    await graphModalContent.requestFullscreen();
+  } catch (err) {
+    console.error("Failed to enter fullscreen", err);
+  }
+}
+
+async function exitGraphFullscreen() {
+  if (!document.fullscreenElement) {
+    return;
+  }
+
+  try {
+    await document.exitFullscreen();
+  } catch (err) {
+    console.error("Failed to exit fullscreen", err);
+  }
+}
+
+async function toggleGraphFullscreen() {
+  if (graphState.isFullscreen) {
+    await exitGraphFullscreen();
+  } else {
+    await enterGraphFullscreen();
+  }
+}
+
+// ========================================
+// APPLY FULLSCREEN LAYOUT
+// ========================================
+
+function applyGraphDisplayMode() {
+  graphState.isFullscreen = !!document.fullscreenElement;
+
+  document.body.classList.toggle(
+    "graph-fullscreen-active",
+    graphState.isFullscreen,
+  );
+
+  // --------------------------------
+  // MINIMAP SIZE
+  // --------------------------------
+
+  if (graphState.isFullscreen) {
+    minimapCanvas.width = 320;
+    minimapCanvas.height = 220;
+  } else {
+    minimapCanvas.width = 220;
+    minimapCanvas.height = 160;
+  }
+
+  // --------------------------------
+  // RESIZE + RENDER
+  // --------------------------------
+
+  requestAnimationFrame(() => {
+    setupCanvasSize();
+
+    renderGraph();
+    renderMinimap();
+
+    wakeGraphPhysics();
+  });
+}
+
+// ========================================
+// ESCAPE HANDLER
+// ========================================
+
+function handleGraphEscape() {
+  const graphHelpModal = document.getElementById("graph-help-modal");
+
+  // --------------------------------
+  // CLOSE HELP FIRST
+  // --------------------------------
+
+  if (graphHelpModal && !graphHelpModal.classList.contains("hidden")) {
+    closeGraphHelpModal();
+    return true;
+  }
+
+  // --------------------------------
+  // THEN EXIT FULLSCREEN
+  // --------------------------------
+
+  if (graphState.isFullscreen) {
+    exitGraphFullscreen();
+    return true;
+  }
+
+  // --------------------------------
+  // THEN CLOSE GRAPH
+  // --------------------------------
+
+  if (graphState.isOpen) {
+    closeGraph();
+    return true;
+  }
+
+  return false;
 }
 
 // =====================================================
@@ -4543,7 +4677,7 @@ function updateGraphSystems() {
 
 // Main Renderer
 function renderGraph() {
-  const ctx = canvas.getContext("2d");
+  const ctx = graphCtx;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -5254,10 +5388,6 @@ function graphLoop() {
   // --------------------------------
   renderGraph();
 
-  if (physicsActive || dragging || !cameraSettled) {
-    renderMinimap();
-  }
-
   // --------------------------------
   // CONTINUE LOOP
   // --------------------------------
@@ -5635,13 +5765,39 @@ function openGraph() {
   startGraphLoop();
 }
 
-function closeGraph() {
+async function closeGraph() {
   const modal = document.getElementById("graph-modal");
-  if (!modal) return;
+
+  if (!modal) {
+    return;
+  }
+
+  // --------------------------------
+  // CLOSE HELP MODAL FIRST
+  // --------------------------------
+
+  closeGraphHelpModal();
+
+  // --------------------------------
+  // EXIT FULLSCREEN FIRST
+  // --------------------------------
+
+  if (document.fullscreenElement) {
+    await exitGraphFullscreen();
+  }
+
+  // --------------------------------
+  // CLOSE GRAPH MODAL
+  // --------------------------------
 
   graphState.isOpen = false;
+  graphState.isFullscreen = false;
 
   modal.classList.add("hidden");
+
+  // --------------------------------
+  // STOP LOOP
+  // --------------------------------
 
   graphAnimating = false;
 
@@ -5649,6 +5805,12 @@ function closeGraph() {
     cancelAnimationFrame(graphAnimationFrame);
     graphAnimationFrame = null;
   }
+
+  graphState.physicsActive = false;
+
+  // --------------------------------
+  // RESTORE EDITOR
+  // --------------------------------
 
   if (isPreviewMode) {
     document.getElementById("mode-indicator")?.classList.remove("hidden");
@@ -5659,9 +5821,6 @@ function closeGraph() {
       restoreEditorState();
     });
   });
-
-  graphState.physicsActive = false;
-  graphAnimating = false;
 }
 
 // =====================================================
@@ -5930,6 +6089,7 @@ function initGraphEvents() {
   initGraphCanvasEvent();
   initMinimapEvents();
   initGraphUIEvents();
+  initGraphEscapeInterceptor();
   initGraphKeyboardControls();
 }
 
@@ -6003,18 +6163,93 @@ function initGraphUIEvents() {
 }
 
 function initGraphKeyboardControls() {
+  // --------------------------------
+  // KEYBOARD
+  // --------------------------------
+
   document.addEventListener("keydown", (e) => {
-    // Only run when graph is open
-    if (!graphState.isOpen) return;
+    if (!graphState.isOpen) {
+      return;
+    }
 
-    // Prevent editor conflicts
-    if (document.activeElement === editorContent) return;
+    if (document.activeElement === editorContent) {
+      return;
+    }
 
+    // CENTER GRAPH
     if (e.key.toLowerCase() === "c") {
       e.preventDefault();
       centerGraph();
+      return;
     }
   });
+
+  // --------------------------------
+  // FULLSCREEN CHANGE
+  // --------------------------------
+
+  document.addEventListener("fullscreenchange", () => {
+    applyGraphDisplayMode();
+  });
+
+  // --------------------------------
+  // BUTTON
+  // --------------------------------
+
+  fullscreenGraphBtn.addEventListener("click", toggleGraphFullscreen);
+}
+
+function initGraphEscapeInterceptor() {
+  document.addEventListener(
+    "keydown",
+    async (e) => {
+      if (e.key !== "Escape") {
+        return;
+      }
+
+      if (!graphState.isOpen) {
+        return;
+      }
+
+      const graphHelpModal = document.getElementById("graph-help-modal");
+
+      // --------------------------------
+      // GRAPH GUIDE CLOSES FIRST
+      // --------------------------------
+
+      if (graphHelpModal && !graphHelpModal.classList.contains("hidden")) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+
+        closeGraphHelpModal();
+
+        return;
+      }
+
+      // --------------------------------
+      // FULLSCREEN CLOSES SECOND
+      // --------------------------------
+
+      if (graphState.isFullscreen) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+
+        await exitGraphFullscreen();
+
+        return;
+      }
+
+      // --------------------------------
+      // GRAPH CLOSES LAST
+      // --------------------------------
+
+      e.preventDefault();
+      e.stopImmediatePropagation();
+
+      closeGraph();
+    },
+    true,
+  );
 }
 
 function initMinimapEvents() {
@@ -7792,29 +8027,72 @@ function handleKeyboardShorts(e) {
 
   // --- ESCAPE ---
   if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+
     const graphModal = document.getElementById("graph-modal");
     const helpModal = document.getElementById("help-modal");
     const graphHelpModal = document.getElementById("graph-help-modal");
 
-    if (graphHelpModal && !graphHelpModal.classList.contains("hidden")) {
+    const graphHelpOpen =
+      graphHelpModal && !graphHelpModal.classList.contains("hidden");
+
+    const graphOpen = graphModal && !graphModal.classList.contains("hidden");
+
+    // ---------------------------------
+    // PRIORITY 1:
+    // GRAPH GUIDE ALWAYS CLOSES FIRST
+    // ---------------------------------
+
+    if (graphHelpOpen) {
       closeGraphHelpModal();
       return;
     }
 
-    if (graphModal && !graphModal.classList.contains("hidden")) {
+    // ---------------------------------
+    // PRIORITY 2:
+    // EXIT FULLSCREEN
+    // ---------------------------------
+
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+      return;
+    }
+
+    // ---------------------------------
+    // PRIORITY 3:
+    // CLOSE GRAPH
+    // ---------------------------------
+
+    if (graphOpen) {
       closeGraph();
       return;
     }
+
+    // ---------------------------------
+    // PRIORITY 4:
+    // HELP MODAL
+    // ---------------------------------
 
     if (helpModal && !helpModal.classList.contains("hidden")) {
       closeHelpModal();
       return;
     }
 
+    // ---------------------------------
+    // PRIORITY 5:
+    // FOCUS MODE
+    // ---------------------------------
+
     if (document.body.classList.contains("focus-mode")) {
       toggleFocusMode();
       return;
     }
+
+    // ---------------------------------
+    // PRIORITY 6:
+    // MENUS
+    // ---------------------------------
 
     closeAllMenus();
   }
