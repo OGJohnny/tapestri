@@ -151,6 +151,8 @@ const graphState = {
   focusMode: true,
   isOpen: false,
 
+  hasCenteredGraph: false,
+
   // ---------------------------------
   // Camera State
   // ---------------------------------
@@ -194,6 +196,40 @@ const graphState = {
   },
 
   // ---------------------------------
+  // Render Layer State
+  // ---------------------------------
+
+  renderLayers: {
+    fields: null,
+    edges: null,
+    nodes: null,
+    labels: null,
+    ui: null,
+  },
+
+  layerDirty: {
+    fields: true,
+    edges: true,
+    nodes: true,
+    labels: true,
+    ui: true,
+  },
+
+  // ---------------------------------
+  // Graph Layers
+  // ---------------------------------
+
+  graphLayers: {
+    semanticFields: true,
+    tensionFields: true,
+    arcFields: true,
+    emotionalFields: true,
+    relationshipFields: true,
+    propagationFields: true,
+    temporalFields: true,
+  },
+
+  // ---------------------------------
   // Dragging
   // ---------------------------------
 
@@ -211,10 +247,37 @@ const graphState = {
   },
 
   // ---------------------------------
+  // Layer State
+  // ---------------------------------
+
+  renderLayers: {
+    semanticFields: true,
+    tensionFields: true,
+    arcFields: true,
+    emotionalFields: true,
+    relationshipFields: true,
+    propagationFields: true,
+    temporalFields: true,
+    characterFields: true,
+
+    edgeFlows: true,
+    edgeArrows: true,
+    edgePulses: true,
+
+    communityHulls: true,
+    communityLabels: true,
+
+    labels: true,
+    minimap: true,
+  },
+
+  // ---------------------------------
   // Dirty State
   // ---------------------------------
 
   dirtySystems: new Set(),
+
+  fieldLayerDirty: true,
 
   // ---------------------------------
   // Analytics Queues
@@ -588,6 +651,12 @@ function clearDirty() {
   graphState.dirtySystems.clear();
 }
 
+function markLayerDirty(...layers) {
+  layers.forEach((layer) => {
+    graphState.layerDirty[layer] = true;
+  });
+}
+
 // =====================================================
 // GRAPH DATA BUILDERS
 // =====================================================
@@ -603,24 +672,57 @@ function getGraphData() {
   const edges = [];
   const addedTags = new Set();
 
+  // --------------------------------
+  // VALID DOC IDS
+  // --------------------------------
+  const validDocIds = new Set(Object.values(docs).map((doc) => String(doc.id)));
+
+  // --------------------------------
+  // NODES + EXPLICIT RELATIONSHIPS
+  // --------------------------------
   Object.values(docs).forEach((doc) => {
+    const docId = String(doc.id);
+
     nodes.push({
-      id: String(doc.id),
+      id: docId,
       label: doc.title || "Untitled",
-      type: doc.type,
+      type: doc.type || "chapter",
     });
 
-    // CHARACTER RELATIONSHIPS
+    // --------------------------------
+    // RELATIONSHIPS
+    // --------------------------------
     if (doc.relationships) {
       Object.entries(doc.relationships).forEach(
         ([relationshipType, relationshipIds]) => {
-          if (!Array.isArray(relationshipIds)) return;
+          if (!Array.isArray(relationshipIds)) {
+            return;
+          }
 
-          relationshipIds.forEach((targetId) => {
+          relationshipIds.forEach((targetIdRaw) => {
+            const targetId = String(targetIdRaw || "").trim();
+
+            // INVALID
+            if (!targetId) {
+              return;
+            }
+
+            // SELF LINK
+            if (targetId === docId) {
+              return;
+            }
+
+            // TARGET DOESN'T EXIST
+            if (!validDocIds.has(targetId)) {
+              return;
+            }
+
             edges.push({
-              from: String(doc.id),
-              to: String(targetId),
+              from: docId,
+              to: targetId,
+
               relationshipType,
+
               strength:
                 relationshipType === "characters"
                   ? 2.2
@@ -629,6 +731,9 @@ function getGraphData() {
                     : relationshipType === "worldbuilding"
                       ? 1.6
                       : 1,
+
+              direction: false,
+
               style: "explicit",
 
               flowType:
@@ -645,9 +750,17 @@ function getGraphData() {
       );
     }
 
+    // --------------------------------
     // TAG RELATIONSHIPS
-    if (doc.tags && Array.isArray(doc.tags)) {
-      doc.tags.forEach((tag) => {
+    // --------------------------------
+    if (Array.isArray(doc.tags)) {
+      doc.tags.forEach((tagRaw) => {
+        const tag = String(tagRaw || "").trim();
+
+        if (!tag) {
+          return;
+        }
+
         const tagId = `tag-${tag}`;
 
         if (!addedTags.has(tagId)) {
@@ -661,20 +774,47 @@ function getGraphData() {
         }
 
         edges.push({
-          from: String(doc.id),
+          from: docId,
           to: tagId,
+
           relationshipType: "tag",
+
           strength: 0.7,
+
           direction: false,
+
           style: "explicit",
+
+          flowType: "tag",
         });
       });
     }
   });
 
+  // --------------------------------
+  // SEMANTIC EDGES
+  // --------------------------------
   buildSemanticEdges(nodes, edges, docs);
 
-  return { nodes, edges };
+  // --------------------------------
+  // FINAL SANITIZATION
+  // --------------------------------
+  const validNodeIds = new Set(nodes.map((n) => String(n.id)));
+
+  const cleanedEdges = edges.filter((edge) => {
+    return (
+      edge &&
+      edge.from &&
+      edge.to &&
+      validNodeIds.has(String(edge.from)) &&
+      validNodeIds.has(String(edge.to))
+    );
+  });
+
+  return {
+    nodes,
+    edges: cleanedEdges,
+  };
 }
 
 function buildSemanticEdges(nodes, edges, docs) {
@@ -940,6 +1080,10 @@ function initializeCommunityAnchors() {
       y: canvas.height / 2 + Math.sin(angle) * radius,
     });
   });
+}
+
+function clearGraphCanvas(ctx, targetCanvas) {
+  ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
 }
 
 // =====================================================
@@ -2545,18 +2689,9 @@ function getTooltipData(node) {
   };
 }
 
-function calculateGraphBounds() {
-  if (!graphState.nodes.length) {
-    return {
-      minX: -500,
-      minY: -500,
-      maxX: 500,
-      maxY: 500,
-      width: 1000,
-      height: 1000,
-      centerX: 0,
-      centerY: 0,
-    };
+function calculateGraphBounds(nodes = graphState.nodes) {
+  if (!nodes.length) {
+    return null;
   }
 
   let minX = Infinity;
@@ -2564,46 +2699,23 @@ function calculateGraphBounds() {
   let maxX = -Infinity;
   let maxY = -Infinity;
 
-  graphState.nodes.forEach((node) => {
+  nodes.forEach((node) => {
     minX = Math.min(minX, node.x);
     minY = Math.min(minY, node.y);
+
     maxX = Math.max(maxX, node.x);
     maxY = Math.max(maxY, node.y);
   });
-
-  // -----------------------------------
-  // PREVENT TINY-GRAPH COLLAPSE
-  // -----------------------------------
-
-  const MIN_GRAPH_SIZE = 1400;
-
-  let width = maxX - minX;
-  let height = maxY - minY;
-
-  if (width < MIN_GRAPH_SIZE) {
-    const pad = (MIN_GRAPH_SIZE - width) * 0.5;
-    minX -= pad;
-    maxX += pad;
-  }
-
-  if (height < MIN_GRAPH_SIZE) {
-    const pad = (MIN_GRAPH_SIZE - height) * 0.5;
-    minY -= pad;
-    maxY += pad;
-  }
-
-  width = maxX - minX;
-  height = maxY - minY;
 
   return {
     minX,
     minY,
     maxX,
     maxY,
-    width,
-    height,
-    centerX: (minX + maxX) * 0.5,
-    centerY: (minY + maxY) * 0.5,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+    centerX: (minX + maxX) / 2,
+    centerY: (minY + maxY) / 2,
   };
 }
 
@@ -2775,21 +2887,15 @@ function rebuildSpatialGrid() {
 }
 
 function toggleGraphFullscreen() {
-  if (!document.fullscreenElement) {
-    graphModalContent.requestFullscreen();
+  graphState.fieldLayerDirty = true;
+
+  if (graphState.isFullscreen) {
+    exitGraphFullscreen();
   } else {
-    document.exitFullscreen();
+    enterGraphFullscreen();
   }
 
-  if (document.fullscreenElement) {
-    minimapCanvas.width = 320;
-    minimapCanvas.height = 220;
-  } else {
-    minimapCanvas.width = 220;
-    minimapCanvas.height = 160;
-  }
-
-  renderMinimap();
+  applyGraphDisplayMode();
 }
 
 // =====================================================
@@ -2865,17 +2971,30 @@ function setCamera(scale, offsetX, offsetY) {
   markDirty("rendering", "minimap");
 }
 
-function centerGraph() {
+function centerGraph({ instant = false, onlyOnce = false } = {}) {
+  if (onlyOnce && graphState.hasCenteredGraph) {
+    return;
+  }
+
   const bounds = calculateGraphBounds();
-  if (!bounds) return;
 
-  graphState.targetOffsetX =
-    canvas.width / 2 - bounds.centerX * graphState.scale;
+  if (!bounds) {
+    return;
+  }
 
-  graphState.targetOffsetY =
-    canvas.height / 2 - bounds.centerY * graphState.scale;
+  const targetX = canvas.width / 2 - bounds.centerX * graphState.scale;
 
-  wakeGraphPhysics();
+  const targetY = canvas.height / 2 - bounds.centerY * graphState.scale;
+
+  graphState.targetOffsetX = targetX;
+  graphState.targetOffsetY = targetY;
+
+  if (instant) {
+    graphState.offsetX = targetX;
+    graphState.offsetY = targetY;
+  }
+
+  graphState.hasCenteredGraph = true;
 
   markDirty("rendering", "minimap");
 
@@ -2980,29 +3099,9 @@ function resetGraphView() {
 }
 
 function clampGraphCamera() {
-  const bounds = calculateGraphBounds();
-  if (!bounds) return;
-
-  const scaledWidth = bounds.width * graphState.scale;
-  const scaledHeight = bounds.height * graphState.scale;
-
-  const padding = Math.max(300, Math.min(canvas.width, canvas.height) * 0.35);
-
-  const minOffsetX = canvas.width - scaledWidth - padding;
-  const maxOffsetX = padding;
-
-  const minOffsetY = canvas.height - scaledHeight - padding;
-  const maxOffsetY = padding;
-
-  graphState.offsetX = Math.max(
-    minOffsetX,
-    Math.min(maxOffsetX, graphState.offsetX),
-  );
-
-  graphState.offsetY = Math.max(
-    minOffsetY,
-    Math.min(maxOffsetY, graphState.offsetY),
-  );
+  // intentionally empty
+  // graph now exists in infinite world space
+  // no camera clamping
 }
 
 function updateGraphCamera() {
@@ -3010,30 +3109,43 @@ function updateGraphCamera() {
     return;
   }
 
-  const cameraLerp = 0.14;
+  const cameraLerp = 0.18;
   const zoomLerp = 0.12;
 
-  graphState.offsetX +=
-    (graphState.targetOffsetX - graphState.offsetX) * cameraLerp;
+  const dx = graphState.targetOffsetX - graphState.offsetX;
 
-  graphState.offsetY +=
-    (graphState.targetOffsetY - graphState.offsetY) * cameraLerp;
+  const dy = graphState.targetOffsetY - graphState.offsetY;
 
-  graphState.scale += (graphState.targetScale - graphState.scale) * zoomLerp;
+  const dz = graphState.targetScale - graphState.scale;
+
+  // --------------------------------
+  // OFFSET
+  // --------------------------------
+  if (Math.abs(dx) > 0.1) {
+    graphState.offsetX += dx * cameraLerp;
+  } else {
+    graphState.offsetX = graphState.targetOffsetX;
+  }
+
+  if (Math.abs(dy) > 0.1) {
+    graphState.offsetY += dy * cameraLerp;
+  } else {
+    graphState.offsetY = graphState.targetOffsetY;
+  }
+
+  // --------------------------------
+  // ZOOM
+  // --------------------------------
+  if (Math.abs(dz) > 0.0005) {
+    graphState.scale += dz * zoomLerp;
+  } else {
+    graphState.scale = graphState.targetScale;
+  }
 
   graphState.scale = Math.max(0.05, graphState.scale);
-
   graphState.targetScale = Math.max(0.05, graphState.targetScale);
 
   clampGraphCamera();
-
-  if (
-    Math.abs(graphState.offsetX - graphState.targetOffsetX) > 0.01 ||
-    Math.abs(graphState.offsetY - graphState.targetOffsetY) > 0.01 ||
-    Math.abs(graphState.scale - graphState.targetScale) > 0.0001
-  ) {
-    startGraphLoop();
-  }
 }
 
 function updateSemanticZoomLevel() {
@@ -3129,30 +3241,39 @@ function updateVisibleEdges() {
 // ========================================
 
 async function enterGraphFullscreen() {
-  if (graphState.isFullscreen) {
+  const graphModalContent = document.querySelector(".graph-modal-content");
+
+  if (!graphModalContent) {
     return;
   }
 
-  try {
-    await graphModalContent.requestFullscreen();
-  } catch (err) {
-    console.error("Failed to enter fullscreen", err);
-  }
+  graphState.isFullscreen = true;
+
+  graphModalContent.classList.add("graph-pseudo-fullscreen");
+
+  initializeGraphRenderLayers();
+  setupCanvasSize();
+  renderGraph();
 }
 
 async function exitGraphFullscreen() {
-  if (!document.fullscreenElement) {
+  const graphModalContent = document.querySelector(".graph-modal-content");
+
+  if (!graphModalContent) {
     return;
   }
 
-  try {
-    await document.exitFullscreen();
-  } catch (err) {
-    console.error("Failed to exit fullscreen", err);
-  }
+  graphState.isFullscreen = false;
+
+  graphModalContent.classList.remove("graph-pseudo-fullscreen");
+
+  initializeGraphRenderLayers();
+  setupCanvasSize();
+  renderGraph();
 }
 
 async function toggleGraphFullscreen() {
+  graphState.fieldLayerDirty = true;
   if (graphState.isFullscreen) {
     await exitGraphFullscreen();
   } else {
@@ -3165,8 +3286,6 @@ async function toggleGraphFullscreen() {
 // ========================================
 
 function applyGraphDisplayMode() {
-  graphState.isFullscreen = !!document.fullscreenElement;
-
   document.body.classList.toggle(
     "graph-fullscreen-active",
     graphState.isFullscreen,
@@ -3189,50 +3308,12 @@ function applyGraphDisplayMode() {
   // --------------------------------
 
   requestAnimationFrame(() => {
+    initializeGraphRenderLayers();
     setupCanvasSize();
-
     renderGraph();
     renderMinimap();
-
     wakeGraphPhysics();
   });
-}
-
-// ========================================
-// ESCAPE HANDLER
-// ========================================
-
-function handleGraphEscape() {
-  const graphHelpModal = document.getElementById("graph-help-modal");
-
-  // --------------------------------
-  // CLOSE HELP FIRST
-  // --------------------------------
-
-  if (graphHelpModal && !graphHelpModal.classList.contains("hidden")) {
-    closeGraphHelpModal();
-    return true;
-  }
-
-  // --------------------------------
-  // THEN EXIT FULLSCREEN
-  // --------------------------------
-
-  if (graphState.isFullscreen) {
-    exitGraphFullscreen();
-    return true;
-  }
-
-  // --------------------------------
-  // THEN CLOSE GRAPH
-  // --------------------------------
-
-  if (graphState.isOpen) {
-    closeGraph();
-    return true;
-  }
-
-  return false;
 }
 
 // =====================================================
@@ -3588,7 +3669,7 @@ function drawNarrativeTensionFields(ctx) {
       radius,
     );
 
-    gradient.addColorStop(0, "rgba(255,80,80,0.14)");
+    gradient.addColorStop(0, "rgba(255,80,80,0.05)");
 
     gradient.addColorStop(0.4, "rgba(255,120,80,0.08)");
 
@@ -3672,7 +3753,7 @@ function drawCharacterInfluenceFields(ctx) {
 
     const color = getCharacterRoleColor(data.role);
 
-    gradient.addColorStop(0, color.replace(")", ",0.18)"));
+    gradient.addColorStop(0, color.replace(")", ",0.07)"));
 
     gradient.addColorStop(1, "rgba(0,0,0,0)");
 
@@ -3713,7 +3794,7 @@ function drawEmotionalFields(ctx) {
 
     const color = getEmotionColor(emotion.state);
 
-    gradient.addColorStop(0, color + ",0.16)");
+    gradient.addColorStop(0, color + ",0.06)");
 
     gradient.addColorStop(0.45, color + ",0.06)");
 
@@ -3767,7 +3848,7 @@ function drawRelationshipFields(ctx) {
         ? "rgba(46,204,113"
         : "rgba(231,76,60";
 
-    gradient.addColorStop(0, color + ",0.12)");
+    gradient.addColorStop(0, color + ",0.04)");
 
     gradient.addColorStop(1, "rgba(0,0,0,0)");
 
@@ -3810,7 +3891,7 @@ function drawNarrativePropagationFields(ctx) {
 
     const color = getPropagationColor(event.type);
 
-    gradient.addColorStop(0, color + ",0.16)");
+    gradient.addColorStop(0, color + ",0.06)");
 
     gradient.addColorStop(0.5, color + ",0.06)");
 
@@ -3855,7 +3936,7 @@ function drawTemporalNarrativeFields(ctx) {
 
     const color = getTemporalColor(temporal.state);
 
-    gradient.addColorStop(0, color + ",0.14)");
+    gradient.addColorStop(0, color + ",0.05)");
 
     gradient.addColorStop(0.5, color + ",0.05)");
 
@@ -4051,12 +4132,14 @@ function drawCommunityHulls(ctx) {
 function drawEdges(ctx, renderState) {
   const { activeId, visibleNodeMap, visibleEdges } = renderState;
 
+  ctx.save();
+
   ctx.lineCap = "round";
+  ctx.lineJoin = "round";
 
   // --------------------------------
   // TRACED EDGE SET
   // --------------------------------
-
   const tracedEdges = new Set();
 
   for (let i = 0; i < graphState.tracedPath.length - 1; i++) {
@@ -4068,7 +4151,6 @@ function drawEdges(ctx, renderState) {
   // --------------------------------
   // EDGE LOOP
   // --------------------------------
-
   visibleEdges.forEach((edge) => {
     const from = visibleNodeMap.get(edge.from);
     const to = visibleNodeMap.get(edge.to);
@@ -4077,39 +4159,30 @@ function drawEdges(ctx, renderState) {
       return;
     }
 
-    const relationship = graphState.relationshipDynamics.get(
-      `${edge.from}-${edge.to}`,
-    );
-
-    const zoomLevel = graphState.semanticZoomLevel;
-
-    // --------------------------------
-    // LOD FILTERING
-    // --------------------------------
-
-    if (zoomLevel === 1) {
-      if (edge.style === "semantic" || (edge.strength || 0) < 2) {
-        return;
-      }
-    }
-
-    if (zoomLevel === 2) {
-      if (edge.style === "semantic" && (edge.strength || 0) < 1.4) {
-        return;
-      }
-    }
-
     // --------------------------------
     // SCREEN POSITIONS
     // --------------------------------
-
     const fromX = from.x * graphState.scale + graphState.offsetX;
-
     const fromY = from.y * graphState.scale + graphState.offsetY;
 
     const toX = to.x * graphState.scale + graphState.offsetX;
-
     const toY = to.y * graphState.scale + graphState.offsetY;
+
+    // --------------------------------
+    // INVALID POSITION GUARD
+    // --------------------------------
+    if (
+      !Number.isFinite(fromX) ||
+      !Number.isFinite(fromY) ||
+      !Number.isFinite(toX) ||
+      !Number.isFinite(toY)
+    ) {
+      return;
+    }
+
+    const relationship = graphState.relationshipDynamics.get(
+      `${edge.from}-${edge.to}`,
+    );
 
     const isConnected = edge.from === activeId || edge.to === activeId;
 
@@ -4118,146 +4191,130 @@ function drawEdges(ctx, renderState) {
     const { controlX, controlY } = getEdgeCurve(fromX, fromY, toX, toY, edge);
 
     // --------------------------------
-    // TENSION / ATTENTION
+    // SAFE VALUES
     // --------------------------------
+    const edgeStrength = Number(edge.strength) || 1;
 
-    const fromTension = graphState.tensionMap.get(edge.from) || 0;
+    const fromAttention = graphState.attentionState.weights.get(edge.from) || 0;
 
-    const toTension = graphState.tensionMap.get(edge.to) || 0;
+    const toAttention = graphState.attentionState.weights.get(edge.to) || 0;
 
-    const edgeTension = (fromTension + toTension) / 2;
-
-    const attentionA = graphState.attentionState.weights.get(edge.from) || 0;
-
-    const attentionB = graphState.attentionState.weights.get(edge.to) || 0;
-
-    const attentionStrength = (attentionA + attentionB) * 0.5;
+    const attentionStrength = (fromAttention + toAttention) * 0.5;
 
     // --------------------------------
-    // DRAW EDGE
+    // RESET STATE
     // --------------------------------
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "#7f8794";
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+    ctx.setLineDash([]);
 
+    // --------------------------------
+    // DRAW CURVE
+    // --------------------------------
     ctx.beginPath();
 
     ctx.moveTo(fromX, fromY);
 
     ctx.quadraticCurveTo(controlX, controlY, toX, toY);
 
-    ctx.shadowBlur = 0;
-    ctx.shadowColor = "transparent";
-
     // --------------------------------
     // TRACED
     // --------------------------------
-
     if (isTraced) {
       ctx.strokeStyle = "#00d4ff";
       ctx.lineWidth = 4;
       ctx.globalAlpha = 1;
-
       ctx.shadowColor = "#00d4ff";
-      ctx.shadowBlur = 18;
-    } else if (!activeId || !graphState.focusMode) {
-      // --------------------------------
-      // NORMAL MODE
-      // --------------------------------
+      ctx.shadowBlur = 10;
+    }
 
-      const dist = Math.hypot(toX - fromX, toY - fromY);
-
-      const sameCommunity = from.community === to.community;
-
-      const depthFade = Math.max(0.08, 1 - dist / 1400);
-
-      ctx.globalAlpha = Math.min(1, 0.35 + attentionStrength * 0.025);
-
-      if (!sameCommunity) {
-        ctx.globalAlpha *= 0.45;
-      }
-
-      if (edge.style === "semantic") {
-        ctx.strokeStyle = "#6f7d91";
-
-        ctx.lineWidth = Math.max(0.7, graphState.scale * 0.9) * depthFade;
-
-        const semanticStrength = Math.min(1, (edge.strength || 1) / 2.5);
-
-        ctx.globalAlpha *= (0.08 + semanticStrength * 0.18) * depthFade;
-
-        ctx.setLineDash([5, 8]);
-      } else {
-        ctx.strokeStyle = "#7f8794";
-
-        ctx.lineWidth = Math.max(1, graphState.scale * 1.3) * depthFade;
-
-        ctx.globalAlpha *= 0.42 * depthFade;
-
-        ctx.setLineDash([]);
-      }
-    } else if (isConnected) {
-      // --------------------------------
-      // CONNECTED
-      // --------------------------------
-
+    // --------------------------------
+    // CONNECTED
+    // --------------------------------
+    else if (activeId && graphState.focusMode && isConnected) {
       ctx.strokeStyle = "#f39c12";
-
-      ctx.lineWidth = Math.max(1.8, graphState.scale * 2.2);
-
+      ctx.lineWidth = 2.5;
       ctx.globalAlpha = 0.95;
+    }
 
-      ctx.shadowColor = "#f39c12";
-      ctx.shadowBlur = 12;
-    } else {
-      // --------------------------------
-      // FADED
-      // --------------------------------
-
-      ctx.strokeStyle = "#222";
-
+    // --------------------------------
+    // FADED
+    // --------------------------------
+    else if (activeId && graphState.focusMode && !isConnected) {
+      ctx.strokeStyle = "#2a2a2a";
       ctx.lineWidth = 1;
-
       ctx.globalAlpha = 0.12;
     }
 
     // --------------------------------
-    // STRENGTH
+    // NORMAL MODE
     // --------------------------------
+    const dist = Math.hypot(toX - fromX, toY - fromY);
 
-    if (edge.strength) {
-      ctx.lineWidth *= edge.strength * Math.min(1.8, 1 + edgeTension * 0.06);
+    const sameCommunity = from.community === to.community;
 
-      if (edge.flowType === "temporal") {
-        ctx.lineWidth *= 1.25;
-      }
+    const depthFade = Math.max(0.35, 1 - dist / 2400);
+
+    // MUCH MORE VISIBLE
+    ctx.globalAlpha = 0.75;
+
+    if (!sameCommunity) {
+      ctx.globalAlpha *= 0.7;
+    }
+
+    if (edge.style === "semantic") {
+      ctx.strokeStyle = "#5d7c99";
+
+      // SCALE-INDEPENDENT WIDTH
+      ctx.lineWidth = Math.max(1.4, 2.2 * graphState.scale);
+
+      ctx.globalAlpha *= 0.55;
+
+      ctx.setLineDash([5, 8]);
+    } else {
+      ctx.strokeStyle = "#9aa7b5";
+
+      // SCALE-INDEPENDENT WIDTH
+      ctx.lineWidth = Math.max(1.8, 2.8 * graphState.scale);
+
+      ctx.globalAlpha *= depthFade;
+
+      ctx.setLineDash([]);
     }
 
     // --------------------------------
     // RELATIONSHIPS
     // --------------------------------
-
-    if (relationship) {
+    if (relationship && graphState.graphLayers.relationshipHeat) {
       ctx.strokeStyle = getRelationshipColor(relationship);
-
       ctx.globalAlpha *= relationship.polarity === "alliance" ? 0.9 : 0.75;
-
       ctx.shadowColor = ctx.strokeStyle;
-
       ctx.shadowBlur += relationship.volatility * 0.45;
-
       ctx.lineWidth += relationship.volatility * 0.05;
+    }
+
+    // --------------------------------
+    // FINAL SAFETY
+    // --------------------------------
+    if (!Number.isFinite(ctx.lineWidth) || ctx.lineWidth <= 0) {
+      ctx.lineWidth = 1.5;
+    }
+
+    if (!Number.isFinite(ctx.globalAlpha) || ctx.globalAlpha <= 0) {
+      ctx.globalAlpha = 0.35;
     }
 
     // --------------------------------
     // STROKE
     // --------------------------------
-
     ctx.stroke();
-
-    ctx.setLineDash([]);
 
     // --------------------------------
     // FLOW
     // --------------------------------
-
     if (graphState.semanticZoomLevel >= 3 && edge.style !== "semantic") {
       drawNarrativeFlow({
         ctx,
@@ -4274,7 +4331,6 @@ function drawEdges(ctx, renderState) {
     // --------------------------------
     // ARROWS
     // --------------------------------
-
     if (edge.direction && (!graphState.focusMode || isConnected || isTraced)) {
       drawEdgeArrow({
         ctx,
@@ -4291,7 +4347,6 @@ function drawEdges(ctx, renderState) {
     // --------------------------------
     // PULSES
     // --------------------------------
-
     if (isConnected || isTraced) {
       drawEdgePulses({
         ctx,
@@ -4301,25 +4356,22 @@ function drawEdges(ctx, renderState) {
         toY,
         controlX,
         controlY,
-        strength: edge.strength || 1,
+        strength: edgeStrength,
       });
     }
-
-    ctx.shadowBlur = 0;
-    ctx.shadowColor = "transparent";
   });
 
-  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 function drawNodes(ctx, renderState) {
   const {
     activeId,
-    connectedIds,
-    visibleNodes,
+    connectedIds = new Set(),
+    visibleNodes = [],
     selectedId,
     hoveredId,
-    contextIds,
+    contextIds = new Set(),
   } = renderState;
 
   visibleNodes.forEach((node) => {
@@ -4361,7 +4413,7 @@ function drawNodes(ctx, renderState) {
     const inContextWindow = contextIds.has(node.id);
 
     // --------------------------------
-    // NODE LOD
+    // LOD
     // --------------------------------
 
     if (zoomLevel === 1) {
@@ -4384,81 +4436,78 @@ function drawNodes(ctx, renderState) {
     ctx.shadowColor = "transparent";
     ctx.globalAlpha = 1;
 
+    // --------------------------------
+    // STATE COLORS
+    // --------------------------------
+
     if (isSelected || isHovered) {
       ctx.fillStyle = "#f39c12";
       ctx.shadowColor = "#f39c12";
-      ctx.shadowBlur = 20;
+      ctx.shadowBlur = 16;
     } else if (activeId && graphState.focusMode && isConnected) {
       ctx.fillStyle = typeColor;
       ctx.shadowColor = communityColor;
-      ctx.shadowBlur = 10 + edgeConnectionCount(node.id) * 0.35;
-
+      ctx.shadowBlur = 8;
       ctx.globalAlpha = 0.95;
     } else if (activeId && graphState.focusMode) {
       ctx.fillStyle = "#333";
       ctx.globalAlpha = 0.18;
     } else {
-      const attentionGlow = Math.min(24, attention * 0.18);
+      const attentionGlow = Math.min(10, attention * 0.08);
 
-      const tensionGlow = tension > 5 ? 10 + tension * 1.5 : 0;
+      const tensionGlow = tension > 5 ? 6 + tension * 0.5 : 0;
 
       ctx.fillStyle = typeColor;
 
       ctx.globalAlpha = Math.min(1, 0.45 + importance * 0.035);
 
-      ctx.shadowColor = tension > 5 ? "rgba(255,120,80,0.8)" : communityColor;
+      ctx.shadowColor = tension > 5 ? "rgba(255,120,80,0.5)" : communityColor;
 
-      ctx.shadowBlur = Math.max(attentionGlow, tensionGlow);
+      ctx.shadowBlur = Math.max(attentionGlow, tensionGlow) * 0.45;
     }
+
+    // --------------------------------
+    // CHARACTER
+    // --------------------------------
 
     if (node.type === "character" && characterData) {
       ctx.shadowColor = getCharacterRoleColor(characterData.role);
 
       ctx.shadowBlur +=
         characterData.role === "protagonist"
-          ? 26
+          ? 5
           : characterData.role === "major"
-            ? 16
-            : 8;
+            ? 3
+            : 1;
     }
+
+    // --------------------------------
+    // EMOTION
+    // --------------------------------
 
     if (emotion) {
       ctx.shadowColor = getEmotionColor(emotion.state);
 
       ctx.shadowBlur +=
-        emotion.state === "chaotic" ? 24 : emotion.state === "intense" ? 14 : 8;
+        emotion.state === "chaotic" ? 4 : emotion.state === "intense" ? 2 : 1;
     }
 
-    if (propagation) {
-      ctx.shadowColor = withAlpha(getPropagationColor(propagation.type), 0.75);
-
-      ctx.shadowBlur +=
-        propagation.type === "catastrophic"
-          ? 30
-          : propagation.type === "volatile"
-            ? 18
-            : 10;
-    }
-
-    if (temporal) {
-      ctx.shadowColor = withAlpha(getTemporalColor(temporal.state), 0.75);
-
-      ctx.shadowBlur +=
-        temporal.state === "dominant"
-          ? 32
-          : temporal.state === "active"
-            ? 18
-            : 8;
-    }
+    // --------------------------------
+    // ARC
+    // --------------------------------
 
     if (arc) {
       ctx.shadowColor = getArcColor(arc.phase);
 
       ctx.shadowBlur +=
-        arc.phase === "climax" ? 18 : arc.phase === "escalation" ? 10 : 4;
+        arc.phase === "climax" ? 6 : arc.phase === "escalation" ? 4 : 2;
     }
 
     ctx.fill();
+
+    // --------------------------------
+    // CONTEXT OUTLINE
+    // --------------------------------
 
     if (inContextWindow) {
       ctx.lineWidth = 2;
@@ -4473,18 +4522,15 @@ function drawNodes(ctx, renderState) {
 }
 
 function drawLabels(ctx, renderState) {
-  const { visibleLabels } = renderState;
-  const { visibleNodes } = renderState;
+  const { visibleLabels = [] } = renderState;
 
   const minScale = 0.25;
   const maxScale = 0.65;
 
-  // FULLY HIDDEN
   if (graphState.scale <= minScale) {
     return;
   }
 
-  // SMOOTH INTERPOLATION
   const alpha = Math.min(
     1,
     (graphState.scale - minScale) / (maxScale - minScale),
@@ -4496,12 +4542,15 @@ function drawLabels(ctx, renderState) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  // Dynamic font scaling
   const fontSize = Math.max(11, Math.min(16, 14 * graphState.scale));
 
   ctx.font = `${fontSize}px sans-serif`;
 
   visibleLabels.forEach((node) => {
+    if (!node?.label) {
+      return;
+    }
+
     const isHovered = node.id === graphState.hoveredNodeId;
 
     const screenX = node.x * graphState.scale + graphState.offsetX;
@@ -4512,53 +4561,29 @@ function drawLabels(ctx, renderState) {
 
     const importance = getSemanticImportance(node);
 
-    const arc = graphState.arcMap.get(node.id);
-
-    const characterData = graphState.characterDynamics.get(node.id);
-
-    const emotion = graphState.emotionMap.get(node.id);
-
     const zoomLevel = graphState.semanticZoomLevel;
 
-    // SEMANTIC LABEL LOD
-    if (zoomLevel === 1) {
-      if (importance < 14) {
-        return;
-      }
+    if (zoomLevel === 1 && importance < 14) {
+      return;
     }
 
-    if (zoomLevel === 2) {
-      if (importance < 8) {
-        return;
-      }
+    if (zoomLevel === 2 && importance < 8) {
+      return;
     }
 
-    // TAG DENSITY REDUCTION
     if (alpha < 0.35 && node.type === "tag" && !isHovered) {
       return;
     }
 
     const densityFade = Math.min(1, importance / 10);
 
-    // RESET PER LABEL
     ctx.globalAlpha = alpha * (0.35 + densityFade * 0.65);
 
     ctx.shadowColor = "rgba(0,0,0,0.6)";
 
     ctx.shadowBlur = 4;
 
-    const label =
-      node.type === "character" &&
-      characterData &&
-      graphState.semanticZoomLevel >= 3
-        ? `${node.label} • ${characterData.role}`
-        : emotion && graphState.semanticZoomLevel >= 4
-          ? `${node.label} • ${emotion.state}`
-          : arc && graphState.semanticZoomLevel >= 3
-            ? `${node.label} • ${arc.phase}`
-            : node.label;
-
-    ctx.fillText(label, screenX, screenY + radius + 18);
+    ctx.fillText(node.label, screenX, screenY + radius + 18);
   });
 
   ctx.shadowBlur = 0;
@@ -4566,11 +4591,15 @@ function drawLabels(ctx, renderState) {
   ctx.restore();
 }
 
-function drawCommunityLabels(ctx) {
+function drawCommunityLabels(ctx, renderState) {
+  const { visibleNodes = [] } = renderState;
+
   const communities = new Map();
 
-  graphState.visibleNodes.forEach((node) => {
-    if (node.community == null) return;
+  visibleNodes.forEach((node) => {
+    if (node.community == null) {
+      return;
+    }
 
     if (!communities.has(node.community)) {
       communities.set(node.community, []);
@@ -4582,7 +4611,9 @@ function drawCommunityLabels(ctx) {
   communities.forEach((nodes, communityId) => {
     const label = graphState.communityLabels[communityId];
 
-    if (!label) return;
+    if (!label || !nodes.length) {
+      return;
+    }
 
     let avgX = 0;
     let avgY = 0;
@@ -4604,10 +4635,11 @@ function drawCommunityLabels(ctx) {
     ctx.font = "bold 16px sans-serif";
     ctx.textAlign = "center";
 
-    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
 
     ctx.shadowColor = "#000";
-    ctx.shadowBlur = 8;
+
+    ctx.shadowBlur = 4;
 
     ctx.fillText(label, screenX, screenY);
 
@@ -4675,13 +4707,50 @@ function updateGraphSystems() {
   clearDirty();
 }
 
-// Main Renderer
-function renderGraph() {
-  const ctx = graphCtx;
+function renderGraphLayers(ctx) {
+  const layers = graphState.renderLayers;
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // --------------------------------
+  // FIELD LAYERS
+  // --------------------------------
 
-  const renderState = prepareGraphRenderState();
+  if (layers.semanticFields) {
+    drawSemanticInfluenceFields(ctx);
+  }
+
+  if (layers.tensionFields) {
+    drawNarrativeTensionFields(ctx);
+  }
+
+  if (layers.arcFields) {
+    drawNarrativeArcFields(ctx);
+  }
+
+  if (layers.characterFields) {
+    drawCharacterInfluenceFields(ctx);
+  }
+
+  if (layers.emotionalFields) {
+    drawEmotionalFields(ctx);
+  }
+
+  if (layers.relationshipFields) {
+    drawRelationshipFields(ctx);
+  }
+
+  if (layers.propagationFields) {
+    drawNarrativePropagationFields(ctx);
+  }
+
+  if (layers.temporalFields) {
+    drawTemporalNarrativeFields(ctx);
+  }
+}
+
+function renderFieldLayer(layer) {
+  const ctx = layer.getContext("2d");
+
+  ctx.clearRect(0, 0, layer.width, layer.height);
 
   drawSemanticInfluenceFields(ctx);
   drawNarrativeTensionFields(ctx);
@@ -4691,14 +4760,172 @@ function renderGraph() {
   drawRelationshipFields(ctx);
   drawNarrativePropagationFields(ctx);
   drawTemporalNarrativeFields(ctx);
-  drawSemanticInferenceEdges(ctx);
-  drawNarrativeAnomalies(ctx);
-  drawAgentInsights(ctx);
-  drawCommunityHulls(ctx);
+
+  graphState.fieldLayerDirty = false;
+}
+
+// Main Renderer
+function renderGraph(ctx = graphCtx) {
+  clearGraphCanvas(ctx, canvas);
+
+  // --------------------------------
+  // ACTIVE / CONTEXT STATE
+  // --------------------------------
+  console.log("[CAMERA]", graphState.offsetX, graphState.offsetY);
+
+  const activeId = graphState.selectedNodeId;
+
+  const connectedIds = activeId ? getConnectedNodeIds(activeId) : new Set();
+
+  const contextIds = new Set(
+    graphState.cognitiveContext.activeWindow.map((n) => n.id),
+  );
+
+  // --------------------------------
+  // FILTERED VISIBLE NODES
+  // --------------------------------
+
+  const visibleNodes = (graphState.visibleNodes || graphState.nodes).filter(
+    (node) => {
+      return graphState.filters?.[node.type] !== false;
+    },
+  );
+
+  // --------------------------------
+  // VISIBLE NODE IDS
+  // --------------------------------
+
+  const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
+
+  // --------------------------------
+  // FILTERED EDGES
+  // --------------------------------
+
+  graphState.edges.forEach((edge, index) => {
+    if (!edge.from || !edge.to) {
+      console.warn("[BROKEN EDGE]", index, edge);
+    }
+  });
+
+  const visibleEdges = graphState.edges.filter((edge) => {
+    return (
+      visibleNodeIds.has(String(edge.from)) &&
+      visibleNodeIds.has(String(edge.to))
+    );
+  });
+
+  // --------------------------------
+  // NODE MAP
+  // --------------------------------
+
+  const visibleNodeMap = new Map();
+
+  visibleNodes.forEach((node) => {
+    visibleNodeMap.set(node.id, node);
+  });
+
+  // --------------------------------
+  // LABELS
+  // --------------------------------
+
+  const visibleLabels = visibleNodes.filter((node) => !!node.label);
+
+  // --------------------------------
+  // SHARED RENDER STATE
+  // --------------------------------
+
+  const renderState = {
+    visibleNodes,
+    visibleEdges,
+    visibleNodeMap,
+
+    activeId,
+
+    selectedId: graphState.selectedNodeId,
+
+    hoveredId: graphState.hoveredNodeId,
+
+    connectedIds,
+
+    contextIds,
+
+    visibleLabels,
+  };
+
+  // --------------------------------
+  // FIELD LAYER
+  // --------------------------------
+
+  const fieldLayer = graphState.renderLayers?.fields;
+
+  if (fieldLayer) {
+    const fieldCtx = fieldLayer.getContext("2d");
+
+    clearGraphCanvas(fieldCtx, fieldLayer);
+
+    if (graphState.graphLayers.semanticFields) {
+      drawSemanticInfluenceFields(fieldCtx);
+    }
+
+    if (graphState.graphLayers.tensionFields) {
+      drawNarrativeTensionFields(fieldCtx);
+    }
+
+    if (graphState.graphLayers.arcFields) {
+      drawNarrativeArcFields(fieldCtx);
+    }
+
+    if (graphState.graphLayers.characterFields) {
+      drawCharacterInfluenceFields(fieldCtx);
+    }
+
+    if (graphState.graphLayers.emotionFields) {
+      drawEmotionalFields(fieldCtx);
+    }
+
+    if (graphState.graphLayers.relationshipFields) {
+      drawRelationshipFields(fieldCtx);
+    }
+
+    if (graphState.graphLayers.propagationFields) {
+      drawNarrativePropagationFields(fieldCtx);
+    }
+
+    if (graphState.graphLayers.temporalFields) {
+      drawTemporalNarrativeFields(fieldCtx);
+    }
+
+    ctx.drawImage(fieldLayer, 0, 0);
+  }
+
+  // --------------------------------
+  // EDGES
+  // --------------------------------
+
   drawEdges(ctx, renderState);
+
+  // --------------------------------
+  // NODES
+  // --------------------------------
+
   drawNodes(ctx, renderState);
+
+  // --------------------------------
+  // LABELS
+  // --------------------------------
+
   drawLabels(ctx, renderState);
-  drawCommunityLabels(ctx);
+
+  // --------------------------------
+  // COMMUNITY LABELS
+  // --------------------------------
+
+  drawCommunityLabels(ctx, renderState);
+
+  // --------------------------------
+  // MINIMAP
+  // --------------------------------
+
   renderMinimap();
 }
 
@@ -4707,9 +4934,26 @@ function renderMinimap() {
 
   ctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
 
-  const bounds = calculateGraphBounds();
+  const visibleNodes = graphState.visibleNodes || graphState.nodes;
 
-  if (!bounds) return;
+  if (!visibleNodes.length) {
+    return;
+  }
+
+  const visibleNodeIds = new Set(visibleNodes.map((node) => String(node.id)));
+
+  const visibleEdges = graphState.edges.filter((edge) => {
+    return (
+      visibleNodeIds.has(String(edge.from)) &&
+      visibleNodeIds.has(String(edge.to))
+    );
+  });
+
+  const bounds = calculateGraphBounds(visibleNodes);
+
+  if (!bounds) {
+    return;
+  }
 
   const padding = 20;
 
@@ -4723,16 +4967,15 @@ function renderMinimap() {
 
   const offsetY = minimapCanvas.height / 2 - bounds.centerY * minimapScale;
 
+  // --------------------------------
   // EDGES
-  graphState.edges.forEach((edge) => {
-    const from = graphState.nodeMap.get(edge.from);
+  // --------------------------------
 
+  visibleEdges.forEach((edge) => {
+    const from = graphState.nodeMap.get(edge.from);
     const to = graphState.nodeMap.get(edge.to);
 
-    if (!from || !to) return;
-
-    // Skip hidden nodes
-    if (!graphState.filters[from.type] || !graphState.filters[to.type]) {
+    if (!from || !to) {
       return;
     }
 
@@ -4751,10 +4994,9 @@ function renderMinimap() {
     ctx.stroke();
   });
 
+  // --------------------------------
   // NODES
-  const visibleNodes = graphState.nodes.filter(
-    (node) => graphState.filters[node.type],
-  );
+  // --------------------------------
 
   visibleNodes.forEach((node) => {
     const radius = graphState.scale < 0.35 ? 2 : 3;
@@ -5043,15 +5285,19 @@ function drawSmoothHull(ctx, points) {
 // PHYSICS + ANIMATION
 // =====================================================
 function applyForces() {
+  let totalKineticEnergy = 0;
+
   const nodes = graphState.nodes;
   const edges = graphState.edges;
   if (!nodes.length) return;
 
-  const centerX = canvas.width / 2;
-  const centerY = canvas.height / 2;
+  const centerX = 0;
+  const centerY = 0;
 
   // Smooth cooling (slower = nicer animation)
-  graphState.temperature *= 0.992;
+  graphState.temperature *= 0.997;
+
+  const temp = Math.max(0.18, graphState.temperature);
 
   nodes.forEach((node) => {
     if (node.fixed) return;
@@ -5074,11 +5320,15 @@ function applyForces() {
     const dx = avgX - node.x;
     const dy = avgY - node.y;
 
-    const cohesionStrength = 0.0025;
+    const cohesionStrength = 0.0025 * temp;
 
     node.vx += dx * cohesionStrength;
     node.vy += dy * cohesionStrength;
   });
+
+  if (totalKineticEnergy < 0.02) {
+    graphState.temperature *= 0.85;
+  }
 
   // --- REPULSION + MIN DISTANCE (prevents overlap)
   const minDist = 140; //  about node size spacing
@@ -5093,7 +5343,7 @@ function applyForces() {
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
 
       // Normal repulsion
-      const force = 40000 / (dist * dist);
+      const force = 12000 / (dist * dist);
 
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
@@ -5162,7 +5412,7 @@ function applyForces() {
     const dy = center.y - node.y;
 
     const communityGravity =
-      0.0022 + Math.min(0.002, edgeConnectionCount(node.id) * 0.00004);
+      (0.0022 + Math.min(0.002, edgeConnectionCount(node.id) * 0.00004)) * temp;
 
     node.vx += dx * communityGravity;
     node.vy += dy * communityGravity;
@@ -5179,7 +5429,7 @@ function applyForces() {
     const dx = anchor.x - node.x;
     const dy = anchor.y - node.y;
 
-    const memoryStrength = 0.00045;
+    const memoryStrength = 0.00045 * temp;
 
     node.vx += dx * memoryStrength;
     node.vy += dy * memoryStrength;
@@ -5240,78 +5490,99 @@ function applyForces() {
     const dx = cluster.x - node.x;
     const dy = cluster.y - node.y;
 
-    node.vx += dx * 0.0008;
-    node.vy += dy * 0.0008;
+    node.vx += dx * 0.0008 * temp;
+    node.vy += dy * 0.0008 * temp;
   });
 
   // MIGRATION ESCAPE FORCES
+  if (graphState.enableMigrationForces) {
+    nodes.forEach((node) => {
+      if (node.fixed) return;
+
+      const anchor = graphState.communityAnchors.get(node.community);
+
+      if (!anchor) return;
+
+      let blockingForceX = 0;
+      let blockingForceY = 0;
+
+      nodes.forEach((other) => {
+        if (other.id === node.id || other.community === node.community) {
+          return;
+        }
+
+        const dx = other.x - node.x;
+        const dy = other.y - node.y;
+
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+        if (dist > 120) {
+          return;
+        }
+
+        blockingForceX -= (dx / dist) * (120 - dist) * 0.012;
+        blockingForceY -= (dy / dist) * (120 - dist) * 0.012;
+      });
+
+      const targetDX = anchor.x - node.x;
+      const targetDY = anchor.y - node.y;
+
+      const targetDist =
+        Math.sqrt(targetDX * targetDX + targetDY * targetDY) || 1;
+
+      node.vx += blockingForceX + (targetDX / targetDist) * 0.08;
+
+      node.vy += blockingForceY + (targetDY / targetDist) * 0.08;
+    });
+  }
+
+  graphState.enableMigrationForces = false;
+
+  // --------------------------------
+  // SOFT WORLD GRAVITY
+  // Prevents infinite drift without hard borders
+  // --------------------------------
+
   nodes.forEach((node) => {
     if (node.fixed) return;
 
-    const anchor = graphState.communityAnchors.get(node.community);
+    const dx = centerX - node.x;
+    const dy = centerY - node.y;
 
-    if (!anchor) return;
+    const dist = Math.sqrt(dx * dx + dy * dy);
 
-    let blockingForceX = 0;
-    let blockingForceY = 0;
+    // only affects very distant nodes
+    if (dist < 2500) return;
 
-    nodes.forEach((other) => {
-      if (other.id === node.id || other.community === node.community) {
-        return;
-      }
+    const gravity = Math.min(0.015, (dist - 2500) * 0.000002);
 
-      const dx = other.x - node.x;
-      const dy = other.y - node.y;
-
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-
-      // ONLY VERY CLOSE INTERFERENCE
-      if (dist > 120) return;
-
-      blockingForceX -= (dx / dist) * (120 - dist) * 0.012;
-
-      blockingForceY -= (dy / dist) * (120 - dist) * 0.012;
-    });
-
-    // DIRECTION TO TARGET COMMUNITY
-    const targetDX = anchor.x - node.x;
-
-    const targetDY = anchor.y - node.y;
-
-    const targetDist =
-      Math.sqrt(targetDX * targetDX + targetDY * targetDY) || 1;
-
-    // ESCAPE VECTOR
-    node.vx += blockingForceX + (targetDX / targetDist) * 0.08;
-
-    node.vy += blockingForceY + (targetDY / targetDist) * 0.08;
+    node.vx += (dx / dist) * gravity;
+    node.vy += (dy / dist) * gravity;
   });
 
-  // --- APPLY MOVEMENT
-  const padding = 60;
-
+  // --------------------------------
+  // APPLY MOVEMENT
+  // --------------------------------
   nodes.forEach((node) => {
     if (node.fixed) return;
+
+    // velocity cap BEFORE movement
+    node.vx = Math.max(-2.2, Math.min(2.2, node.vx));
+    node.vy = Math.max(-2.2, Math.min(2.2, node.vy));
 
     node.x += node.vx;
     node.y += node.vy;
 
-    // Strong damping = no runaway
-    node.vx *= 0.72;
-    node.vy *= 0.72;
+    // MUCH STRONGER DAMPING
+    node.vx *= 0.86;
+    node.vy *= 0.86;
 
-    // HARD BOUNDS (prevents flying off screen)
-    node.x = Math.max(padding, Math.min(canvas.width - padding, node.x));
-    node.y = Math.max(padding, Math.min(canvas.height - padding, node.y));
+    totalKineticEnergy += Math.abs(node.vx) + Math.abs(node.vy);
 
-    // velocity cap
-    node.vx = Math.max(-3, Math.min(3, node.vx));
-    node.vy = Math.max(-3, Math.min(3, node.vy));
+    // kill tiny motion completely
+    if (Math.abs(node.vx) < 0.003) node.vx = 0;
+    if (Math.abs(node.vy) < 0.003) node.vy = 0;
   });
-
-  if (graphState.temperature < 0.0001) {
-    graphState.temperature = 0;
-  }
 }
 
 function updateGraphPhysics() {
@@ -5373,15 +5644,18 @@ function graphLoop() {
 
   const cameraSettled = cameraDelta < 0.01;
 
-  const physicsActive = graphState.temperature > 0.0001;
+  const physicsActive = graphState.nodes.some((node) => {
+    return Math.abs(node.vx) > 0.003 || Math.abs(node.vy) > 0.003;
+  });
+
+  if (!physicsActive) {
+    graphState.temperature = 0;
+  }
 
   const dragging =
     graphState.dragging.isDraggingGraph || !!graphState.dragging.draggedNode;
 
-  const visualEffectsActive =
-    graphState.timelinePlaying ||
-    graphState.selectedNodeId ||
-    graphState.hoveredNodeId;
+  const visualEffectsActive = graphState.timelinePlaying;
 
   // --------------------------------
   // RENDER
@@ -5618,6 +5892,7 @@ function openGraph() {
 
       if (type) {
         checkbox.checked = graphState.filters[type];
+        console.log(graphState.graphLayers);
       }
 
       if (checkbox.id === "focus-mode-toggle") {
@@ -5636,6 +5911,8 @@ function openGraph() {
   }
 
   // RESET STATE
+  graphState.hasCenteredGraph = false;
+
   graphState.nodes = [];
   graphState.edges = [];
   graphState.selectedNodeId = null;
@@ -5650,6 +5927,7 @@ function openGraph() {
   graphState.dirtySystems.clear();
 
   setupCanvasSize();
+  initializeGraphRenderLayers();
 
   // BUILD GRAPH
   const data = getGraphData();
@@ -5736,15 +6014,17 @@ function openGraph() {
 
   graphState.temperature = 1;
 
-  // FIT VIEW
+  // FIT VIEW ONCE
   setTimeout(() => {
-    fitGraphToScreen();
+    if (!graphState.hasCenteredGraph) {
+      fitGraphToScreen();
 
-    graphState.initialScale = graphState.targetScale;
+      graphState.initialScale = graphState.targetScale;
+      graphState.initialOffsetX = graphState.targetOffsetX;
+      graphState.initialOffsetY = graphState.targetOffsetY;
 
-    graphState.initialOffsetX = graphState.targetOffsetX;
-
-    graphState.initialOffsetY = graphState.targetOffsetY;
+      graphState.hasCenteredGraph = true;
+    }
   }, 100);
 
   // DIRTY SYSTEMS
@@ -5773,25 +6053,30 @@ async function closeGraph() {
   }
 
   // --------------------------------
-  // CLOSE HELP MODAL FIRST
+  // CLOSE HELP MODAL
   // --------------------------------
 
   closeGraphHelpModal();
 
   // --------------------------------
-  // EXIT FULLSCREEN FIRST
+  // EXIT PSEUDO FULLSCREEN
   // --------------------------------
 
-  if (document.fullscreenElement) {
+  if (graphState.isFullscreen) {
     await exitGraphFullscreen();
   }
 
   // --------------------------------
-  // CLOSE GRAPH MODAL
+  // RESET FULLSCREEN STATE
+  // --------------------------------
+
+  graphState.isFullscreen = false;
+
+  // --------------------------------
+  // CLOSE MODAL
   // --------------------------------
 
   graphState.isOpen = false;
-  graphState.isFullscreen = false;
 
   modal.classList.add("hidden");
 
@@ -5903,6 +6188,8 @@ function onGraphMouseMove(e) {
     drag.draggedNode.x = worldX - drag.nodeOffsetX;
     drag.draggedNode.y = worldY - drag.nodeOffsetY;
 
+    graphState.fieldLayerDirty = true;
+
     drag.draggedNode.vx = 0;
     drag.draggedNode.vy = 0;
     drag.draggedNode.fixed = true;
@@ -5926,6 +6213,8 @@ function onGraphMouseMove(e) {
 
     graphState.targetOffsetX = graphState.offsetX;
     graphState.targetOffsetY = graphState.offsetY;
+
+    graphState.fieldLayerDirty = true;
 
     drag.startX = e.clientX;
     drag.startY = e.clientY;
@@ -6083,13 +6372,13 @@ function setupCanvasSize() {
   canvas.height = canvas.offsetHeight;
   minimapCanvas.width = 220;
   minimapCanvas.height = 160;
+  graphState.fieldLayerDirty = true;
 }
 
 function initGraphEvents() {
   initGraphCanvasEvent();
   initMinimapEvents();
   initGraphUIEvents();
-  initGraphEscapeInterceptor();
   initGraphKeyboardControls();
 }
 
@@ -6157,7 +6446,22 @@ function initGraphUIEvents() {
   document.querySelectorAll("#graph-filters input").forEach((checkbox) => {
     checkbox.addEventListener("change", (e) => {
       const type = e.target.dataset.type;
+
       graphState.filters[type] = e.target.checked;
+
+      graphState.fieldLayerDirty = true;
+      markDirty("rendering");
+      startGraphLoop();
+    });
+  });
+
+  document.querySelectorAll("[data-layer]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const layer = checkbox.dataset.layer;
+
+      graphState.renderLayers[layer] = checkbox.checked;
+
+      renderGraph();
     });
   });
 }
@@ -6176,20 +6480,15 @@ function initGraphKeyboardControls() {
       return;
     }
 
+    // --------------------------------
     // CENTER GRAPH
+    // --------------------------------
+
     if (e.key.toLowerCase() === "c") {
       e.preventDefault();
       centerGraph();
       return;
     }
-  });
-
-  // --------------------------------
-  // FULLSCREEN CHANGE
-  // --------------------------------
-
-  document.addEventListener("fullscreenchange", () => {
-    applyGraphDisplayMode();
   });
 
   // --------------------------------
@@ -6199,65 +6498,26 @@ function initGraphKeyboardControls() {
   fullscreenGraphBtn.addEventListener("click", toggleGraphFullscreen);
 }
 
-function initGraphEscapeInterceptor() {
-  document.addEventListener(
-    "keydown",
-    async (e) => {
-      if (e.key !== "Escape") {
-        return;
-      }
-
-      if (!graphState.isOpen) {
-        return;
-      }
-
-      const graphHelpModal = document.getElementById("graph-help-modal");
-
-      // --------------------------------
-      // GRAPH GUIDE CLOSES FIRST
-      // --------------------------------
-
-      if (graphHelpModal && !graphHelpModal.classList.contains("hidden")) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-
-        closeGraphHelpModal();
-
-        return;
-      }
-
-      // --------------------------------
-      // FULLSCREEN CLOSES SECOND
-      // --------------------------------
-
-      if (graphState.isFullscreen) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-
-        await exitGraphFullscreen();
-
-        return;
-      }
-
-      // --------------------------------
-      // GRAPH CLOSES LAST
-      // --------------------------------
-
-      e.preventDefault();
-      e.stopImmediatePropagation();
-
-      closeGraph();
-    },
-    true,
-  );
-}
-
 function initMinimapEvents() {
   minimapCanvas.addEventListener("mousedown", onMinimapMouseDown);
 
   window.addEventListener("mousemove", onMinimapMouseMove);
 
   window.addEventListener("mouseup", onMinimapMouseUp);
+}
+
+function initializeGraphRenderLayers() {
+  graphState.renderLayers = {
+    fields: document.createElement("canvas"),
+    edges: document.createElement("canvas"),
+    nodes: document.createElement("canvas"),
+    labels: document.createElement("canvas"),
+  };
+
+  Object.values(graphState.renderLayers).forEach((layer) => {
+    layer.width = canvas.width;
+    layer.height = canvas.height;
+  });
 }
 
 // =====================================================
@@ -6419,8 +6679,8 @@ function onEditorInput(e) {
   updateWordCount();
   debounceSave();
 
-  if (currentDocumentId) {
-    queueNodeAndNeighbors(currentDocumentId);
+  if (appState.currentDocumentId) {
+    queueNodeAndNeighbors(appState.currentDocumentId);
   }
 
   markDirty("semantic", "analytics", "attention", "agents");
@@ -8026,12 +8286,16 @@ function handleKeyboardShorts(e) {
   }
 
   // --- ESCAPE ---
+
   if (e.key === "Escape") {
     e.preventDefault();
-    e.stopPropagation();
+
+    e.stopImmediatePropagation();
 
     const graphModal = document.getElementById("graph-modal");
+
     const helpModal = document.getElementById("help-modal");
+
     const graphHelpModal = document.getElementById("graph-help-modal");
 
     const graphHelpOpen =
@@ -8041,7 +8305,7 @@ function handleKeyboardShorts(e) {
 
     // ---------------------------------
     // PRIORITY 1:
-    // GRAPH GUIDE ALWAYS CLOSES FIRST
+    // GRAPH GUIDE
     // ---------------------------------
 
     if (graphHelpOpen) {
@@ -8051,11 +8315,14 @@ function handleKeyboardShorts(e) {
 
     // ---------------------------------
     // PRIORITY 2:
-    // EXIT FULLSCREEN
+    // EXIT GRAPH FULLSCREEN
     // ---------------------------------
 
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
+    if (graphState.isFullscreen) {
+      exitGraphFullscreen();
+
+      applyGraphDisplayMode();
+
       return;
     }
 

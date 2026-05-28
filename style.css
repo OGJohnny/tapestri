@@ -489,8 +489,7 @@ mark {
    CONTROLS
 ====================== */
 
-#graph-filters,
-#graph-controls {
+#graph-filters {
   position: absolute;
 
   left: 16px;
@@ -515,7 +514,36 @@ mark {
 }
 
 #graph-controls {
-  top: 118px;
+  position: absolute;
+
+  left: 16px;
+  bottom: 16px;
+
+  z-index: 80;
+
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  background: rgba(20, 20, 20, 0.78);
+
+  padding: 10px 14px;
+
+  border-radius: 12px;
+
+  backdrop-filter: blur(10px);
+
+  box-shadow: 0 0 18px rgba(0, 0, 0, 0.28);
+}
+
+#graph-controls button,
+#close-graph {
+  min-width: 110px;
+  height: 30px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 #graph-filters label {
@@ -523,6 +551,52 @@ mark {
   display: flex;
   align-items: center;
   gap: 5px;
+}
+
+#graph-layer-controls {
+  position: absolute;
+
+  top: 118px;
+  left: 16px;
+
+  z-index: 40;
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  min-width: 220px;
+
+  background: rgba(20, 20, 20, 0.78);
+
+  padding: 14px;
+  border-radius: 12px;
+
+  backdrop-filter: blur(8px);
+
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.graph-layer-title {
+  color: rgba(255, 255, 255, 0.72);
+
+  font-size: 0.72rem;
+  font-weight: 700;
+
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+
+  margin-bottom: 4px;
+}
+
+.graph-layer-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  color: white;
+
+  font-size: 0.82rem;
 }
 
 /* ======================
@@ -559,7 +633,7 @@ mark {
 }
 
 #close-graph {
-  padding: 10px 18px;
+  z-index: 70;
 }
 
 /* ======================
@@ -683,6 +757,23 @@ body.graph-open #mode-indicator {
 .graph-modal-content:fullscreen #graph-canvas {
   width: 100%;
   height: 100%;
+}
+
+.graph-modal-content.graph-pseudo-fullscreen {
+  position: fixed;
+  inset: 0;
+
+  width: 100vw !important;
+  height: 100vh !important;
+
+  max-width: none !important;
+  max-height: none !important;
+
+  border-radius: 0 !important;
+
+  z-index: 999999;
+
+  background: #0b0f14;
 }
 
 /* =========================================

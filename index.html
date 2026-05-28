@@ -251,6 +251,7 @@
           <div class="graph-title">Graph View</div>
 
           <div id="graph-controls">
+            <button id="close-graph">Close</button>
             <button id="center-node-btn">Center Node</button>
             <button id="reset-view-btn">Reset View</button>
             <button id="fit-graph-btn">Fit to Screen</button>
@@ -302,6 +303,23 @@
           <label>
             <input type="checkbox" id="focus-mode-toggle" checked />
             Focus Mode
+          </label>
+        </div>
+
+        <div id="graph-layer-controls">
+          <label>
+            <input type="checkbox" data-layer="emotionalFields" checked />
+            Emotional Fields
+          </label>
+
+          <label>
+            <input type="checkbox" data-layer="temporalFields" checked />
+            Temporal Fields
+          </label>
+
+          <label>
+            <input type="checkbox" data-layer="relationshipFields" checked />
+            Relationship Fields
           </label>
         </div>
 
@@ -535,11 +553,6 @@
               </section>
             </div>
           </div>
-        </div>
-
-        <!-- FOOTER -->
-        <div class="graph-footer">
-          <button id="close-graph">Close</button>
         </div>
       </div>
     </div>
